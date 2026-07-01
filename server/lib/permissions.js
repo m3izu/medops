@@ -1,0 +1,86 @@
+// All permission keys in the system
+const PERMISSIONS = {
+  // Item catalog
+  MANAGE_ITEMS: 'manage_items',
+  MANAGE_CATEGORIES: 'manage_categories',
+  MANAGE_SUPPLIERS: 'manage_suppliers',
+  // Stock
+  RECEIVE_STOCK: 'receive_stock',
+  // Requisitions
+  SUBMIT_REQUISITION: 'submit_requisition',
+  CANCEL_OWN_REQUISITION: 'cancel_own_requisition',
+  CANCEL_ANY_REQUISITION: 'cancel_any_requisition',
+  APPROVE_REQUISITION: 'approve_requisition',
+  // Discard
+  LOG_DISCARD: 'log_discard',
+  // Stocktake
+  INITIATE_STOCKTAKE: 'initiate_stocktake',
+  // Logs
+  VIEW_INVENTORY_LOGS: 'view_inventory_logs',
+  VIEW_OWN_FORMS: 'view_own_forms',
+  // Comments (management office only)
+  COMMENT_ON_LOGS: 'comment_on_logs',
+  // Patients
+  MANAGE_PATIENTS: 'manage_patients',
+  // Reports
+  GENERATE_REPORTS: 'generate_reports',
+  TRIGGER_MONTHLY_REPORT: 'trigger_monthly_report',
+  // ── LOCKED (Top Admin only, cannot be delegated) ──
+  CREATE_USERS: 'create_users',
+  CONFIGURE_SESSION: 'configure_session',
+  CONFIGURE_REPORT_SCHEDULE: 'configure_report_schedule',
+  BULK_IMPORT: 'bulk_import',
+  MANAGE_PERMISSIONS: 'manage_permissions',
+};
+
+// These permissions can NEVER be delegated away from TOP_ADMIN
+const LOCKED_PERMISSIONS = [
+  PERMISSIONS.CREATE_USERS,
+  PERMISSIONS.CONFIGURE_SESSION,
+  PERMISSIONS.CONFIGURE_REPORT_SCHEDULE,
+  PERMISSIONS.BULK_IMPORT,
+  PERMISSIONS.MANAGE_PERMISSIONS,
+];
+
+// Default permission sets per role
+const DEFAULT_ROLE_PERMISSIONS = {
+  TOP_ADMIN: Object.values(PERMISSIONS), // all permissions
+  INVENTORY_MANAGER: [
+    PERMISSIONS.MANAGE_ITEMS,
+    PERMISSIONS.MANAGE_CATEGORIES,
+    PERMISSIONS.MANAGE_SUPPLIERS,
+    PERMISSIONS.RECEIVE_STOCK,
+    PERMISSIONS.SUBMIT_REQUISITION,
+    PERMISSIONS.CANCEL_OWN_REQUISITION,
+    PERMISSIONS.CANCEL_ANY_REQUISITION,
+    PERMISSIONS.APPROVE_REQUISITION,
+    PERMISSIONS.LOG_DISCARD,
+    PERMISSIONS.INITIATE_STOCKTAKE,
+    PERMISSIONS.VIEW_INVENTORY_LOGS,
+    PERMISSIONS.MANAGE_PATIENTS,
+    PERMISSIONS.GENERATE_REPORTS,
+  ],
+  NURSE: [
+    PERMISSIONS.SUBMIT_REQUISITION,
+    PERMISSIONS.CANCEL_OWN_REQUISITION,
+    PERMISSIONS.VIEW_OWN_FORMS,
+  ],
+  SUPPLY_OFFICER: [
+    PERMISSIONS.RECEIVE_STOCK,
+    PERMISSIONS.SUBMIT_REQUISITION,
+    PERMISSIONS.CANCEL_OWN_REQUISITION,
+    PERMISSIONS.LOG_DISCARD,
+    PERMISSIONS.VIEW_INVENTORY_LOGS,
+  ],
+  VIEWER_AUDITOR: [
+    PERMISSIONS.VIEW_INVENTORY_LOGS,
+    PERMISSIONS.GENERATE_REPORTS,
+  ],
+  MANAGEMENT_OFFICE: [
+    PERMISSIONS.VIEW_INVENTORY_LOGS,
+    PERMISSIONS.COMMENT_ON_LOGS,
+    PERMISSIONS.GENERATE_REPORTS,
+  ],
+};
+
+module.exports = { PERMISSIONS, LOCKED_PERMISSIONS, DEFAULT_ROLE_PERMISSIONS };

@@ -1,0 +1,62 @@
+const express = require('express');
+const cors = require('cors');
+const cookieParser = require('cookie-parser');
+require('dotenv').config();
+
+const authRoutes = require('./routes/auth.routes');
+const userRoutes = require('./routes/user.routes');
+const permissionRoutes = require('./routes/permission.routes');
+const notificationRoutes = require('./routes/notification.routes');
+const supplierRoutes = require('./routes/supplier.routes');
+const categoryRoutes = require('./routes/category.routes');
+const itemRoutes = require('./routes/item.routes');
+const stockRoutes = require('./routes/stock.routes');
+const patientRoutes = require('./routes/patient.routes');
+const requisitionRoutes = require('./routes/requisition.routes');
+const discardRoutes = require('./routes/discard.routes');
+const stocktakeRoutes = require('./routes/stocktake.routes');
+const reportRoutes = require('./routes/report.routes');
+const dashboardRoutes = require('./routes/dashboard.routes');
+const mgmtRoutes = require('./routes/mgmt.routes');
+
+const app = express();
+
+app.use(cors({
+  origin: process.env.CLIENT_URL || 'http://localhost:5173',
+  credentials: true,
+}));
+app.use(express.json());
+app.use(cookieParser());
+
+// Routes
+app.use('/api/auth', authRoutes);
+app.use('/api/users', userRoutes);
+app.use('/api/permissions', permissionRoutes);
+app.use('/api/notifications', notificationRoutes);
+app.use('/api/suppliers', supplierRoutes);
+app.use('/api/categories', categoryRoutes);
+app.use('/api/items', itemRoutes);
+app.use('/api/stock', stockRoutes);
+app.use('/api/patients', patientRoutes);
+app.use('/api/requisitions', requisitionRoutes);
+app.use('/api/discards', discardRoutes);
+app.use('/api/stocktakes', stocktakeRoutes);
+app.use('/api/reports', reportRoutes);
+app.use('/api/dashboard', dashboardRoutes);
+app.use('/api/mgmt', mgmtRoutes);
+
+// Health check
+app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
+
+// Global error handler
+app.use((err, req, res, next) => {
+  console.error(err.stack);
+  res.status(err.status || 500).json({
+    error: err.message || 'Internal Server Error',
+  });
+});
+
+const PORT = process.env.PORT || 5000;
+app.listen(PORT, () => {
+  console.log(`MedOPS Server running on port ${PORT}`);
+});

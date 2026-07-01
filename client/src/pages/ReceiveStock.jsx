@@ -1,0 +1,291 @@
+import React, { useState, useEffect } from 'react';
+import api from '../services/api';
+import { useAuth } from '../context/AuthContext';
+
+const ReceiveStock = () => {
+  const { hasPermission } = useAuth();
+  
+  const [items, setItems] = useState([]);
+  const [suppliers, setSuppliers] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  // Form fields
+  const [selectedItemId, setSelectedItemId] = useState('');
+  const [quantity, setQuantity] = useState('');
+  const [selectedSupplierId, setSelectedSupplierId] = useState('');
+  const [notes, setNotes] = useState('');
+  
+  // Conditional medication fields
+  const [batchNo, setBatchNo] = useState('');
+  const [expiryDate, setExpiryDate] = useState('');
+
+  const [submitError, setSubmitError] = useState('');
+  const [submitSuccess, setSubmitSuccess] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        setLoading(true);
+        const [itemsRes, suppliersRes] = await Promise.all([
+          api.get('/items'),
+          api.get('/suppliers'),
+        ]);
+        setItems(itemsRes.data || []);
+        setSuppliers(suppliersRes.data || []);
+      } catch (err) {
+        console.error('Error fetching receive stock dependencies:', err);
+        setError('Failed to load required catalog and supplier records.');
+      } finally {
+        setLoading(false);
+      }
+    };
+    
+    if (hasPermission('receive_stock')) {
+      fetchData();
+    }
+  }, []);
+
+  const selectedItem = items.find(i => i.id === selectedItemId);
+  const isMedication = selectedItem?.itemType === 'MEDICATION';
+
+  // Automatically pre-populate default supplier when item changes
+  useEffect(() => {
+    if (selectedItem && selectedItem.supplierId) {
+      setSelectedSupplierId(selectedItem.supplierId);
+    } else {
+      setSelectedSupplierId('');
+    }
+    
+    // Reset batch details when item changes
+    setBatchNo('');
+    setExpiryDate('');
+    setSubmitSuccess('');
+    setSubmitError('');
+  }, [selectedItemId]);
+
+  const handleFormSubmit = async (e) => {
+    e.preventDefault();
+    setSubmitError('');
+    setSubmitSuccess('');
+
+    if (!selectedItemId) {
+      setSubmitError('Please select an item to receive.');
+      return;
+    }
+    
+    const qtyNum = Number(quantity);
+    if (isNaN(qtyNum) || qtyNum <= 0) {
+      setSubmitError('Quantity received must be a positive integer.');
+      return;
+    }
+
+    if (isMedication) {
+      if (!batchNo.trim()) {
+        setSubmitError('Batch / Lot number is required for medication items.');
+        return;
+      }
+      if (!expiryDate) {
+        setSubmitError('Expiry date is required for medication items.');
+        return;
+      }
+      if (new Date(expiryDate) < new Date().setHours(0,0,0,0)) {
+        setSubmitError('Medication batch cannot be registered with a past expiry date.');
+        return;
+      }
+    }
+
+    const payload = {
+      itemId: selectedItemId,
+      quantity: qtyNum,
+      supplierId: selectedSupplierId || null,
+      notes,
+    };
+
+    if (isMedication) {
+      payload.batchNo = batchNo;
+      payload.expiryDate = expiryDate;
+    }
+
+    try {
+      setIsSubmitting(true);
+      await api.post('/stock/receive', payload);
+      setSubmitSuccess(`Successfully received ${qtyNum} ${selectedItem.unit} of "${selectedItem.name}".`);
+      
+      // Reset form
+      setSelectedItemId('');
+      setQuantity('');
+      setSelectedSupplierId('');
+      setNotes('');
+      setBatchNo('');
+      setExpiryDate('');
+    } catch (err) {
+      console.error('Receive stock submission failed:', err);
+      setSubmitError(err.response?.data?.error || 'An error occurred while logging the delivery.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  if (!hasPermission('receive_stock')) {
+    return (
+      <div className="page-container">
+        <div className="widget-card" style={{ borderLeft: '4px solid var(--color-critical)' }}>
+          <div className="widget-header">
+            <span className="widget-title">Access Denied</span>
+          </div>
+          <div className="widget-body">
+            <p style={{ color: 'var(--theme-text-muted)' }}>
+              You do not have the required permission (`receive_stock`) to log clinical inventory deliveries.
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="page-container" style={{ maxWidth: '800px' }}>
+      <div className="page-header">
+        <div>
+          <h2>Log Inbound Delivery</h2>
+          <p className="page-title-desc">Receive new shipments, update quantities, and register medication batch numbers & expiry dates.</p>
+        </div>
+      </div>
+
+      {error && <div className="login-error">{error}</div>}
+
+      <div className="widget-card">
+        <div className="widget-header">
+          <span className="widget-title">Delivery Intake Form</span>
+        </div>
+        
+        <form onSubmit={handleFormSubmit}>
+          <div className="widget-body" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+            {submitError && <div className="login-error">{submitError}</div>}
+            {submitSuccess && (
+              <div style={{ padding: '12px 16px', background: 'var(--color-success-bg)', color: 'var(--color-success)', borderRadius: 'var(--border-radius-md)', fontSize: '14px', fontWeight: '500' }}>
+                ✓ {submitSuccess}
+              </div>
+            )}
+
+            {loading ? (
+              <p style={{ color: 'var(--theme-text-muted)' }}>Loading form records...</p>
+            ) : (
+              <>
+                <div className="form-group">
+                  <label className="form-label">Select Stock Item *</label>
+                  <select 
+                    className="form-control"
+                    value={selectedItemId}
+                    onChange={(e) => setSelectedItemId(e.target.value)}
+                    required
+                  >
+                    <option value="">Choose item from catalog...</option>
+                    {items.map(item => (
+                      <option key={item.id} value={item.id}>
+                        [{item.sku}] {item.name} ({item.unit})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="form-row">
+                  <div className="form-group">
+                    <label className="form-label">Quantity Received *</label>
+                    <input 
+                      type="number" 
+                      className="form-control" 
+                      placeholder="e.g. 50"
+                      min="1"
+                      value={quantity}
+                      onChange={(e) => setQuantity(e.target.value)}
+                      required
+                    />
+                    {selectedItem && (
+                      <p style={{ fontSize: '11px', color: 'var(--theme-text-muted)', marginTop: '4px' }}>
+                        Measurement unit: <strong>{selectedItem.unit}</strong>. Current stock count: {selectedItem.stockLevel?.quantityOnHand ?? 0} {selectedItem.unit}.
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="form-group">
+                    <label className="form-label">Supplier / Vendor</label>
+                    <select 
+                      className="form-control"
+                      value={selectedSupplierId}
+                      onChange={(e) => setSelectedSupplierId(e.target.value)}
+                    >
+                      <option value="">Unlinked Supplier...</option>
+                      {suppliers.map(s => (
+                        <option key={s.id} value={s.id}>{s.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                {/* Conditional Medication Batch Fields */}
+                {isMedication && (
+                  <div style={{ background: 'var(--theme-bg)', padding: '20px', borderRadius: 'var(--border-radius-lg)', border: '1px solid var(--theme-border)' }}>
+                    <h4 style={{ fontSize: '13px', textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--theme-primary)', marginBottom: '16px' }}>
+                      💊 Medication Batch Control (FIFO Enforced)
+                    </h4>
+                    
+                    <div className="form-row">
+                      <div className="form-group">
+                        <label className="form-label">Batch / Lot Number *</label>
+                        <input 
+                          type="text" 
+                          className="form-control" 
+                          placeholder="e.g. LOT-AB12"
+                          value={batchNo}
+                          onChange={(e) => setBatchNo(e.target.value)}
+                          required
+                        />
+                      </div>
+
+                      <div className="form-group">
+                        <label className="form-label">Expiry Date *</label>
+                        <input 
+                          type="date" 
+                          className="form-control" 
+                          value={expiryDate}
+                          onChange={(e) => setExpiryDate(e.target.value)}
+                          required
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                <div className="form-group">
+                  <label className="form-label">Delivery Notes / Invoice Details</label>
+                  <textarea 
+                    className="form-control" 
+                    placeholder="Enter invoice number, purchase notes, courier details, or storage instructions..."
+                    value={notes}
+                    onChange={(e) => setNotes(e.target.value)}
+                    style={{ minHeight: '80px', resize: 'vertical' }}
+                  />
+                </div>
+              </>
+            )}
+          </div>
+
+          <div className="modal-footer" style={{ borderTop: '1px solid var(--theme-border)', background: 'rgba(0,0,0,0.01)' }}>
+            <button 
+              type="submit" 
+              className="btn btn-primary" 
+              disabled={isSubmitting || loading}
+            >
+              {isSubmitting ? 'Logging shipment...' : '✓ Log Delivery Inbound'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+};
+
+export default ReceiveStock;

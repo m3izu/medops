@@ -1,0 +1,572 @@
+import React, { useState, useEffect } from 'react';
+import api from '../services/api';
+import { useAuth } from '../context/AuthContext';
+
+const ITEM_TYPES = [
+  { value: 'MEDICATION', label: 'Medication' },
+  { value: 'MEDICAL_CONSUMABLE', label: 'Medical Consumable' },
+  { value: 'MEDICAL_EQUIPMENT', label: 'Medical Equipment' },
+  { value: 'PPE', label: 'PPE (Personal Protective Equipment)' },
+  { value: 'OFFICE_SUPPLY', label: 'Office & Cleaning Supplies' },
+];
+
+const CONDITIONS = ['GOOD', 'FAIR', 'DAMAGED', 'DECOMMISSIONED'];
+
+const Items = () => {
+  const { hasPermission } = useAuth();
+  
+  // Lists
+  const [items, setItems] = useState([]);
+  const [categories, setCategories] = useState([]);
+  const [suppliers, setSuppliers] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  // Filters State
+  const [filterSearch, setFilterSearch] = useState('');
+  const [filterCategory, setFilterCategory] = useState('');
+  const [filterItemType, setFilterItemType] = useState('');
+  const [filterStockStatus, setFilterStockStatus] = useState('');
+
+  // Modal State
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [modalMode, setModalMode] = useState('add'); // 'add' | 'edit'
+  const [modalItemId, setModalItemId] = useState(null);
+
+  // Form Fields
+  const [name, setName] = useState('');
+  const [sku, setSku] = useState('');
+  const [categoryId, setCategoryId] = useState('');
+  const [itemType, setItemType] = useState('MEDICAL_CONSUMABLE');
+  const [unit, setUnit] = useState('');
+  const [warningLevel, setWarningLevel] = useState(10);
+  const [criticalLevel, setCriticalLevel] = useState(5);
+  const [supplierId, setSupplierId] = useState('');
+  
+  // Equipment-specific Form Fields
+  const [serialNumber, setSerialNumber] = useState('');
+  const [acquisitionDate, setAcquisitionDate] = useState('');
+  const [condition, setCondition] = useState('GOOD');
+  
+  const [formError, setFormError] = useState('');
+
+  const fetchItems = async () => {
+    try {
+      setLoading(true);
+      const params = {};
+      if (filterSearch) params.search = filterSearch;
+      if (filterCategory) params.category = filterCategory;
+      if (filterItemType) params.itemType = filterItemType;
+      if (filterStockStatus) params.stockStatus = filterStockStatus;
+
+      const response = await api.get('/items', { params });
+      setItems(response.data || []);
+      setError('');
+    } catch (err) {
+      console.error('Error fetching items:', err);
+      setError('Failed to load inventory items.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchCategoriesAndSuppliers = async () => {
+    try {
+      const [catRes, supRes] = await Promise.all([
+        api.get('/categories'),
+        api.get('/suppliers'),
+      ]);
+      
+      // Flatten category tree for the form dropdown selector (root + child subcategories)
+      const flatCats = [];
+      (catRes.data || []).forEach(parent => {
+        flatCats.push(parent); // Root category
+        if (parent.children && parent.children.length > 0) {
+          parent.children.forEach(child => {
+            flatCats.push({ ...child, name: `— ${child.name}` }); // Subcategory
+          });
+        }
+      });
+      
+      setCategories(flatCats);
+      setSuppliers(supRes.data || []);
+    } catch (err) {
+      console.error('Error fetching form support data:', err);
+    }
+  };
+
+  useEffect(() => {
+    fetchCategoriesAndSuppliers();
+  }, []);
+
+  // Poll items when filters change
+  useEffect(() => {
+    fetchItems();
+  }, [filterSearch, filterCategory, filterItemType, filterStockStatus]);
+
+  const openAddModal = () => {
+    setModalMode('add');
+    setModalItemId(null);
+    setName('');
+    setSku('');
+    setCategoryId(categories[0]?.id || '');
+    setItemType('MEDICAL_CONSUMABLE');
+    setUnit('pcs');
+    setWarningLevel(10);
+    setCriticalLevel(5);
+    setSupplierId('');
+    setSerialNumber('');
+    setAcquisitionDate('');
+    setCondition('GOOD');
+    setFormError('');
+    setIsModalOpen(true);
+  };
+
+  const openEditModal = (item, e) => {
+    e.stopPropagation();
+    setModalMode('edit');
+    setModalItemId(item.id);
+    setName(item.name || '');
+    setSku(item.sku || '');
+    setCategoryId(item.categoryId || '');
+    setItemType(item.itemType || 'MEDICAL_CONSUMABLE');
+    setUnit(item.unit || '');
+    setWarningLevel(item.warningLevel ?? 10);
+    setCriticalLevel(item.criticalLevel ?? 5);
+    setSupplierId(item.supplierId || '');
+    setSerialNumber(item.serialNumber || '');
+    setCondition(item.condition || 'GOOD');
+    
+    // Format date to YYYY-MM-DD for input
+    if (item.acquisitionDate) {
+      setAcquisitionDate(new Date(item.acquisitionDate).toISOString().split('T')[0]);
+    } else {
+      setAcquisitionDate('');
+    }
+    
+    setFormError('');
+    setIsModalOpen(true);
+  };
+
+  const handleFormSubmit = async (e) => {
+    e.preventDefault();
+    setFormError('');
+
+    if (!name.trim() || !sku.trim() || !unit.trim()) {
+      setFormError('Name, SKU, and Unit fields are required.');
+      return;
+    }
+
+    const payload = {
+      name,
+      sku,
+      categoryId: categoryId || null,
+      itemType,
+      unit,
+      warningLevel: Number(warningLevel),
+      criticalLevel: Number(criticalLevel),
+      supplierId: supplierId || null,
+    };
+
+    if (itemType === 'MEDICAL_EQUIPMENT') {
+      payload.serialNumber = serialNumber || null;
+      payload.acquisitionDate = acquisitionDate ? new Date(acquisitionDate).toISOString() : null;
+      payload.condition = condition;
+    }
+
+    try {
+      if (modalMode === 'add') {
+        await api.post('/items', payload);
+      } else {
+        // Edit only supports name, categoryId, unit, warningLevel, criticalLevel, supplierId, condition on backend
+        await api.put(`/items/${modalItemId}`, {
+          name,
+          categoryId: categoryId || null,
+          unit,
+          warningLevel: Number(warningLevel),
+          criticalLevel: Number(criticalLevel),
+          supplierId: supplierId || null,
+          condition: itemType === 'MEDICAL_EQUIPMENT' ? condition : undefined,
+        });
+      }
+      setIsModalOpen(false);
+      fetchItems();
+    } catch (err) {
+      console.error('Submit item failed:', err);
+      setFormError(err.response?.data?.error || 'An error occurred while saving the item.');
+    }
+  };
+
+  const handleToggleArchive = async (id, isArchived, name, e) => {
+    e.stopPropagation();
+    const actionText = isArchived ? 'unarchive' : 'archive';
+    if (!window.confirm(`Are you sure you want to ${actionText} "${name}"?`)) {
+      return;
+    }
+
+    try {
+      await api.patch(`/items/${id}/archive`);
+      fetchItems();
+    } catch (err) {
+      console.error('Archive toggle failed:', err);
+      alert(err.response?.data?.error || 'Failed to toggle archive status.');
+    }
+  };
+
+  const getStatusBadge = (status) => {
+    switch (status) {
+      case 'OUT_OF_STOCK':
+        return <span className="badge badge-critical">Out of Stock</span>;
+      case 'CRITICAL':
+        return <span className="badge badge-critical">Critical Level</span>;
+      case 'WARNING':
+        return <span className="badge badge-warning">Low Stock</span>;
+      default:
+        return <span className="badge badge-success">In Stock</span>;
+    }
+  };
+
+  const canManage = hasPermission('manage_items');
+
+  return (
+    <div className="page-container">
+      <div className="page-header">
+        <div>
+          <h2>Clinical & Medical Supplies Catalog</h2>
+          <p className="page-title-desc">Monitor real-time clinical quantities, set alert warning limits, and manage medical equipment.</p>
+        </div>
+        {canManage && (
+          <button className="btn btn-primary" onClick={openAddModal}>
+            + Add Catalog Item
+          </button>
+        )}
+      </div>
+
+      {error && <div className="login-error" style={{ margin: 0 }}>{error}</div>}
+
+      {/* Filter Bar */}
+      <div className="filter-bar">
+        <div className="filter-item" style={{ flexGrow: 1, minWidth: '200px' }}>
+          <label>Search name or SKU</label>
+          <input 
+            type="text" 
+            className="form-control" 
+            placeholder="Search catalog..." 
+            value={filterSearch}
+            onChange={(e) => setFilterSearch(e.target.value)}
+          />
+        </div>
+
+        <div className="filter-item" style={{ minWidth: '150px' }}>
+          <label>Classification</label>
+          <select 
+            className="form-control" 
+            value={filterCategory}
+            onChange={(e) => setFilterCategory(e.target.value)}
+          >
+            <option value="">All Categories</option>
+            {categories.map(c => (
+              <option key={c.id} value={c.id}>
+                {c.name}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="filter-item" style={{ minWidth: '150px' }}>
+          <label>Item Type</label>
+          <select 
+            className="form-control" 
+            value={filterItemType}
+            onChange={(e) => setFilterItemType(e.target.value)}
+          >
+            <option value="">All Types</option>
+            {ITEM_TYPES.map(t => (
+              <option key={t.value} value={t.value}>{t.label}</option>
+            ))}
+          </select>
+        </div>
+
+        <div className="filter-item" style={{ minWidth: '150px' }}>
+          <label>Stock Status</label>
+          <select 
+            className="form-control" 
+            value={filterStockStatus}
+            onChange={(e) => setFilterStockStatus(e.target.value)}
+          >
+            <option value="">All Quantities</option>
+            <option value="IN_STOCK">In Stock</option>
+            <option value="WARNING">Low (Warning)</option>
+            <option value="CRITICAL">Critical Threshold</option>
+            <option value="OUT_OF_STOCK">Out of Stock</option>
+          </select>
+        </div>
+      </div>
+
+      {/* Catalog Table */}
+      <div className="widget-card">
+        <div className="widget-body" style={{ padding: 0 }}>
+          {loading ? (
+            <p style={{ padding: '24px', color: 'var(--theme-text-muted)' }}>Loading inventory catalog...</p>
+          ) : items.length === 0 ? (
+            <p style={{ padding: '24px', color: 'var(--theme-text-muted)', textAlign: 'center' }}>
+              No inventory items matched your search filters.
+            </p>
+          ) : (
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>Item Name</th>
+                  <th>SKU</th>
+                  <th>Type</th>
+                  <th>Category</th>
+                  <th>In Stock Qty</th>
+                  <th>Thresholds (Warn / Crit)</th>
+                  <th>Default Supplier</th>
+                  <th>Stock Alert</th>
+                  {canManage && <th style={{ textAlign: 'right' }}>Actions</th>}
+                </tr>
+              </thead>
+              <tbody>
+                {items.map(item => (
+                  <tr key={item.id}>
+                    <td>
+                      <div>
+                        <strong>{item.name}</strong>
+                        {item.itemType === 'MEDICAL_EQUIPMENT' && item.serialNumber && (
+                          <div style={{ fontSize: '11px', color: 'var(--theme-text-muted)', marginTop: '2px' }}>
+                            S/N: <code>{item.serialNumber}</code> • Condition: <span style={{ fontWeight: '500' }}>{item.condition}</span>
+                          </div>
+                        )}
+                      </div>
+                    </td>
+                    <td><code>{item.sku}</code></td>
+                    <td style={{ fontSize: '13px' }}>
+                      {ITEM_TYPES.find(t => t.value === item.itemType)?.label.split(' (')[0]}
+                    </td>
+                    <td>{item.category?.name?.replace('— ', '') || <span style={{ color: 'var(--theme-text-muted)', fontSize: '12px' }}>—</span>}</td>
+                    <td>
+                      <strong style={{ fontSize: '15px' }}>{item.stockLevel?.quantityOnHand ?? 0}</strong> {item.unit}
+                    </td>
+                    <td>{item.warningLevel} / {item.criticalLevel}</td>
+                    <td>{item.supplier?.name || <span style={{ color: 'var(--theme-text-muted)', fontSize: '12px' }}>—</span>}</td>
+                    <td>{getStatusBadge(item.stockStatus)}</td>
+                    {canManage && (
+                      <td style={{ textAlign: 'right' }}>
+                        <button 
+                          className="btn btn-secondary btn-sm"
+                          style={{ marginRight: '8px' }}
+                          onClick={(e) => openEditModal(item, e)}
+                        >
+                          Edit
+                        </button>
+                        <button 
+                          className="btn btn-danger btn-sm"
+                          onClick={(e) => handleToggleArchive(item.id, item.isArchived, item.name, e)}
+                        >
+                          Archive
+                        </button>
+                      </td>
+                    )}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
+
+      {/* Add / Edit Modal */}
+      {isModalOpen && (
+        <div className="modal-overlay">
+          <div className="modal-content" style={{ maxWidth: '640px' }}>
+            <div className="modal-header">
+              <span className="modal-title">
+                {modalMode === 'add' ? 'Register New Inventory Item' : 'Modify Item Details'}
+              </span>
+              <button className="modal-close" onClick={() => setIsModalOpen(false)}>✕</button>
+            </div>
+            
+            <form onSubmit={handleFormSubmit}>
+              <div className="modal-body" style={{ maxHeight: '70vh', overflowY: 'auto' }}>
+                {formError && <div className="login-error">{formError}</div>}
+
+                <div className="form-row">
+                  <div className="form-group">
+                    <label className="form-label">Item Name *</label>
+                    <input 
+                      type="text" 
+                      className="form-control" 
+                      placeholder="e.g. Erythropoietin 4000 IU"
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                      required
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label className="form-label">SKU / Unique Code *</label>
+                    <input 
+                      type="text" 
+                      className="form-control" 
+                      placeholder="e.g. EPO-4K-01"
+                      value={sku}
+                      onChange={(e) => setSku(e.target.value)}
+                      required
+                      disabled={modalMode === 'edit'}
+                    />
+                  </div>
+                </div>
+
+                <div className="form-row">
+                  <div className="form-group">
+                    <label className="form-label">Item Classification Type *</label>
+                    <select 
+                      className="form-control" 
+                      value={itemType}
+                      onChange={(e) => setItemType(e.target.value)}
+                      required
+                      disabled={modalMode === 'edit'}
+                    >
+                      {ITEM_TYPES.map(t => (
+                        <option key={t.value} value={t.value}>{t.label}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="form-group">
+                    <label className="form-label">Category Group</label>
+                    <select 
+                      className="form-control" 
+                      value={categoryId}
+                      onChange={(e) => setCategoryId(e.target.value)}
+                    >
+                      <option value="">Unassigned</option>
+                      {categories.map(c => (
+                        <option key={c.id} value={c.id}>
+                          {c.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                <div className="form-row">
+                  <div className="form-group">
+                    <label className="form-label">Measurement Unit *</label>
+                    <input 
+                      type="text" 
+                      className="form-control" 
+                      placeholder="e.g. vial, box, bottle, pcs"
+                      value={unit}
+                      onChange={(e) => setUnit(e.target.value)}
+                      required
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label className="form-label">Primary Supplier</label>
+                    <select 
+                      className="form-control" 
+                      value={supplierId}
+                      onChange={(e) => setSupplierId(e.target.value)}
+                    >
+                      <option value="">Select Supplier...</option>
+                      {suppliers.map(s => (
+                        <option key={s.id} value={s.id}>{s.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                <div className="form-row">
+                  <div className="form-group">
+                    <label className="form-label">Low Stock Warning Limit *</label>
+                    <input 
+                      type="number" 
+                      className="form-control" 
+                      min="0"
+                      value={warningLevel}
+                      onChange={(e) => setWarningLevel(e.target.value)}
+                      required
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label className="form-label">Critical Level Limit *</label>
+                    <input 
+                      type="number" 
+                      className="form-control" 
+                      min="0"
+                      value={criticalLevel}
+                      onChange={(e) => setCriticalLevel(e.target.value)}
+                      required
+                    />
+                  </div>
+                </div>
+
+                {/* Conditional fields for MEDICAL_EQUIPMENT */}
+                {itemType === 'MEDICAL_EQUIPMENT' && (
+                  <div style={{ background: 'var(--theme-bg)', padding: '16px', borderRadius: 'var(--border-radius-lg)', marginTop: '8px', border: '1px solid var(--theme-border)' }}>
+                    <h4 style={{ fontSize: '13px', textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--theme-primary)', marginBottom: '12px' }}>
+                      ⚙️ Equipment Specifications
+                    </h4>
+                    
+                    <div className="form-row">
+                      <div className="form-group">
+                        <label className="form-label">Serial Number</label>
+                        <input 
+                          type="text" 
+                          className="form-control" 
+                          placeholder="e.g. SN-987123"
+                          value={serialNumber}
+                          onChange={(e) => setSerialNumber(e.target.value)}
+                          disabled={modalMode === 'edit'}
+                        />
+                      </div>
+
+                      <div className="form-group">
+                        <label className="form-label">Acquisition Date</label>
+                        <input 
+                          type="date" 
+                          className="form-control" 
+                          value={acquisitionDate}
+                          onChange={(e) => setAcquisitionDate(e.target.value)}
+                          disabled={modalMode === 'edit'}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="form-group">
+                      <label className="form-label">Operating Condition</label>
+                      <select 
+                        className="form-control" 
+                        value={condition}
+                        onChange={(e) => setCondition(e.target.value)}
+                      >
+                        {CONDITIONS.map(c => (
+                          <option key={c} value={c}>{c}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                )}
+              </div>
+              
+              <div className="modal-footer">
+                <button type="button" className="btn btn-secondary" onClick={() => setIsModalOpen(false)}>
+                  Cancel
+                </button>
+                <button type="submit" className="btn btn-primary">
+                  {modalMode === 'add' ? 'Create Catalog Item' : 'Save Changes'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default Items;

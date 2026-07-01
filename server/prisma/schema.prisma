@@ -1,0 +1,412 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+// Note: SQLite does not support enums. All enum fields use String type with values validated in application code.
+
+// ─── Auth & Session ───────────────────────────────────────────────────────────
+
+model User {
+  id           String   @id @default(cuid())
+  name         String
+  username     String   @unique
+  passwordHash String   @map("password_hash")
+  role         String   // TOP_ADMIN | INVENTORY_MANAGER | NURSE | SUPPLY_OFFICER | VIEWER_AUDITOR | MANAGEMENT_OFFICE
+  isActive     Boolean  @default(true) @map("is_active")
+  isDeleted    Boolean  @default(false) @map("is_deleted")
+  deletedAt    DateTime? @map("deleted_at")
+  createdBy    String?  @map("created_by")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  userPermissions     UserPermission[]
+  permissionChanges   PermissionAuditLog[] @relation("ChangedBy")
+  permissionTargets   PermissionAuditLog[] @relation("TargetUser")
+  requisitions        Requisition[]
+  transactions        TransactionLog[]
+  discardLogs         DiscardLog[]
+  stocktakesInitiated Stocktake[]
+  stocktakeApprovals  StocktakeLine[]
+  monthlyReports      MonthlyReport[]
+  mgmtComments        MgmtComment[]
+  notifications       Notification[]
+  dashboardPrefs      UserDashboardPref[]
+  importLogs          ImportLog[]
+  itemsCreated        Item[]
+  suppliersCreated    Supplier[]
+  categoriesCreated   Category[]
+  patientsManaged     Patient[]
+
+  @@map("users")
+}
+
+model SessionConfig {
+  id             Int @id @default(1)
+  timeoutMinutes Int @default(30) @map("timeout_minutes")
+
+  @@map("session_config")
+}
+
+// ─── RBAC ─────────────────────────────────────────────────────────────────────
+
+model RolePermission {
+  role          String  @map("role")
+  permissionKey String  @map("permission_key")
+  isEnabled     Boolean @default(false) @map("is_enabled")
+
+  @@id([role, permissionKey])
+  @@map("role_permissions")
+}
+
+model UserPermission {
+  userId        String  @map("user_id")
+  permissionKey String  @map("permission_key")
+  isEnabled     Boolean @map("is_enabled")
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@id([userId, permissionKey])
+  @@map("user_permissions")
+}
+
+model PermissionAuditLog {
+  id            String   @id @default(cuid())
+  changedById   String   @map("changed_by_id")
+  targetType    String   @map("target_type") // "role" | "user"
+  targetRole    String? @map("target_role")
+  targetUserId  String?  @map("target_user_id")
+  permissionKey String   @map("permission_key")
+  oldValue      Boolean  @map("old_value")
+  newValue      Boolean  @map("new_value")
+  changedAt     DateTime @default(now()) @map("changed_at")
+
+  changedBy  User  @relation("ChangedBy", fields: [changedById], references: [id])
+  targetUser User? @relation("TargetUser", fields: [targetUserId], references: [id])
+
+  @@map("permission_audit_log")
+}
+
+// ─── Suppliers ────────────────────────────────────────────────────────────────
+
+model Supplier {
+  id            String   @id @default(cuid())
+  name          String
+  contactPerson String?  @map("contact_person")
+  phone         String?
+  email         String?
+  address       String?
+  notes         String?
+  createdById   String?  @map("created_by_id")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  createdBy   User?          @relation(fields: [createdById], references: [id])
+  items       Item[]
+  itemBatches ItemBatch[]
+
+  @@map("suppliers")
+}
+
+// ─── Categories ───────────────────────────────────────────────────────────────
+
+model Category {
+  id          String   @id @default(cuid())
+  name        String
+  parentId    String?  @map("parent_id")
+  createdById String?  @map("created_by_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  parent   Category?  @relation("CategoryParent", fields: [parentId], references: [id])
+  children Category[] @relation("CategoryParent")
+  items    Item[]
+  createdBy User?     @relation(fields: [createdById], references: [id])
+
+  @@map("categories")
+}
+
+// ─── Item Catalog ─────────────────────────────────────────────────────────────
+
+model Item {
+  id           String       @id @default(cuid())
+  name         String
+  sku          String       @unique
+  categoryId   String?      @map("category_id")
+  itemType     String       @map("item_type") // MEDICATION | MEDICAL_CONSUMABLE | MEDICAL_EQUIPMENT | PPE | OFFICE_SUPPLY
+  unit         String       // e.g., "pcs", "box", "ml"
+  warningLevel Int          @default(10) @map("warning_level")
+  criticalLevel Int         @default(5) @map("critical_level")
+  supplierId   String?      @map("supplier_id")
+  isArchived   Boolean      @default(false) @map("is_archived")
+  // Equipment-specific
+  serialNumber  String?     @map("serial_number")
+  acquisitionDate DateTime? @map("acquisition_date")
+  condition     String?     @default("GOOD") // GOOD | FAIR | DAMAGED | DECOMMISSIONED
+  createdById  String?      @map("created_by_id")
+  createdAt    DateTime     @default(now()) @map("created_at")
+  updatedAt    DateTime     @updatedAt @map("updated_at")
+
+  category    Category?        @relation(fields: [categoryId], references: [id])
+  supplier    Supplier?        @relation(fields: [supplierId], references: [id])
+  createdBy   User?            @relation(fields: [createdById], references: [id])
+  stockLevel  StockLevel?
+  batches     ItemBatch[]
+  transactions TransactionLog[]
+  discardLogs  DiscardLog[]
+  stocktakeLines StocktakeLine[]
+  requisitionLines RequisitionLine[]
+
+  @@map("items")
+}
+
+model ItemBatch {
+  id                String    @id @default(cuid())
+  itemId            String    @map("item_id")
+  batchNo           String?   @map("batch_no")
+  expiryDate        DateTime? @map("expiry_date")
+  quantityRemaining Int       @default(0) @map("quantity_remaining")
+  supplierId        String?   @map("supplier_id")
+  receivedAt        DateTime  @default(now()) @map("received_at")
+
+  item         Item           @relation(fields: [itemId], references: [id])
+  supplier     Supplier?      @relation(fields: [supplierId], references: [id])
+  transactions TransactionLog[]
+  discardLogs  DiscardLog[]
+
+  @@map("item_batches")
+}
+
+model StockLevel {
+  itemId        String   @id @map("item_id")
+  quantityOnHand Int     @default(0) @map("quantity_on_hand")
+  lastUpdated   DateTime @default(now()) @map("last_updated")
+
+  item Item @relation(fields: [itemId], references: [id])
+
+  @@map("stock_levels")
+}
+
+// ─── Patients ─────────────────────────────────────────────────────────────────
+
+model Patient {
+  id               String        @id @default(cuid())
+  name             String
+  chartNumber      String        @unique @map("chart_number")
+  diagnosis        String?
+  schedule         String?       // e.g., "Mon/Wed/Fri 08:00–12:00"
+  firstSessionDate DateTime?     @map("first_session_date")
+  contact          String?
+  status           String        @default("ACTIVE") // ACTIVE | INACTIVE
+  managedById      String?       @map("managed_by_id")
+  createdAt        DateTime      @default(now()) @map("created_at")
+  updatedAt        DateTime      @updatedAt @map("updated_at")
+
+  managedBy    User?         @relation(fields: [managedById], references: [id])
+  requisitions Requisition[]
+
+  @@map("patients")
+}
+
+// ─── Requisitions ─────────────────────────────────────────────────────────────
+
+model Requisition {
+  id          String            @id @default(cuid())
+  patientId   String            @map("patient_id")
+  submittedById String          @map("submitted_by_id")
+  sessionDate DateTime          @map("session_date")
+  status      String            @default("PENDING") // PENDING | PARTIALLY_APPROVED | FULLY_APPROVED | REJECTED | CANCELLED
+  cancelledBy String?           @map("cancelled_by")
+  cancelledAt DateTime?         @map("cancelled_at")
+  createdAt   DateTime          @default(now()) @map("created_at")
+  updatedAt   DateTime          @updatedAt @map("updated_at")
+
+  patient     Patient           @relation(fields: [patientId], references: [id])
+  submittedBy User              @relation(fields: [submittedById], references: [id])
+  lines       RequisitionLine[]
+
+  @@map("requisitions")
+}
+
+model RequisitionLine {
+  id               String         @id @default(cuid())
+  requisitionId    String         @map("requisition_id")
+  itemId           String         @map("item_id")
+  qtyRequested     Int            @map("qty_requested")
+  qtyApproved      Int?           @map("qty_approved")
+  reason           String
+  status           String         @default("PENDING") // PENDING | APPROVED | REJECTED | CANCELLED
+  reviewedById     String?        @map("reviewed_by_id")
+  rejectionReason  String?        @map("rejection_reason")
+  coVerifiedById   String?        @map("co_verified_by_id") // for medications
+  isResubmission   Boolean        @default(false) @map("is_resubmission")
+  originalLineId   String?        @map("original_line_id")
+  createdAt        DateTime       @default(now()) @map("created_at")
+  updatedAt        DateTime       @updatedAt @map("updated_at")
+
+  requisition  Requisition      @relation(fields: [requisitionId], references: [id])
+  item         Item             @relation(fields: [itemId], references: [id])
+  transactions TransactionLog[]
+
+  @@map("requisition_lines")
+}
+
+// ─── Transactions & Logs ──────────────────────────────────────────────────────
+
+model TransactionLog {
+  id               String          @id @default(cuid())
+  itemId           String          @map("item_id")
+  batchId          String?         @map("batch_id")
+  type             String          // INBOUND | OUTBOUND | DISCARD | ADJUSTMENT | CANCEL
+  qty              Int
+  userId           String          @map("user_id")
+  requisitionLineId String?        @map("requisition_line_id")
+  notes            String?
+  timestamp        DateTime        @default(now())
+
+  item            Item             @relation(fields: [itemId], references: [id])
+  batch           ItemBatch?       @relation(fields: [batchId], references: [id])
+  user            User             @relation(fields: [userId], references: [id])
+  requisitionLine RequisitionLine? @relation(fields: [requisitionLineId], references: [id])
+  mgmtComments    MgmtComment[]
+
+  @@map("transaction_logs")
+}
+
+model DiscardLog {
+  id         String        @id @default(cuid())
+  itemId     String        @map("item_id")
+  batchId    String?       @map("batch_id")
+  qty        Int
+  reason     String        // EXPIRED | DAMAGED | RECALLED | OTHER
+  notes      String?
+  loggedById String        @map("logged_by_id")
+  timestamp  DateTime      @default(now())
+
+  item      Item       @relation(fields: [itemId], references: [id])
+  batch     ItemBatch? @relation(fields: [batchId], references: [id])
+  loggedBy  User       @relation(fields: [loggedById], references: [id])
+
+  @@map("discard_logs")
+}
+
+model MgmtComment {
+  id               String   @id @default(cuid())
+  transactionLogId String   @map("transaction_log_id")
+  commentText      String   @map("comment_text")
+  isFlagged        Boolean  @default(false) @map("is_flagged")
+  commentedById    String   @map("commented_by_id")
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  transactionLog TransactionLog @relation(fields: [transactionLogId], references: [id])
+  commentedBy    User           @relation(fields: [commentedById], references: [id])
+
+  @@map("mgmt_comments")
+}
+
+// ─── Stocktake ────────────────────────────────────────────────────────────────
+
+model Stocktake {
+  id          String          @id @default(cuid())
+  initiatedById String        @map("initiated_by_id")
+  initiatedAt DateTime        @default(now()) @map("initiated_at")
+  status      String          @default("IN_PROGRESS") // IN_PROGRESS | COMPLETED | CANCELLED
+  completedAt DateTime?       @map("completed_at")
+
+  initiatedBy User            @relation(fields: [initiatedById], references: [id])
+  lines       StocktakeLine[]
+
+  @@map("stocktakes")
+}
+
+model StocktakeLine {
+  id          String   @id @default(cuid())
+  stocktakeId String   @map("stocktake_id")
+  itemId      String   @map("item_id")
+  systemQty   Int      @map("system_qty")
+  physicalQty Int?     @map("physical_qty")
+  discrepancy Int?
+  approvedById String? @map("approved_by_id")
+
+  stocktake  Stocktake @relation(fields: [stocktakeId], references: [id])
+  item       Item      @relation(fields: [itemId], references: [id])
+  approvedBy User?     @relation(fields: [approvedById], references: [id])
+
+  @@map("stocktake_lines")
+}
+
+// ─── Reports ──────────────────────────────────────────────────────────────────
+
+model MonthlyReport {
+  id          String   @id @default(cuid())
+  periodStart DateTime @map("period_start")
+  periodEnd   DateTime @map("period_end")
+  generatedById String @map("generated_by_id")
+  generatedAt DateTime @default(now()) @map("generated_at")
+  pdfPath     String?  @map("pdf_path")
+
+  generatedBy User @relation(fields: [generatedById], references: [id])
+
+  @@map("monthly_reports")
+}
+
+model ReportSchedule {
+  id         Int     @id @default(1)
+  dayOfMonth Int     @default(1) @map("day_of_month")
+  isActive   Boolean @default(true) @map("is_active")
+
+  @@map("report_schedule")
+}
+
+// ─── Notifications ────────────────────────────────────────────────────────────
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String   @map("user_id")
+  eventType String   @map("event_type")
+  message   String
+  isRead    Boolean  @default(false) @map("is_read")
+  link      String?  // optional deep-link
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@map("notifications")
+}
+
+// ─── Dashboard Preferences ────────────────────────────────────────────────────
+
+model UserDashboardPref {
+  id           String  @id @default(cuid())
+  userId       String  @map("user_id")
+  widgetKey    String  @map("widget_key")
+  isVisible    Boolean @default(true) @map("is_visible")
+  displayOrder Int     @default(0) @map("display_order")
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@unique([userId, widgetKey])
+  @@map("user_dashboard_prefs")
+}
+
+// ─── Import Logs ──────────────────────────────────────────────────────────────
+
+model ImportLog {
+  id          String   @id @default(cuid())
+  fileName    String   @map("file_name")
+  importedById String  @map("imported_by_id")
+  importedAt  DateTime @default(now()) @map("imported_at")
+  rowsSuccess Int      @default(0) @map("rows_success")
+  rowsFailed  Int      @default(0) @map("rows_failed")
+  errorDetails String? @map("error_details")
+
+  importedBy User @relation(fields: [importedById], references: [id])
+
+  @@map("import_logs")
+}
