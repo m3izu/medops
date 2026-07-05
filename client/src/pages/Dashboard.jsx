@@ -74,9 +74,69 @@ const Dashboard = () => {
     return pref ? pref.isVisible : true;
   };
 
+  // Get list of widgets for this role, sorted by user displayOrder preference
+  const getSortedWidgetKeys = () => {
+    const keys = Object.keys(WIDGETS).filter(key => WIDGETS[key].roles.includes(user?.role));
+    
+    return keys.sort((a, b) => {
+      const prefA = prefs.find(p => p.widgetKey === a);
+      const prefB = prefs.find(p => p.widgetKey === b);
+      const orderA = prefA ? prefA.displayOrder : Object.keys(WIDGETS).indexOf(a);
+      const orderB = prefB ? prefB.displayOrder : Object.keys(WIDGETS).indexOf(b);
+      return orderA - orderB;
+    });
+  };
+
+  const handleMoveWidget = async (widgetKey, direction) => {
+    const sortedKeys = getSortedWidgetKeys();
+    const index = sortedKeys.indexOf(widgetKey);
+    if (index === -1) return;
+
+    const nextIndex = direction === 'up' ? index - 1 : index + 1;
+    if (nextIndex < 0 || nextIndex >= sortedKeys.length) return;
+
+    const swapKey = sortedKeys[nextIndex];
+
+    // Swap ordering in state
+    let updatedPrefs = [...prefs];
+    
+    // Ensure both keys have pref objects
+    let prefA = updatedPrefs.find(p => p.widgetKey === widgetKey);
+    if (!prefA) {
+      prefA = { widgetKey, isVisible: true, displayOrder: index };
+      updatedPrefs.push(prefA);
+    }
+    
+    let prefB = updatedPrefs.find(p => p.widgetKey === swapKey);
+    if (!prefB) {
+      prefB = { widgetKey: swapKey, isVisible: true, displayOrder: nextIndex };
+      updatedPrefs.push(prefB);
+    }
+
+    const tempOrder = prefA.displayOrder;
+    prefA.displayOrder = prefB.displayOrder;
+    prefB.displayOrder = tempOrder;
+
+    setPrefs(updatedPrefs);
+
+    try {
+      await api.put('/dashboard/prefs', {
+        prefs: [
+          { widgetKey: prefA.widgetKey, isVisible: prefA.isVisible, displayOrder: prefA.displayOrder },
+          { widgetKey: prefB.widgetKey, isVisible: prefB.isVisible, displayOrder: prefB.displayOrder }
+        ]
+      });
+    } catch (err) {
+      console.error('Failed to save reorder preference:', err);
+      fetchDashboardData();
+    }
+  };
+
   if (loading) {
     return <div className="page-container"><p>Loading system overview...</p></div>;
   }
+
+  const sortedWidgetKeys = getSortedWidgetKeys();
 
   return (
     <div className="page-container">
@@ -140,184 +200,239 @@ const Dashboard = () => {
       {/* Widgets list container */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
         
-        {/* Widget: Pending Requisitions Queue */}
-        {isWidgetActive('pending_reqs') && (
-          <div className="widget-card">
-            <div className="widget-header">
-              <span className="widget-title">Pending Clinical Requisitions Queue</span>
-              <Link to="/requisitions" className="btn btn-secondary btn-sm">View Full List</Link>
+        {sortedWidgetKeys.map((key, idx) => {
+          if (!isWidgetActive(key)) return null;
+
+          const isFirst = idx === 0;
+          const isLast = idx === sortedWidgetKeys.length - 1;
+
+          // Header Reorder Controls
+          const reorderControls = (
+            <div style={{ display: 'flex', gap: '6px', alignItems: 'center', marginRight: '12px' }}>
+              <button 
+                type="button"
+                className="btn btn-secondary btn-sm" 
+                onClick={() => handleMoveWidget(key, 'up')}
+                disabled={isFirst}
+                style={{ padding: '2px 6px', fontSize: '10px' }}
+                title="Move Widget Up"
+              >
+                ▲
+              </button>
+              <button 
+                type="button"
+                className="btn btn-secondary btn-sm" 
+                onClick={() => handleMoveWidget(key, 'down')}
+                disabled={isLast}
+                style={{ padding: '2px 6px', fontSize: '10px' }}
+                title="Move Widget Down"
+              >
+                ▼
+              </button>
             </div>
-            <div className="widget-body">
-              {alerts.stockAlerts.length > 0 && (
-                <div style={{ padding: '12px 16px', background: 'var(--color-critical-bg)', color: 'var(--color-critical)', borderRadius: 'var(--border-radius-md)', marginBottom: '16px', fontSize: '14px', fontWeight: '500' }}>
-                  ⚠️ Critical Alert: Requisitions may be blocked by low stock levels. See details below.
+          );
+
+          if (key === 'pending_reqs') {
+            return (
+              <div className="widget-card" key={key}>
+                <div className="widget-header">
+                  <div style={{ display: 'flex', alignItems: 'center' }}>
+                    {reorderControls}
+                    <span className="widget-title">Pending Clinical Requisitions Queue</span>
+                  </div>
+                  <Link to="/requisitions" className="btn btn-secondary btn-sm">View Full List</Link>
                 </div>
-              )}
-              <p style={{ color: 'var(--theme-text-muted)', fontSize: '14px' }}>
-                Go to the Requisitions page to review and sign off on nurse acquisition forms.
-              </p>
-            </div>
-          </div>
-        )}
+                <div className="widget-body">
+                  {alerts.stockAlerts.length > 0 && (
+                    <div style={{ padding: '12px 16px', background: 'var(--color-critical-bg)', color: 'var(--color-critical)', borderRadius: 'var(--border-radius-md)', marginBottom: '16px', fontSize: '14px', fontWeight: '500' }}>
+                      ⚠️ Critical Alert: Requisitions may be blocked by low stock levels. See details below.
+                    </div>
+                  )}
+                  <p style={{ color: 'var(--theme-text-muted)', fontSize: '14px' }}>
+                    Go to the Requisitions page to review and sign off on nurse acquisition forms.
+                  </p>
+                </div>
+              </div>
+            );
+          }
 
-        {/* Widget: Low / Critical Stock Alerts */}
-        {isWidgetActive('stock_alerts') && (
-          <div className="widget-card">
-            <div className="widget-header">
-              <span className="widget-title">🚨 Low & Critical Stock Alerts</span>
-              <Link to="/items" className="btn btn-secondary btn-sm">Manage Items</Link>
-            </div>
-            <div className="widget-body" style={{ padding: 0 }}>
-              {alerts.stockAlerts.length > 0 ? (
-                <table className="table">
-                  <thead>
-                    <tr>
-                      <th>Item Name</th>
-                      <th>SKU</th>
-                      <th>Current Quantity</th>
-                      <th>Threshold Limits</th>
-                      <th>Status Alert</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {alerts.stockAlerts.slice(0, 10).map(item => (
-                      <tr key={item.id}>
-                        <td><strong>{item.name}</strong></td>
-                        <td><code>{item.sku}</code></td>
-                        <td>{item.stockLevel?.quantityOnHand ?? 0} {item.unit}</td>
-                        <td>Warning: {item.warningLevel} | Critical: {item.criticalLevel}</td>
-                        <td>
-                          <span className={`badge ${
-                            item.alertLevel === 'OUT_OF_STOCK' || item.alertLevel === 'CRITICAL' 
-                              ? 'badge-critical' 
-                              : 'badge-warning'
-                          }`}>
-                            {item.alertLevel?.replace('_', ' ')}
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              ) : (
-                <p style={{ padding: '24px', color: 'var(--theme-text-muted)', textAlign: 'center' }}>
-                  All medical inventory quantities are currently within safe operating limits.
-                </p>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* Widget: Expiring Medications */}
-        {isWidgetActive('expiring_meds') && (
-          <div className="widget-card">
-            <div className="widget-header">
-              <span className="widget-title">💊 Expiring Medications (Within 90 Days)</span>
-              <Link to="/items" className="btn btn-secondary btn-sm">Item Catalog</Link>
-            </div>
-            <div className="widget-body" style={{ padding: 0 }}>
-              {alerts.expiringBatches.length > 0 ? (
-                <table className="table">
-                  <thead>
-                    <tr>
-                      <th>Medication Name</th>
-                      <th>Batch Number</th>
-                      <th>Expiry Date</th>
-                      <th>Remaining Quantity</th>
-                      <th>Days Left</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {alerts.expiringBatches.slice(0, 10).map(batch => {
-                      const daysLeft = Math.ceil((new Date(batch.expiryDate) - new Date()) / (1000 * 60 * 60 * 24));
-                      return (
-                        <tr key={batch.id}>
-                          <td><strong>{batch.item.name}</strong></td>
-                          <td><code>{batch.batchNo || 'N/A'}</code></td>
-                          <td>{new Date(batch.expiryDate).toLocaleDateString()}</td>
-                          <td>{batch.quantityRemaining} pcs</td>
-                          <td>
-                            <span className={`badge ${daysLeft <= 30 ? 'badge-critical' : 'badge-warning'}`}>
-                              {daysLeft} days remaining
-                            </span>
-                          </td>
+          if (key === 'stock_alerts') {
+            return (
+              <div className="widget-card" key={key}>
+                <div className="widget-header">
+                  <div style={{ display: 'flex', alignItems: 'center' }}>
+                    {reorderControls}
+                    <span className="widget-title">🚨 Low & Critical Stock Alerts</span>
+                  </div>
+                  <Link to="/items" className="btn btn-secondary btn-sm">Manage Items</Link>
+                </div>
+                <div className="widget-body" style={{ padding: 0 }}>
+                  {alerts.stockAlerts.length > 0 ? (
+                    <table className="table">
+                      <thead>
+                        <tr>
+                          <th>Item Name</th>
+                          <th>SKU</th>
+                          <th>Current Quantity</th>
+                          <th>Threshold Limits</th>
+                          <th>Status Alert</th>
                         </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              ) : (
-                <p style={{ padding: '24px', color: 'var(--theme-text-muted)', textAlign: 'center' }}>
-                  No medication batches are currently expiring within the next 90 days.
-                </p>
-              )}
-            </div>
-          </div>
-        )}
+                      </thead>
+                      <tbody>
+                        {alerts.stockAlerts.slice(0, 10).map(item => (
+                          <tr key={item.id}>
+                            <td><strong>{item.name}</strong></td>
+                            <td><code>{item.sku}</code></td>
+                            <td>{item.stockLevel?.quantityOnHand ?? 0} {item.unit}</td>
+                            <td>Warning: {item.warningLevel} | Critical: {item.criticalLevel}</td>
+                            <td>
+                              <span className={`badge ${
+                                item.alertLevel === 'OUT_OF_STOCK' || item.alertLevel === 'CRITICAL' 
+                                  ? 'badge-critical' 
+                                  : 'badge-warning'
+                              }`}>
+                                {item.alertLevel?.replace('_', ' ')}
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  ) : (
+                    <p style={{ padding: '24px', color: 'var(--theme-text-muted)', textAlign: 'center' }}>
+                      All medical inventory quantities are currently within safe operating limits.
+                    </p>
+                  )}
+                </div>
+              </div>
+            );
+          }
 
-        {/* Widget: Recent Audit / Transaction Feed */}
-        {isWidgetActive('recent_transactions') && (
-          <div className="widget-card">
-            <div className="widget-header">
-              <span className="widget-title">📜 Recent Inventory Logs (Audit Trail)</span>
-              <Link to="/stock/transactions" className="btn btn-secondary btn-sm">Full Audit Feed</Link>
-            </div>
-            <div className="widget-body" style={{ padding: 0 }}>
-              {summary?.recentTransactions?.length > 0 ? (
-                <table className="table">
-                  <thead>
-                    <tr>
-                      <th>Time</th>
-                      <th>Action Type</th>
-                      <th>Supply Item</th>
-                      <th>Quantity Adjustment</th>
-                      <th>Logged By</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {summary.recentTransactions.map(txn => (
-                      <tr key={txn.id}>
-                        <td>{new Date(txn.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</td>
-                        <td>
-                          <span className={`badge ${
-                            txn.type === 'INBOUND' ? 'badge-success' : 
-                            txn.type === 'OUTBOUND' ? 'badge-neutral' : 'badge-critical'
-                          }`}>
-                            {txn.type}
-                          </span>
-                        </td>
-                        <td>{txn.item.name}</td>
-                        <td>
-                          <strong>{txn.type === 'INBOUND' ? '+' : '-'}{txn.qty}</strong> {txn.item.unit}
-                        </td>
-                        <td>{txn.user.name} ({txn.user.role.replace('_', ' ')})</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              ) : (
-                <p style={{ padding: '24px', color: 'var(--theme-text-muted)', textAlign: 'center' }}>
-                  No transaction log activities have been recorded yet.
-                </p>
-              )}
-            </div>
-          </div>
-        )}
+          if (key === 'expiring_meds') {
+            return (
+              <div className="widget-card" key={key}>
+                <div className="widget-header">
+                  <div style={{ display: 'flex', alignItems: 'center' }}>
+                    {reorderControls}
+                    <span className="widget-title">💊 Expiring Medications (Within 90 Days)</span>
+                  </div>
+                  <Link to="/items" className="btn btn-secondary btn-sm">Item Catalog</Link>
+                </div>
+                <div className="widget-body" style={{ padding: 0 }}>
+                  {alerts.expiringBatches.length > 0 ? (
+                    <table className="table">
+                      <thead>
+                        <tr>
+                          <th>Medication Name</th>
+                          <th>Batch Number</th>
+                          <th>Expiry Date</th>
+                          <th>Remaining Quantity</th>
+                          <th>Days Left</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {alerts.expiringBatches.slice(0, 10).map(batch => {
+                          const daysLeft = Math.ceil((new Date(batch.expiryDate) - new Date()) / (1000 * 60 * 60 * 24));
+                          return (
+                            <tr key={batch.id}>
+                              <td><strong>{batch.item.name}</strong></td>
+                              <td><code>{batch.batchNo || 'N/A'}</code></td>
+                              <td>{new Date(batch.expiryDate).toLocaleDateString()}</td>
+                              <td>{batch.quantityRemaining} pcs</td>
+                              <td>
+                                <span className={`badge ${daysLeft <= 30 ? 'badge-critical' : 'badge-warning'}`}>
+                                  {daysLeft} days remaining
+                                </span>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  ) : (
+                    <p style={{ padding: '24px', color: 'var(--theme-text-muted)', textAlign: 'center' }}>
+                      No medication batches are currently expiring within the next 90 days.
+                    </p>
+                  )}
+                </div>
+              </div>
+            );
+          }
 
-        {/* Widget: Nurse My Forms History */}
-        {isWidgetActive('nurse_my_forms') && (
-          <div className="widget-card">
-            <div className="widget-header">
-              <span className="widget-title">My Recent Requisitions History</span>
-              <Link to="/requisitions" className="btn btn-secondary btn-sm">Request New Item</Link>
-            </div>
-            <div className="widget-body">
-              <p style={{ color: 'var(--theme-text-muted)', fontSize: '14px' }}>
-                Access the Requisitions menu to view the approval status of your submitted acquisition forms.
-              </p>
-            </div>
-          </div>
-        )}
+          if (key === 'recent_transactions') {
+            return (
+              <div className="widget-card" key={key}>
+                <div className="widget-header">
+                  <div style={{ display: 'flex', alignItems: 'center' }}>
+                    {reorderControls}
+                    <span className="widget-title">📜 Recent Inventory Logs (Audit Trail)</span>
+                  </div>
+                  <Link to="/stock/transactions" className="btn btn-secondary btn-sm">Full Audit Feed</Link>
+                </div>
+                <div className="widget-body" style={{ padding: 0 }}>
+                  {summary?.recentTransactions?.length > 0 ? (
+                    <table className="table">
+                      <thead>
+                        <tr>
+                          <th>Time</th>
+                          <th>Action Type</th>
+                          <th>Supply Item</th>
+                          <th>Quantity Adjustment</th>
+                          <th>Logged By</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {summary.recentTransactions.map(txn => (
+                          <tr key={txn.id}>
+                            <td>{new Date(txn.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</td>
+                            <td>
+                              <span className={`badge ${
+                                txn.type === 'INBOUND' ? 'badge-success' : 
+                                txn.type === 'OUTBOUND' ? 'badge-neutral' : 'badge-critical'
+                              }`}>
+                                {txn.type}
+                              </span>
+                            </td>
+                            <td>{txn.item.name}</td>
+                            <td>
+                              <strong>{txn.type === 'INBOUND' ? '+' : '-'}{txn.qty}</strong> {txn.item.unit}
+                            </td>
+                            <td>{txn.user.name} ({txn.user.role.replace('_', ' ')})</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  ) : (
+                    <p style={{ padding: '24px', color: 'var(--theme-text-muted)', textAlign: 'center' }}>
+                      No transaction log activities have been recorded yet.
+                    </p>
+                  )}
+                </div>
+              </div>
+            );
+          }
+
+          if (key === 'nurse_my_forms') {
+            return (
+              <div className="widget-card" key={key}>
+                <div className="widget-header">
+                  <div style={{ display: 'flex', alignItems: 'center' }}>
+                    {reorderControls}
+                    <span className="widget-title">My Recent Requisitions History</span>
+                  </div>
+                  <Link to="/requisitions" className="btn btn-secondary btn-sm">Request New Item</Link>
+                </div>
+                <div className="widget-body">
+                  <p style={{ color: 'var(--theme-text-muted)', fontSize: '14px' }}>
+                    Access the Requisitions menu to view the approval status of your submitted acquisition forms.
+                  </p>
+                </div>
+              </div>
+            );
+          }
+
+          return null;
+        })}
 
       </div>
     </div>

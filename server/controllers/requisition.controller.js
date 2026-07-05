@@ -123,6 +123,10 @@ const approveLine = async (req, res, next) => {
       include: { stockLevel: true, batches: { where: { quantityRemaining: { gt: 0 } }, orderBy: { expiryDate: 'asc' } } },
     });
 
+    if (item.itemType === 'MEDICATION' && !line.coVerifiedById) {
+      return res.status(400).json({ error: 'Medication co-verification is required before approval.' });
+    }
+
     const approvedQty = qtyApproved ?? line.qtyRequested;
     if (item.stockLevel.quantityOnHand < approvedQty) {
       return res.status(400).json({ error: 'Insufficient stock for this quantity' });
@@ -242,6 +246,37 @@ const resubmitLine = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
+const coVerifyLine = async (req, res, next) => {
+  try {
+    const line = await prisma.requisitionLine.findUnique({
+      where: { id: req.params.lineId },
+      include: { item: true }
+    });
+
+    if (!line) return res.status(404).json({ error: 'Line item not found' });
+    if (line.status !== 'PENDING') return res.status(400).json({ error: 'Only pending items can be co-verified' });
+    if (line.item.itemType !== 'MEDICATION') return res.status(400).json({ error: 'Co-verification is only allowed for Medications' });
+    if (line.coVerifiedById) return res.status(400).json({ error: 'This item has already been co-verified' });
+
+    const updatedLine = await prisma.requisitionLine.update({
+      where: { id: line.id },
+      data: { coVerifiedById: req.user.id },
+    });
+
+    const requisition = await prisma.requisition.findUnique({ where: { id: line.requisitionId } });
+    await prisma.notification.create({
+      data: {
+        userId: requisition.submittedById,
+        eventType: 'REQUISITION_LINE_COVERIFIED',
+        message: `Medication request co-verified: ${line.item.name}`,
+        link: `/requisitions/${line.requisitionId}`,
+      },
+    });
+
+    res.json({ message: 'Medication co-verified successfully', line: updatedLine });
+  } catch (err) { next(err); }
+};
+
 // Helper to sync requisition status from its lines
 async function updateRequisitionStatus(requisitionId) {
   const lines = await prisma.requisitionLine.findMany({ where: { requisitionId } });
@@ -254,4 +289,4 @@ async function updateRequisitionStatus(requisitionId) {
   await prisma.requisition.update({ where: { id: requisitionId }, data: { status: newStatus } });
 }
 
-module.exports = { list, create, getOne, cancel, approveLine, rejectLine, resubmitLine };
+module.exports = { list, create, getOne, cancel, approveLine, rejectLine, resubmitLine, coVerifyLine };

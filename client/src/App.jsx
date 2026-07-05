@@ -13,10 +13,9 @@ import Transactions from './pages/Transactions';
 import Patients from './pages/Patients';
 import Requisitions from './pages/Requisitions';
 import Discards from './pages/Discards';
-import {
-  Stocktake,
-  Reports,
-} from './pages/PageStubs';
+import MgmtAudit from './pages/MgmtAudit';
+import Stocktake from './pages/Stocktake';
+import Reports from './pages/Reports';
 
 // Route guard for authenticated users
 const PrivateRoute = ({ children, requiredPermission }) => {
@@ -127,6 +126,14 @@ function App() {
             element={
               <PrivateRoute requiredPermission="view_inventory_logs">
                 <Transactions />
+              </PrivateRoute>
+            }
+          />
+          <Route
+            path="/mgmt/audit"
+            element={
+              <PrivateRoute requiredPermission="view_inventory_logs">
+                <MgmtAudit />
               </PrivateRoute>
             }
           />

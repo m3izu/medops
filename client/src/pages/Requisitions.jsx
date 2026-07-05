@@ -51,6 +51,7 @@ const Requisitions = () => {
   const canApprove = hasPermission('approve_requisition');
   const canCancelAny = hasPermission('cancel_any_requisition');
   const canCancelOwn = hasPermission('cancel_own_requisition');
+  const canCoVerify = hasPermission('receive_stock');
 
   // ── Fetch Helpers ──
   const fetchRequisitions = useCallback(async () => {
@@ -204,6 +205,18 @@ const Requisitions = () => {
     } catch (err) {
       console.error('Resubmit failed:', err);
       setResubError(err.response?.data?.error || 'Failed to resubmit line item.');
+    }
+  };
+
+  const handleCoVerify = async (lineId) => {
+    if (!window.confirm('Are you sure you want to co-verify this medication request?')) return;
+    try {
+      await api.patch(`/requisitions/${selectedReq.id}/lines/${lineId}/co-verify`);
+      fetchDetail(selectedReq.id);
+      fetchRequisitions();
+    } catch (err) {
+      console.error('Co-verification failed:', err);
+      alert(err.response?.data?.error || 'Failed to co-verify medication.');
     }
   };
 
@@ -394,6 +407,11 @@ const Requisitions = () => {
                                   RESUBMISSION
                                 </span>
                               )}
+                              {line.item?.itemType === 'MEDICATION' && (
+                                <span className={`badge ${line.coVerifiedById ? 'badge-success' : 'badge-warning'}`} style={{ marginLeft: '8px', fontSize: '10px', padding: '2px 6px' }}>
+                                  {line.coVerifiedById ? '✓ Co-Verified' : 'Pending Co-Verification'}
+                                </span>
+                              )}
                               <div style={{ fontSize: '12px', color: 'var(--theme-text-muted)', marginTop: '2px' }}>
                                 Requested: <strong>{line.qtyRequested}</strong> {line.item?.unit}
                                 {line.qtyApproved != null && <> • Approved: <strong>{line.qtyApproved}</strong></>}
@@ -417,6 +435,16 @@ const Requisitions = () => {
 
                           {/* Action buttons */}
                           <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
+                            {/* Co-Verify button for supply officers */}
+                            {canCoVerify && line.status === 'PENDING' && line.item?.itemType === 'MEDICATION' && !line.coVerifiedById && (
+                              <button
+                                className="btn btn-secondary btn-sm"
+                                onClick={() => handleCoVerify(line.id)}
+                              >
+                                🛡️ Co-Verify Medication
+                              </button>
+                            )}
+
                             {/* Approve/Reject buttons for managers */}
                             {canApprove && line.status === 'PENDING' && (
                               <>
@@ -426,6 +454,8 @@ const Requisitions = () => {
                                     setApproveLine(line);
                                     setApproveQty(String(line.qtyRequested));
                                   }}
+                                  disabled={line.item?.itemType === 'MEDICATION' && !line.coVerifiedById}
+                                  title={line.item?.itemType === 'MEDICATION' && !line.coVerifiedById ? "Medication co-verification is required before approval." : ""}
                                 >
                                   ✓ Approve
                                 </button>

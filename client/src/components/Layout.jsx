@@ -98,6 +98,7 @@ const Layout = ({ children }) => {
     if (path.startsWith('/discards')) return 'Waste & Discard Logs';
     if (path.startsWith('/stock/receive')) return 'Receive Deliveries';
     if (path.startsWith('/stock/transactions')) return 'Inventory Transaction Logs';
+    if (path.startsWith('/mgmt/audit')) return 'MedOPS Audit Feed';
     if (path.startsWith('/stocktake')) return 'Stocktake & Reconciliation';
     if (path.startsWith('/reports')) return 'Monthly Report Archive';
     return 'MedOPS Portal';
@@ -191,6 +192,14 @@ const Layout = ({ children }) => {
             <li className="sidebar-item">
               <NavLink to="/stock/transactions" className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}>
                 <span className="sidebar-icon">📜</span> Audit Feed
+              </NavLink>
+            </li>
+          )}
+
+          {user?.role === 'MANAGEMENT_OFFICE' && (
+            <li className="sidebar-item">
+              <NavLink to="/mgmt/audit" className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}>
+                <span className="sidebar-icon">🔍</span> MedOPS Audit
               </NavLink>
             </li>
           )}

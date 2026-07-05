@@ -10,17 +10,12 @@ const getSummary = async (req, res, next) => {
     const [
       totalItems,
       pendingRequisitions,
-      lowStockCount,
-      criticalStockCount,
-      outOfStockCount,
       expiringCount,
       recentTransactions,
+      itemsWithStock,
     ] = await Promise.all([
       prisma.item.count({ where: { isArchived: false } }),
       prisma.requisition.count({ where: { status: { in: ['PENDING', 'PARTIALLY_APPROVED'] } } }),
-      prisma.stockLevel.count({ where: { item: { isArchived: false, warningLevel: { gt: 0 } }, quantityOnHand: { gt: 0 } } }),
-      prisma.stockLevel.count({ where: { item: { isArchived: false }, quantityOnHand: { gt: 0 } } }),
-      prisma.stockLevel.count({ where: { quantityOnHand: 0 } }),
       prisma.itemBatch.count({ where: { expiryDate: { lte: in90 }, quantityRemaining: { gt: 0 } } }),
       prisma.transactionLog.findMany({
         take: 10,
@@ -30,7 +25,26 @@ const getSummary = async (req, res, next) => {
           user: { select: { name: true, role: true } },
         },
       }),
+      prisma.item.findMany({
+        where: { isArchived: false },
+        include: { stockLevel: true },
+      }),
     ]);
+
+    let lowStockCount = 0;
+    let criticalStockCount = 0;
+    let outOfStockCount = 0;
+
+    for (const item of itemsWithStock) {
+      const qty = item.stockLevel?.quantityOnHand ?? 0;
+      if (qty === 0) {
+        outOfStockCount++;
+      } else if (qty <= item.criticalLevel) {
+        criticalStockCount++;
+      } else if (qty <= item.warningLevel) {
+        lowStockCount++;
+      }
+    }
 
     // For nurses — only their own forms
     let myPendingForms = 0;
