@@ -18,9 +18,15 @@ const create = async (req, res, next) => {
   try {
     const { name, chartNumber, diagnosis, schedule, firstSessionDate, contact } = req.body;
     if (!name || !chartNumber) return res.status(400).json({ error: 'name and chartNumber are required' });
+
+    const existing = await prisma.patient.findUnique({ where: { chartNumber: chartNumber.trim() } });
+    if (existing) {
+      return res.status(400).json({ error: `Chart number "${chartNumber}" is already in use.` });
+    }
+
     const patient = await prisma.patient.create({
       data: {
-        name, chartNumber, diagnosis, schedule,
+        name, chartNumber: chartNumber.trim(), diagnosis, schedule,
         firstSessionDate: firstSessionDate ? new Date(firstSessionDate) : null,
         contact,
         managedById: req.user.id,

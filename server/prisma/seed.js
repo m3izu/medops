@@ -31,7 +31,7 @@ async function main() {
     for (const key of allPermKeys) {
       await prisma.rolePermission.upsert({
         where: { role_permissionKey: { role, permissionKey: key } },
-        update: {},
+        update: { isEnabled: enabledPerms.includes(key) },
         create: { role, permissionKey: key, isEnabled: enabledPerms.includes(key) },
       });
     }

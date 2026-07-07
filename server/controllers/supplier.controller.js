@@ -42,7 +42,23 @@ const update = async (req, res, next) => {
 
 const remove = async (req, res, next) => {
   try {
-    await prisma.supplier.delete({ where: { id: req.params.id } });
+    const supplierId = req.params.id;
+    const supplier = await prisma.supplier.findUnique({
+      where: { id: supplierId },
+      include: { items: true, itemBatches: true },
+    });
+
+    if (!supplier) {
+      return res.status(404).json({ error: 'Supplier not found' });
+    }
+
+    if (supplier.items.length > 0 || supplier.itemBatches.length > 0) {
+      return res.status(400).json({
+        error: 'Cannot delete supplier because they are linked to active items or batches. Please reassign or delete those items first.'
+      });
+    }
+
+    await prisma.supplier.delete({ where: { id: supplierId } });
     res.json({ message: 'Supplier removed' });
   } catch (err) { next(err); }
 };

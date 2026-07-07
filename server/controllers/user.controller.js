@@ -24,11 +24,19 @@ const getUser = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
+const VALID_ROLES = Object.keys(DEFAULT_ROLE_PERMISSIONS);
+
 const createUser = async (req, res, next) => {
   try {
     const { name, username, password, role } = req.body;
     if (!name || !username || !password || !role) {
       return res.status(400).json({ error: 'name, username, password, and role are required' });
+    }
+    if (!VALID_ROLES.includes(role)) {
+      return res.status(400).json({ error: `Invalid role. Valid roles: ${VALID_ROLES.join(', ')}` });
+    }
+    if (password.length < 6) {
+      return res.status(400).json({ error: 'Password must be at least 6 characters' });
     }
 
     const exists = await prisma.user.findUnique({ where: { username } });
@@ -38,12 +46,6 @@ const createUser = async (req, res, next) => {
     const user = await prisma.user.create({
       data: { name, username, passwordHash, role, createdBy: req.user.id },
     });
-
-    // Seed default role permissions for this user (via role_permissions table)
-    const defaultPerms = DEFAULT_ROLE_PERMISSIONS[role] || [];
-    const allPermKeys = Object.values(require('../lib/permissions').PERMISSIONS);
-
-    await prisma.rolePermission.upsertMany?.({}) // handled via seed instead
 
     // Create notification for top admin
     await prisma.notification.create({
@@ -66,6 +68,13 @@ const createUser = async (req, res, next) => {
 const updateUser = async (req, res, next) => {
   try {
     const { name, role } = req.body;
+    if (role && !VALID_ROLES.includes(role)) {
+      return res.status(400).json({ error: `Invalid role. Valid roles: ${VALID_ROLES.join(', ')}` });
+    }
+    // Prevent changing own role (could lock self out of admin)
+    if (role && req.params.id === req.user.id) {
+      return res.status(400).json({ error: 'You cannot change your own role' });
+    }
     const user = await prisma.user.update({
       where: { id: req.params.id },
       data: { name, role },
@@ -88,7 +97,12 @@ const updateUser = async (req, res, next) => {
 const resetPassword = async (req, res, next) => {
   try {
     const { temporaryPassword } = req.body;
-    if (!temporaryPassword) return res.status(400).json({ error: 'temporaryPassword is required' });
+    if (!temporaryPassword || typeof temporaryPassword !== 'string') {
+      return res.status(400).json({ error: 'temporaryPassword is required' });
+    }
+    if (temporaryPassword.length < 6) {
+      return res.status(400).json({ error: 'Password must be at least 6 characters' });
+    }
 
     const passwordHash = await bcrypt.hash(temporaryPassword, 12);
     await prisma.user.update({
@@ -115,6 +129,9 @@ const deleteUser = async (req, res, next) => {
 
 const toggleActive = async (req, res, next) => {
   try {
+    if (req.params.id === req.user.id) {
+      return res.status(400).json({ error: 'You cannot deactivate your own account' });
+    }
     const user = await prisma.user.findUnique({ where: { id: req.params.id } });
     if (!user) return res.status(404).json({ error: 'User not found' });
     const updated = await prisma.user.update({

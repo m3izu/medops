@@ -39,7 +39,7 @@ const initiate = async (req, res, next) => {
         userId: s.id,
         eventType: 'STOCKTAKE_INITIATED',
         message: 'A stocktake has been initiated. Please assist with physical counting.',
-        link: `/stocktakes/${stocktake.id}`,
+        link: '/stocktake',
       })),
     });
 
@@ -66,7 +66,13 @@ const getOne = async (req, res, next) => {
 const updateLine = async (req, res, next) => {
   try {
     const { physicalQty } = req.body;
+    if (typeof physicalQty !== 'number' || physicalQty < 0) {
+      return res.status(400).json({ error: 'Physical quantity must be a non-negative number' });
+    }
+
     const line = await prisma.stocktakeLine.findUnique({ where: { id: req.params.lineId } });
+    if (!line) return res.status(404).json({ error: 'Stocktake line not found' });
+
     const discrepancy = physicalQty - line.systemQty;
     await prisma.stocktakeLine.update({
       where: { id: req.params.lineId },
@@ -78,30 +84,101 @@ const updateLine = async (req, res, next) => {
 
 const complete = async (req, res, next) => {
   try {
-    const lines = await prisma.stocktakeLine.findMany({ where: { stocktakeId: req.params.id } });
-
-    // Apply adjustments where there's a discrepancy
-    for (const line of lines) {
-      if (line.physicalQty !== null && line.discrepancy !== 0) {
-        await prisma.stockLevel.update({
-          where: { itemId: line.itemId },
-          data: { quantityOnHand: line.physicalQty, lastUpdated: new Date() },
-        });
-        await prisma.transactionLog.create({
-          data: {
-            itemId: line.itemId,
-            type: 'ADJUSTMENT',
-            qty: line.discrepancy,
-            userId: req.user.id,
-            notes: `Stocktake adjustment. System: ${line.systemQty}, Physical: ${line.physicalQty}`,
-          },
-        });
-      }
+    const stocktake = await prisma.stocktake.findUnique({ where: { id: req.params.id } });
+    if (!stocktake) return res.status(404).json({ error: 'Stocktake not found' });
+    if (stocktake.status === 'COMPLETED') {
+      return res.status(400).json({ error: 'This stocktake has already been completed' });
     }
 
-    await prisma.stocktake.update({
-      where: { id: req.params.id },
-      data: { status: 'COMPLETED', completedAt: new Date() },
+    const lines = await prisma.stocktakeLine.findMany({
+      where: { stocktakeId: req.params.id },
+      include: { item: true }
+    });
+
+    // Execute all adjustments and state changes in a single atomic database transaction
+    await prisma.$transaction(async (tx) => {
+      for (const line of lines) {
+        if (line.physicalQty !== null && line.discrepancy !== 0) {
+          // Update global stock level (upsert in case stockLevel record was deleted or is missing)
+          await tx.stockLevel.upsert({
+            where: { itemId: line.itemId },
+            update: { quantityOnHand: line.physicalQty, lastUpdated: new Date() },
+            create: { itemId: line.itemId, quantityOnHand: line.physicalQty, lastUpdated: new Date() },
+          });
+
+          // Reconcile batch quantities if item is a medication
+          if (line.item.itemType === 'MEDICATION') {
+            if (line.discrepancy < 0) {
+              // Deduct from batches in FIFO order
+              let diff = Math.abs(line.discrepancy);
+              const batches = await tx.itemBatch.findMany({
+                where: { itemId: line.itemId, quantityRemaining: { gt: 0 } },
+                orderBy: { expiryDate: 'asc' }
+              });
+              for (const batch of batches) {
+                if (diff <= 0) break;
+                const deduct = Math.min(batch.quantityRemaining, diff);
+                await tx.itemBatch.update({
+                  where: { id: batch.id },
+                  data: { quantityRemaining: { decrement: deduct } }
+                });
+                diff -= deduct;
+              }
+            } else if (line.discrepancy > 0) {
+              // Add stock discrepancy to the oldest active batch
+              const oldestBatch = await tx.itemBatch.findFirst({
+                where: { itemId: line.itemId, quantityRemaining: { gt: 0 } },
+                orderBy: { expiryDate: 'asc' }
+              });
+              if (oldestBatch) {
+                await tx.itemBatch.update({
+                  where: { id: oldestBatch.id },
+                  data: { quantityRemaining: { increment: line.discrepancy } }
+                });
+              } else {
+                // Fall back: try to find any batch (even if 0 remaining or expired)
+                const anyBatch = await tx.itemBatch.findFirst({
+                  where: { itemId: line.itemId },
+                  orderBy: { expiryDate: 'asc' }
+                });
+                if (anyBatch) {
+                  await tx.itemBatch.update({
+                    where: { id: anyBatch.id },
+                    data: { quantityRemaining: { increment: line.discrepancy } }
+                  });
+                } else {
+                  // No batches exist at all; create a default RECONCILED batch
+                  await tx.itemBatch.create({
+                    data: {
+                      itemId: line.itemId,
+                      batchNo: 'RECONCILED',
+                      expiryDate: new Date(Date.now() + 180 * 24 * 60 * 60 * 1000),
+                      quantityRemaining: line.discrepancy,
+                    }
+                  });
+                }
+              }
+            }
+          }
+
+          // Create stocktake audit log
+          await tx.transactionLog.create({
+            data: {
+              itemId: line.itemId,
+              type: 'ADJUSTMENT',
+              qty: line.discrepancy,
+              userId: req.user.id,
+              notes: `Stocktake adjustment. System: ${line.systemQty}, Physical: ${line.physicalQty}`,
+            },
+          });
+        }
+      }
+
+      // Mark stocktake as completed
+      await tx.stocktake.update({
+        where: { id: req.params.id },
+        data: { status: 'COMPLETED', completedAt: new Date() },
+      });
     });
 
     res.json({ message: 'Stocktake completed and adjustments applied' });

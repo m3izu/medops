@@ -8,5 +8,6 @@ router.get('/', authenticate, requirePermission('generate_reports'), c.list);
 router.post('/generate', authenticate, requireTopAdmin, c.generate);
 router.get('/schedule', authenticate, requireTopAdmin, c.getSchedule);
 router.put('/schedule', authenticate, requireTopAdmin, c.updateSchedule);
+router.get('/:id', authenticate, requirePermission('generate_reports'), c.getOne);
 
 module.exports = router;

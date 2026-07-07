@@ -53,6 +53,8 @@ const requirePermission = (permissionKey) => {
       }
 
       const perms = await getEffectivePermissions(userId, role);
+      
+      console.log(`[RBAC] User: ${req.user.username}, Role: ${role}, Checking: ${permissionKey}, HasPerm: ${!!perms[permissionKey]}`);
 
       if (perms[permissionKey]) {
         return next();

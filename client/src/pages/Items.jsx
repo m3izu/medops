@@ -12,6 +12,92 @@ const ITEM_TYPES = [
 
 const CONDITIONS = ['GOOD', 'FAIR', 'DAMAGED', 'DECOMMISSIONED'];
 
+const HighlightText = ({ text, search }) => {
+  if (!search || !text) return <span>{text}</span>;
+  const regex = new RegExp(`(${search.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&')})`, 'gi');
+  const parts = String(text).split(regex);
+  return (
+    <span>
+      {parts.map((part, i) => 
+        regex.test(part) ? <mark key={i} className="search-highlight">{part}</mark> : part
+      )}
+    </span>
+  );
+};
+
+const renderSegmentedStockGauge = (item) => {
+  const qty = item.stockLevel?.quantityOnHand ?? 0;
+  
+  // Decide how many blocks to light up (out of 6)
+  let litBlocks = 0;
+  let color = 'var(--theme-primary)';
+  let isCritical = false;
+  let isWarning = false;
+
+  if (qty === 0) {
+    litBlocks = 0;
+    color = 'var(--color-critical)';
+  } else if (qty <= item.criticalLevel) {
+    litBlocks = 1;
+    color = 'var(--color-critical)';
+    isCritical = true;
+  } else if (qty <= item.warningLevel) {
+    litBlocks = 3;
+    color = 'var(--color-warning)';
+    isWarning = true;
+  } else {
+    // Normal stock
+    const ratio = qty / (item.warningLevel * 2 || 20);
+    litBlocks = Math.min(6, Math.max(4, Math.floor(ratio * 6)));
+    color = 'var(--theme-primary)';
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', minWidth: '150px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '12px' }}>
+        <span style={{ fontWeight: '700', color: 'var(--theme-text-bold)', fontFamily: 'var(--font-mono)' }}>
+          {qty} {item.unit}
+        </span>
+        {qty === 0 ? (
+          <span style={{ fontSize: '10px', color: 'var(--color-critical)', fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+            OUT
+          </span>
+        ) : isCritical ? (
+          <span style={{ fontSize: '10px', color: 'var(--color-critical)', fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+            CRIT
+          </span>
+        ) : isWarning ? (
+          <span style={{ fontSize: '10px', color: 'var(--color-warning)', fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+            WARN
+          </span>
+        ) : (
+          <span style={{ fontSize: '10px', color: 'var(--theme-primary)', fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+            OK
+          </span>
+        )}
+      </div>
+      <div style={{ display: 'flex', gap: '3px' }}>
+        {[...Array(6)].map((_, i) => {
+          const isLit = i < litBlocks;
+          return (
+            <div 
+              key={i} 
+              style={{ 
+                height: '8px', 
+                flex: 1, 
+                backgroundColor: isLit ? color : 'var(--theme-border)',
+                opacity: isLit ? 1 : 0.2,
+                borderRadius: '2px',
+                transition: 'all 0.3s ease'
+              }}
+            />
+          );
+        })}
+      </div>
+    </div>
+  );
+};
+
 const Items = () => {
   const { hasPermission } = useAuth();
   
@@ -332,7 +418,9 @@ const Items = () => {
                   <tr key={item.id}>
                     <td>
                       <div>
-                        <strong>{item.name}</strong>
+                        <strong>
+                          <HighlightText text={item.name} search={filterSearch} />
+                        </strong>
                         {item.itemType === 'MEDICAL_EQUIPMENT' && item.serialNumber && (
                           <div style={{ fontSize: '11px', color: 'var(--theme-text-muted)', marginTop: '2px' }}>
                             S/N: <code>{item.serialNumber}</code> • Condition: <span style={{ fontWeight: '500' }}>{item.condition}</span>
@@ -340,15 +428,21 @@ const Items = () => {
                         )}
                       </div>
                     </td>
-                    <td><code>{item.sku}</code></td>
+                    <td>
+                      <code>
+                        <HighlightText text={item.sku} search={filterSearch} />
+                      </code>
+                    </td>
                     <td style={{ fontSize: '13px' }}>
                       {ITEM_TYPES.find(t => t.value === item.itemType)?.label.split(' (')[0]}
                     </td>
                     <td>{item.category?.name?.replace('— ', '') || <span style={{ color: 'var(--theme-text-muted)', fontSize: '12px' }}>—</span>}</td>
                     <td>
-                      <strong style={{ fontSize: '15px' }}>{item.stockLevel?.quantityOnHand ?? 0}</strong> {item.unit}
+                      {renderSegmentedStockGauge(item)}
                     </td>
-                    <td>{item.warningLevel} / {item.criticalLevel}</td>
+                    <td style={{ fontSize: '13px' }}>
+                      <span style={{ fontWeight: '500' }}>{item.warningLevel}</span> / <span style={{ fontWeight: '500', color: 'var(--color-critical)' }}>{item.criticalLevel}</span>
+                    </td>
                     <td>{item.supplier?.name || <span style={{ color: 'var(--theme-text-muted)', fontSize: '12px' }}>—</span>}</td>
                     <td>{getStatusBadge(item.stockStatus)}</td>
                     {canManage && (

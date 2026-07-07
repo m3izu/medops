@@ -125,13 +125,14 @@ const getSessionConfig = async (req, res, next) => {
 const updateSessionConfig = async (req, res, next) => {
   try {
     const { timeoutMinutes } = req.body;
-    if (!timeoutMinutes || timeoutMinutes < 1) {
-      return res.status(400).json({ error: 'timeoutMinutes must be at least 1' });
+    const parsed = parseInt(timeoutMinutes, 10);
+    if (isNaN(parsed) || parsed < 1 || parsed > 1440) {
+      return res.status(400).json({ error: 'timeoutMinutes must be a valid integer between 1 and 1440 (24 hours)' });
     }
     const config = await prisma.sessionConfig.upsert({
       where: { id: 1 },
-      update: { timeoutMinutes },
-      create: { id: 1, timeoutMinutes },
+      update: { timeoutMinutes: parsed },
+      create: { id: 1, timeoutMinutes: parsed },
     });
     res.json(config);
   } catch (err) { next(err); }

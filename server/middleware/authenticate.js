@@ -27,6 +27,30 @@ const authenticate = async (req, res, next) => {
     }
 
     req.user = user;
+
+    // Sliding session: renew token if close to expiry (e.g. less than 10 minutes remaining or more than half expired)
+    const now = Math.floor(Date.now() / 1000);
+    const timeRemaining = decoded.exp - now;
+    const totalDuration = decoded.exp - decoded.iat;
+    
+    if (timeRemaining < 600 || timeRemaining < totalDuration / 2) {
+      const sessionConfig = await prisma.sessionConfig.findUnique({ where: { id: 1 } });
+      const timeoutMinutes = sessionConfig?.timeoutMinutes ?? 30;
+
+      const newToken = jwt.sign(
+        { userId: user.id, role: user.role },
+        process.env.JWT_SECRET,
+        { expiresIn: `${timeoutMinutes}m` }
+      );
+
+      res.cookie('token', newToken, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        maxAge: timeoutMinutes * 60 * 1000,
+      });
+    }
+
     next();
   } catch (err) {
     res.clearCookie('token');

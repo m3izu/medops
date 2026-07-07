@@ -27,15 +27,25 @@ const Stocktake = () => {
   const [initiating,  setInitiating]  = useState(false);
   const [completing,  setCompleting]  = useState(false);
   const [confirmComplete, setConfirmComplete] = useState(false);
+  const [confirmInitiate, setConfirmInitiate] = useState(false);
 
   const canManage = hasPermission('initiate_stocktake');
+  const canEnterCount = hasPermission('enter_stocktake_count');
 
-  const fetchList = async () => {
+  const fetchList = async (isInitialLoad = false) => {
     try {
       setLoading(true);
       const res = await api.get('/stocktakes');
-      setStocktakes(res.data || []);
+      const list = res.data || [];
+      setStocktakes(list);
       setError('');
+      
+      if (isInitialLoad) {
+        const active = list.find(s => s.status === 'IN_PROGRESS');
+        if (active) {
+          fetchDetail(active.id);
+        }
+      }
     } catch (err) {
       console.error(err);
       setError('Failed to load stocktake sessions.');
@@ -63,13 +73,13 @@ const Stocktake = () => {
     }
   };
 
-  useEffect(() => { fetchList(); }, []);
+  useEffect(() => { fetchList(true); }, []);
 
   const handleInitiate = async () => {
-    if (!confirm('Initiate a new stocktake? All clinic staff will be notified to begin a physical count.')) return;
     try {
       setInitiating(true);
       const res = await api.post('/stocktakes');
+      setConfirmInitiate(false);
       await fetchList();
       await fetchDetail(res.data.id);
     } catch (err) {
@@ -139,7 +149,7 @@ const Stocktake = () => {
         {canManage && !activeStocktake && (
           <button
             className="btn btn-primary"
-            onClick={handleInitiate}
+            onClick={() => setConfirmInitiate(true)}
             disabled={initiating}
           >
             {initiating ? 'Initiating...' : '+ New Stocktake'}
@@ -158,10 +168,36 @@ const Stocktake = () => {
 
       {error && <div className="login-error" style={{ margin: 0 }}>{error}</div>}
 
+      {/* Confirm Initiate Dialog */}
+      {confirmInitiate && (
+        <div className="modal-overlay">
+          <div className="modal-content" style={{ maxWidth: '480px' }}>
+            <div className="modal-header">
+              <h3>Initiate New Stocktake?</h3>
+              <button className="modal-close" onClick={() => setConfirmInitiate(false)}>✕</button>
+            </div>
+            <div className="modal-body">
+              <p style={{ marginBottom: '12px' }}>
+                This will initiate a new physical count session across the entire clinic inventory.
+              </p>
+              <div style={{ padding: '10px 14px', background: 'var(--theme-primary-bg)', color: 'var(--theme-primary)', borderRadius: 'var(--border-radius-md)', fontSize: '13px', marginBottom: '12px' }}>
+                🔔 <strong>Notice:</strong> All active clinical staff members will receive a notification to assist with the physical counts.
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-secondary" onClick={() => setConfirmInitiate(false)}>Cancel</button>
+              <button className="btn btn-primary" onClick={handleInitiate} disabled={initiating}>
+                {initiating ? 'Initiating...' : 'Confirm & Initiate'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Confirm Complete Dialog */}
       {confirmComplete && (
-        <div className="modal-backdrop">
-          <div className="modal" style={{ maxWidth: '480px' }}>
+        <div className="modal-overlay">
+          <div className="modal-content" style={{ maxWidth: '480px' }}>
             <div className="modal-header">
               <h3>Complete Stocktake?</h3>
               <button className="modal-close" onClick={() => setConfirmComplete(false)}>✕</button>
@@ -268,13 +304,13 @@ const Stocktake = () => {
                 <table className="table">
                   <thead>
                     <tr>
-                      <th>Item Name</th>
-                      <th>SKU</th>
-                      <th>Unit</th>
-                      <th style={{ textAlign: 'right' }}>System Qty</th>
-                      <th style={{ textAlign: 'center', minWidth: '130px' }}>Physical Count</th>
-                      <th style={{ textAlign: 'right' }}>Discrepancy</th>
-                      {activeStocktake.status === 'IN_PROGRESS' && canManage && <th></th>}
+                      <th style={{ width: '30%' }}>Item Name</th>
+                      <th style={{ width: '15%' }}>SKU</th>
+                      <th style={{ width: '10%' }}>Unit</th>
+                      <th style={{ textAlign: 'right', width: '15%' }}>System Qty</th>
+                      <th style={{ textAlign: 'center', width: '15%', minWidth: '110px' }}>Physical Count</th>
+                      <th style={{ textAlign: 'right', width: '15%' }}>Discrepancy</th>
+                      {activeStocktake.status === 'IN_PROGRESS' && canEnterCount && <th style={{ width: '80px' }}></th>}
                     </tr>
                   </thead>
                   <tbody>
@@ -293,7 +329,7 @@ const Stocktake = () => {
                           <td style={{ fontSize: '12px', color: 'var(--theme-text-muted)' }}>{line.item.unit}</td>
                           <td style={{ textAlign: 'right', fontWeight: '600' }}>{line.systemQty}</td>
                           <td style={{ textAlign: 'center' }}>
-                            {activeStocktake.status === 'IN_PROGRESS' && canManage ? (
+                            {activeStocktake.status === 'IN_PROGRESS' && canEnterCount ? (
                               <input
                                 type="number"
                                 min="0"
@@ -321,7 +357,7 @@ const Stocktake = () => {
                               <span style={{ color: 'var(--theme-text-muted)' }}>—</span>
                             )}
                           </td>
-                          {activeStocktake.status === 'IN_PROGRESS' && canManage && (
+                          {activeStocktake.status === 'IN_PROGRESS' && canEnterCount && (
                             <td>
                               <button
                                 className="btn btn-secondary btn-sm"

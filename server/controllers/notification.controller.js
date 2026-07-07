@@ -14,10 +14,13 @@ const getNotifications = async (req, res, next) => {
 
 const markRead = async (req, res, next) => {
   try {
-    await prisma.notification.update({
-      where: { id: req.params.id },
+    const result = await prisma.notification.updateMany({
+      where: { id: req.params.id, userId: req.user.id },
       data: { isRead: true },
     });
+    if (result.count === 0) {
+      return res.status(404).json({ error: 'Notification not found or access denied' });
+    }
     res.json({ message: 'Notification marked as read' });
   } catch (err) { next(err); }
 };

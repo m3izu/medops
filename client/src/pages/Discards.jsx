@@ -102,9 +102,9 @@ const Discards = () => {
       return;
     }
 
-    // Check if the selected item has batches, and if so, check if batchId is selected
-    const hasBatches = selectedItemDetails?.batches && selectedItemDetails.batches.length > 0;
-    if (hasBatches && !batchId) {
+    // Check if the selected item is a medication, and if so, enforce batch selection
+    const isMedication = selectedItemDetails?.itemType === 'MEDICATION';
+    if (isMedication && !batchId) {
       setFormError('Please select the specific medication batch being discarded.');
       return;
     }

@@ -16,6 +16,7 @@ import Discards from './pages/Discards';
 import MgmtAudit from './pages/MgmtAudit';
 import Stocktake from './pages/Stocktake';
 import Reports from './pages/Reports';
+import Import from './pages/Import';
 
 // Route guard for authenticated users
 const PrivateRoute = ({ children, requiredPermission }) => {
@@ -140,7 +141,7 @@ function App() {
           <Route
             path="/stocktake"
             element={
-              <PrivateRoute requiredPermission="initiate_stocktake">
+              <PrivateRoute requiredPermission="enter_stocktake_count">
                 <Stocktake />
               </PrivateRoute>
             }
@@ -150,6 +151,14 @@ function App() {
             element={
               <PrivateRoute requiredPermission="generate_reports">
                 <Reports />
+              </PrivateRoute>
+            }
+          />
+          <Route
+            path="/import"
+            element={
+              <PrivateRoute requiredPermission="bulk_import">
+                <Import />
               </PrivateRoute>
             }
           />

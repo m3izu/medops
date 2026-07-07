@@ -22,15 +22,38 @@ const checkAndFireAlerts = async (itemId) => {
     select: { id: true },
   });
 
+  if (recipients.length === 0) return;
+
+  const eventType = `STOCK_${alertLevel}`;
+  const link = `/items/${itemId}`;
   const message = `${alertLevel} stock alert: ${item.name} has ${qty} ${item.unit} remaining`;
-  await prisma.notification.createMany({
-    data: recipients.map(u => ({
-      userId: u.id,
-      eventType: `STOCK_${alertLevel}`,
-      message,
-      link: `/items/${itemId}`,
-    })),
-  });
+
+  const notificationsToCreate = [];
+  for (const recipient of recipients) {
+    const existing = await prisma.notification.findFirst({
+      where: {
+        userId: recipient.id,
+        eventType,
+        link,
+        isRead: false,
+      },
+    });
+
+    if (!existing) {
+      notificationsToCreate.push({
+        userId: recipient.id,
+        eventType,
+        message,
+        link,
+      });
+    }
+  }
+
+  if (notificationsToCreate.length > 0) {
+    await prisma.notification.createMany({
+      data: notificationsToCreate,
+    });
+  }
 };
 
 const receiveStock = async (req, res, next) => {
@@ -40,9 +63,27 @@ const receiveStock = async (req, res, next) => {
       return res.status(400).json({ error: 'itemId and positive quantity are required' });
     }
 
+    // Verify item exists
+    const item = await prisma.item.findUnique({ where: { id: itemId } });
+    if (!item) {
+      return res.status(404).json({ error: 'Item not found' });
+    }
+    if (item.isArchived) {
+      return res.status(400).json({ error: 'Cannot receive stock for an archived item' });
+    }
+
     // Create batch if batch details provided (medications)
     let batchId = null;
     if (batchNo || expiryDate) {
+      if (expiryDate) {
+        const expDate = new Date(expiryDate);
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        if (expDate < today) {
+          return res.status(400).json({ error: 'Medication batch cannot be registered with a past expiry date.' });
+        }
+      }
+
       const batch = await prisma.itemBatch.create({
         data: {
           itemId,
@@ -74,13 +115,17 @@ const receiveStock = async (req, res, next) => {
       create: { itemId, quantityOnHand: quantity },
     });
 
+    // Re-evaluate stock alerts (stock may have come back above warning/critical)
+    await checkAndFireAlerts(itemId);
+
     res.status(201).json({ transaction: txn, batchId });
   } catch (err) { next(err); }
 };
 
 const getTransactions = async (req, res, next) => {
   try {
-    const { itemId, type, userId, from, to, limit = 100 } = req.query;
+    const { itemId, type, userId, from, to, limit = '100' } = req.query;
+    const parsedLimit = Math.min(Math.max(parseInt(limit, 10) || 100, 1), 500);
     const where = {};
     if (itemId) where.itemId = itemId;
     if (type) where.type = type;
@@ -102,7 +147,7 @@ const getTransactions = async (req, res, next) => {
         },
       },
       orderBy: { timestamp: 'desc' },
-      take: parseInt(limit),
+      take: parsedLimit,
     });
 
     res.json(transactions);

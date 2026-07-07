@@ -34,7 +34,29 @@ const update = async (req, res, next) => {
 
 const remove = async (req, res, next) => {
   try {
-    await prisma.category.delete({ where: { id: req.params.id } });
+    const categoryId = req.params.id;
+    const category = await prisma.category.findUnique({
+      where: { id: categoryId },
+      include: { children: true, items: true },
+    });
+
+    if (!category) {
+      return res.status(404).json({ error: 'Category not found' });
+    }
+
+    if (category.children.length > 0) {
+      return res.status(400).json({
+        error: 'Cannot delete category because it has subcategories. Please delete or reassign them first.'
+      });
+    }
+
+    if (category.items.length > 0) {
+      return res.status(400).json({
+        error: 'Cannot delete category because it contains active inventory items. Please reassign or remove them first.'
+      });
+    }
+
+    await prisma.category.delete({ where: { id: categoryId } });
     res.json({ message: 'Category removed' });
   } catch (err) { next(err); }
 };

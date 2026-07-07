@@ -353,6 +353,95 @@ const Requisitions = () => {
                   </span>
                 </div>
 
+                {/* Visual Stepper */}
+                <div style={{ 
+                  display: 'flex', 
+                  justifyContent: 'space-between', 
+                  alignItems: 'center', 
+                  padding: '16px 20px', 
+                  background: 'var(--theme-card-bg)', 
+                  border: '1px solid var(--theme-border)',
+                  borderRadius: 'var(--border-radius-lg)', 
+                  margin: '8px 0',
+                  boxShadow: 'var(--shadow-sm)',
+                  position: 'relative'
+                }}>
+                  {/* Progress Line */}
+                  <div style={{ 
+                    position: 'absolute', 
+                    top: '50%', 
+                    left: '12%', 
+                    right: '12%', 
+                    height: '2px', 
+                    backgroundColor: 'var(--theme-border)', 
+                    zIndex: 1, 
+                    transform: 'translateY(-50%)' 
+                  }} />
+                  
+                  {/* Steps */}
+                  {[
+                    { label: 'Submitted', active: true, done: true, color: 'var(--theme-primary)' },
+                    { 
+                      label: 'Co-Verified', 
+                      active: selectedReq.lines?.some(l => l.item?.itemType === 'MEDICATION'),
+                      done: selectedReq.lines?.some(l => l.item?.itemType === 'MEDICATION') && selectedReq.lines?.filter(l => l.item?.itemType === 'MEDICATION').every(l => l.coVerifiedById),
+                      color: 'var(--color-warning)'
+                    },
+                    { 
+                      label: 'Approved', 
+                      active: true, 
+                      done: selectedReq.status === 'FULLY_APPROVED' || selectedReq.status === 'PARTIALLY_APPROVED',
+                      color: 'var(--theme-primary)' 
+                    },
+                    { 
+                      label: selectedReq.status === 'CANCELLED' ? 'Cancelled' : selectedReq.status === 'REJECTED' ? 'Rejected' : 'Completed', 
+                      active: true, 
+                      done: selectedReq.status === 'FULLY_APPROVED' || selectedReq.status === 'CANCELLED' || selectedReq.status === 'REJECTED',
+                      color: selectedReq.status === 'REJECTED' || selectedReq.status === 'CANCELLED' ? 'var(--color-critical)' : 'var(--color-success)'
+                    }
+                  ].map((step, idx) => {
+                    const isPassed = step.done;
+                    return (
+                      <div key={idx} style={{ 
+                        display: 'flex', 
+                        flexDirection: 'column', 
+                        alignItems: 'center', 
+                        zIndex: 2, 
+                        position: 'relative', 
+                        width: '24%',
+                        opacity: step.active || isPassed ? 1 : 0.4 
+                      }}>
+                        <div style={{ 
+                          width: '32px', 
+                          height: '32px', 
+                          borderRadius: '50%', 
+                          backgroundColor: isPassed ? step.color : 'var(--theme-card-bg)', 
+                          border: `2px solid ${isPassed ? step.color : 'var(--theme-border)'}`,
+                          color: isPassed ? '#fff' : 'var(--theme-text-muted)',
+                          display: 'flex', 
+                          alignItems: 'center', 
+                          justifyContent: 'center', 
+                          fontWeight: 'bold',
+                          fontSize: '12px',
+                          boxShadow: isPassed ? `0 0 10px ${step.color}` : 'none',
+                          transition: 'all 0.3s ease'
+                        }}>
+                          {isPassed ? '✓' : idx + 1}
+                        </div>
+                        <span style={{ 
+                          fontSize: '11px', 
+                          fontWeight: '500', 
+                          marginTop: '6px', 
+                          color: isPassed ? 'var(--theme-text-bold)' : 'var(--theme-text-muted)',
+                          textAlign: 'center'
+                        }}>
+                          {step.label}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+
                 <div style={{ background: 'var(--theme-bg)', padding: '12px 16px', borderRadius: 'var(--border-radius-md)', fontSize: '13px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
                   <div><strong>Submitted By:</strong> {selectedReq.submittedBy?.name} ({selectedReq.submittedBy?.role?.replace(/_/g, ' ')})</div>
                   <div><strong>Submitted On:</strong> {new Date(selectedReq.createdAt).toLocaleString()}</div>

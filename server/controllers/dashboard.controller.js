@@ -77,11 +77,15 @@ const getPrefs = async (req, res, next) => {
 const updatePrefs = async (req, res, next) => {
   try {
     const { prefs } = req.body; // [{ widgetKey, isVisible, displayOrder }]
+    if (!Array.isArray(prefs)) {
+      return res.status(400).json({ error: 'prefs must be an array of { widgetKey, isVisible, displayOrder }' });
+    }
     for (const pref of prefs) {
+      if (!pref.widgetKey || typeof pref.widgetKey !== 'string') continue;
       await prisma.userDashboardPref.upsert({
         where: { userId_widgetKey: { userId: req.user.id, widgetKey: pref.widgetKey } },
-        update: { isVisible: pref.isVisible, displayOrder: pref.displayOrder },
-        create: { userId: req.user.id, widgetKey: pref.widgetKey, isVisible: pref.isVisible, displayOrder: pref.displayOrder },
+        update: { isVisible: !!pref.isVisible, displayOrder: parseInt(pref.displayOrder, 10) || 0 },
+        create: { userId: req.user.id, widgetKey: pref.widgetKey, isVisible: !!pref.isVisible, displayOrder: parseInt(pref.displayOrder, 10) || 0 },
       });
     }
     res.json({ message: 'Preferences saved' });

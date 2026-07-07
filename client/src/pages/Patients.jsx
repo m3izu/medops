@@ -2,6 +2,19 @@ import React, { useState, useEffect } from 'react';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
 
+const HighlightText = ({ text, search }) => {
+  if (!search || !text) return <span>{text}</span>;
+  const regex = new RegExp(`(${search.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&')})`, 'gi');
+  const parts = String(text).split(regex);
+  return (
+    <span>
+      {parts.map((part, i) => 
+        regex.test(part) ? <mark key={i} className="search-highlight">{part}</mark> : part
+      )}
+    </span>
+  );
+};
+
 const Patients = () => {
   const { hasPermission } = useAuth();
   const [patients, setPatients] = useState([]);
@@ -234,8 +247,16 @@ const Patients = () => {
                         opacity: patient.status === 'INACTIVE' ? 0.6 : 1,
                       }}
                     >
-                      <td><strong>{patient.name}</strong></td>
-                      <td><code>{patient.chartNumber}</code></td>
+                      <td>
+                        <strong>
+                          <HighlightText text={patient.name} search={filterSearch} />
+                        </strong>
+                      </td>
+                      <td>
+                        <code>
+                          <HighlightText text={patient.chartNumber} search={filterSearch} />
+                        </code>
+                      </td>
                       <td style={{ fontSize: '13px' }}>{patient.diagnosis || '—'}</td>
                       <td style={{ fontSize: '13px' }}>{patient.schedule || '—'}</td>
                       <td>

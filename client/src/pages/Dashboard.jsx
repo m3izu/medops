@@ -4,12 +4,57 @@ import { useAuth } from '../context/AuthContext';
 import api from '../services/api';
 
 const Dashboard = () => {
-  const { user } = useAuth();
+  const { user, hasPermission } = useAuth();
   const [summary, setSummary] = useState(null);
   const [alerts, setAlerts] = useState({ stockAlerts: [], expiringBatches: [] });
   const [prefs, setPrefs] = useState([]);
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
+
+  const quickActions = [
+    { 
+      label: 'Receive Stock', 
+      path: '/stock/receive', 
+      icon: <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12"></polyline><path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"></path></svg>, 
+      permission: 'receive_stock', 
+      color: 'var(--theme-primary)' 
+    },
+    { 
+      label: 'Submit Requisition', 
+      path: '/requisitions', 
+      icon: <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>, 
+      permission: 'submit_requisition', 
+      color: '#8b5cf6' 
+    },
+    { 
+      label: 'Log Discard/Waste', 
+      path: '/discards', 
+      icon: <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>, 
+      permission: 'log_discard', 
+      color: 'var(--color-critical)' 
+    },
+    { 
+      label: 'Initiate Stocktake', 
+      path: '/stocktake', 
+      icon: <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"></path></svg>, 
+      permission: 'initiate_stocktake', 
+      color: 'var(--color-warning)' 
+    },
+    { 
+      label: 'Manage Staff', 
+      path: '/users', 
+      icon: <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>, 
+      permission: 'create_users', 
+      color: '#3b82f6' 
+    },
+    { 
+      label: 'View Reports', 
+      path: '/reports', 
+      icon: <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>, 
+      permission: 'generate_reports', 
+      color: '#10b981' 
+    }
+  ].filter(action => hasPermission(action.permission));
 
   // Widget metadata
   const WIDGETS = {
@@ -177,6 +222,48 @@ const Dashboard = () => {
         )}
       </div>
 
+      {/* Quick Actions Panel */}
+      {quickActions.length > 0 && (
+        <div className="widget-card" style={{ padding: '20px' }}>
+          <div style={{ fontSize: '15px', fontWeight: '600', marginBottom: '14px', color: 'var(--theme-text-bold)' }}>⚡ Quick Action Shortcuts</div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: '14px' }}>
+            {quickActions.map(action => (
+              <Link 
+                key={action.path}
+                to={action.path}
+                className="btn btn-secondary"
+                style={{ 
+                  display: 'flex', 
+                  flexDirection: 'column', 
+                  alignItems: 'center', 
+                  justifyContent: 'center',
+                  padding: '16px 12px',
+                  borderRadius: 'var(--border-radius-md)',
+                  gap: '8px',
+                  height: '100%',
+                  textAlign: 'center',
+                  border: '1px solid var(--theme-border)',
+                  transition: 'transform var(--transition-fast), box-shadow var(--transition-fast), border-color var(--transition-fast)'
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.transform = 'scale(1.03)';
+                  e.currentTarget.style.borderColor = action.color;
+                  e.currentTarget.style.boxShadow = 'var(--shadow-md)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.transform = 'scale(1)';
+                  e.currentTarget.style.borderColor = 'var(--theme-border)';
+                  e.currentTarget.style.boxShadow = 'none';
+                }}
+              >
+                <span style={{ fontSize: '28px' }}>{action.icon}</span>
+                <span style={{ fontWeight: '600', fontSize: '13px', color: 'var(--theme-text-bold)' }}>{action.label}</span>
+              </Link>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Customizable widgets preferences */}
       <div className="widget-customizer">
         <div className="widget-customizer-title">Customize Dashboard Layout Widgets</div>
@@ -245,7 +332,7 @@ const Dashboard = () => {
                 <div className="widget-body">
                   {alerts.stockAlerts.length > 0 && (
                     <div style={{ padding: '12px 16px', background: 'var(--color-critical-bg)', color: 'var(--color-critical)', borderRadius: 'var(--border-radius-md)', marginBottom: '16px', fontSize: '14px', fontWeight: '500' }}>
-                      ⚠️ Critical Alert: Requisitions may be blocked by low stock levels. See details below.
+                      Attention: Requisitions may be blocked by low stock levels. See details below.
                     </div>
                   )}
                   <p style={{ color: 'var(--theme-text-muted)', fontSize: '14px' }}>
@@ -262,7 +349,7 @@ const Dashboard = () => {
                 <div className="widget-header">
                   <div style={{ display: 'flex', alignItems: 'center' }}>
                     {reorderControls}
-                    <span className="widget-title">🚨 Low & Critical Stock Alerts</span>
+                    <span className="widget-title">Low & Critical Stock Alerts</span>
                   </div>
                   <Link to="/items" className="btn btn-secondary btn-sm">Manage Items</Link>
                 </div>
@@ -314,7 +401,7 @@ const Dashboard = () => {
                 <div className="widget-header">
                   <div style={{ display: 'flex', alignItems: 'center' }}>
                     {reorderControls}
-                    <span className="widget-title">💊 Expiring Medications (Within 90 Days)</span>
+                    <span className="widget-title">Expiring Medications (Within 90 Days)</span>
                   </div>
                   <Link to="/items" className="btn btn-secondary btn-sm">Item Catalog</Link>
                 </div>
@@ -365,7 +452,7 @@ const Dashboard = () => {
                 <div className="widget-header">
                   <div style={{ display: 'flex', alignItems: 'center' }}>
                     {reorderControls}
-                    <span className="widget-title">📜 Recent Inventory Logs (Audit Trail)</span>
+                    <span className="widget-title">Recent Inventory Logs (Audit Trail)</span>
                   </div>
                   <Link to="/stock/transactions" className="btn btn-secondary btn-sm">Full Audit Feed</Link>
                 </div>

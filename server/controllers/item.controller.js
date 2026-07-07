@@ -48,9 +48,21 @@ const create = async (req, res, next) => {
       return res.status(400).json({ error: 'name, sku, itemType, and unit are required' });
     }
 
+    if (warningLevel !== undefined && (typeof warningLevel !== 'number' || warningLevel < 0)) {
+      return res.status(400).json({ error: 'Warning level must be a non-negative number' });
+    }
+    if (criticalLevel !== undefined && (typeof criticalLevel !== 'number' || criticalLevel < 0)) {
+      return res.status(400).json({ error: 'Critical level must be a non-negative number' });
+    }
+
+    const existing = await prisma.item.findUnique({ where: { sku: sku.trim() } });
+    if (existing) {
+      return res.status(400).json({ error: `SKU "${sku}" is already in use.` });
+    }
+
     const item = await prisma.item.create({
       data: {
-        name, sku, categoryId, itemType, unit,
+        name, sku: sku.trim(), categoryId, itemType, unit,
         warningLevel: warningLevel ?? 10,
         criticalLevel: criticalLevel ?? 5,
         supplierId, serialNumber, condition,
@@ -82,6 +94,14 @@ const getOne = async (req, res, next) => {
 const update = async (req, res, next) => {
   try {
     const { name, categoryId, unit, warningLevel, criticalLevel, supplierId, condition } = req.body;
+    
+    if (warningLevel !== undefined && (typeof warningLevel !== 'number' || warningLevel < 0)) {
+      return res.status(400).json({ error: 'Warning level must be a non-negative number' });
+    }
+    if (criticalLevel !== undefined && (typeof criticalLevel !== 'number' || criticalLevel < 0)) {
+      return res.status(400).json({ error: 'Critical level must be a non-negative number' });
+    }
+
     const item = await prisma.item.update({
       where: { id: req.params.id },
       data: { name, categoryId, unit, warningLevel, criticalLevel, supplierId, condition },

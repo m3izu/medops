@@ -82,6 +82,13 @@ const getOne = async (req, res, next) => {
       },
     });
     if (!req_) return res.status(404).json({ error: 'Requisition not found' });
+
+    // Enforcement: Nurses can only view their own requisitions
+    const { role, id: userId } = req.user;
+    if (role === 'NURSE' && req_.submittedById !== userId) {
+      return res.status(403).json({ error: 'You do not have permission to view this requisition.' });
+    }
+
     res.json(req_);
   } catch (err) { next(err); }
 };
@@ -114,59 +121,92 @@ const cancel = async (req, res, next) => {
 const approveLine = async (req, res, next) => {
   try {
     const { qtyApproved } = req.body;
+    
+    if (qtyApproved !== undefined && (typeof qtyApproved !== 'number' || qtyApproved <= 0)) {
+      return res.status(400).json({ error: 'Approved quantity must be a positive number' });
+    }
+
     const line = await prisma.requisitionLine.findUnique({ where: { id: req.params.lineId } });
     if (!line) return res.status(404).json({ error: 'Line item not found' });
     if (line.status !== 'PENDING') return res.status(400).json({ error: 'Line item is not pending' });
 
-    const item = await prisma.item.findUnique({
-      where: { id: line.itemId },
-      include: { stockLevel: true, batches: { where: { quantityRemaining: { gt: 0 } }, orderBy: { expiryDate: 'asc' } } },
-    });
-
-    if (item.itemType === 'MEDICATION' && !line.coVerifiedById) {
-      return res.status(400).json({ error: 'Medication co-verification is required before approval.' });
-    }
-
     const approvedQty = qtyApproved ?? line.qtyRequested;
-    if (item.stockLevel.quantityOnHand < approvedQty) {
-      return res.status(400).json({ error: 'Insufficient stock for this quantity' });
-    }
 
-    // FIFO: deduct from oldest batch first
-    let remaining = approvedQty;
-    for (const batch of item.batches) {
-      if (remaining <= 0) break;
-      const deduct = Math.min(batch.quantityRemaining, remaining);
-      await prisma.itemBatch.update({
-        where: { id: batch.id },
-        data: { quantityRemaining: { decrement: deduct } },
+    // Execute batch deduction and stock updates in a single database transaction
+    await prisma.$transaction(async (tx) => {
+      const item = await tx.item.findUnique({
+        where: { id: line.itemId },
+        include: { stockLevel: true, batches: { where: { quantityRemaining: { gt: 0 } }, orderBy: { expiryDate: 'asc' } } },
       });
-      await prisma.transactionLog.create({
-        data: {
-          itemId: line.itemId,
-          batchId: batch.id,
-          type: 'OUTBOUND',
-          qty: deduct,
-          userId: req.user.id,
-          requisitionLineId: line.id,
-        },
-      });
-      remaining -= deduct;
-    }
 
-    // Update stock level
-    await prisma.stockLevel.update({
-      where: { itemId: line.itemId },
-      data: { quantityOnHand: { decrement: approvedQty }, lastUpdated: new Date() },
+      if (!item) {
+        throw new Error('Item not found');
+      }
+
+      if (item.itemType === 'MEDICATION' && !line.coVerifiedById) {
+        throw new Error('Medication co-verification is required before approval.');
+      }
+
+      const currentStock = item.stockLevel?.quantityOnHand ?? 0;
+      if (currentStock < approvedQty) {
+        throw new Error(`Insufficient stock for this quantity. Available: ${currentStock} ${item.unit}`);
+      }
+
+      let remaining = approvedQty;
+      
+      if (item.itemType === 'MEDICATION') {
+        for (const batch of item.batches) {
+          if (remaining <= 0) break;
+          const deduct = Math.min(batch.quantityRemaining, remaining);
+          
+          await tx.itemBatch.update({
+            where: { id: batch.id },
+            data: { quantityRemaining: { decrement: deduct } },
+          });
+
+          await tx.transactionLog.create({
+            data: {
+              itemId: line.itemId,
+              batchId: batch.id,
+              type: 'OUTBOUND',
+              qty: deduct,
+              userId: req.user.id,
+              requisitionLineId: line.id,
+            },
+          });
+          remaining -= deduct;
+        }
+
+        if (remaining > 0) {
+          throw new Error('Insufficient Medication batch quantities remaining to fulfill this request.');
+        }
+      } else {
+        // Non-medication outbound logging
+        await tx.transactionLog.create({
+          data: {
+            itemId: line.itemId,
+            type: 'OUTBOUND',
+            qty: approvedQty,
+            userId: req.user.id,
+            requisitionLineId: line.id,
+          },
+        });
+      }
+
+      // Update stock level
+      await tx.stockLevel.update({
+        where: { itemId: line.itemId },
+        data: { quantityOnHand: { decrement: approvedQty }, lastUpdated: new Date() },
+      });
+
+      // Update line status
+      await tx.requisitionLine.update({
+        where: { id: line.id },
+        data: { status: 'APPROVED', qtyApproved: approvedQty, reviewedById: req.user.id },
+      });
     });
 
-    // Update line status
-    await prisma.requisitionLine.update({
-      where: { id: line.id },
-      data: { status: 'APPROVED', qtyApproved: approvedQty, reviewedById: req.user.id },
-    });
-
-    // Check stock alerts
+    // Check stock alerts (outside transaction to avoid blocking locks)
     await checkAndFireAlerts(line.itemId);
 
     // Update requisition status
@@ -174,17 +214,28 @@ const approveLine = async (req, res, next) => {
 
     // Notify the submitter
     const requisition = await prisma.requisition.findUnique({ where: { id: req.params.id } });
+    const itemObj = await prisma.item.findUnique({ where: { id: line.itemId } });
     await prisma.notification.create({
       data: {
         userId: requisition.submittedById,
         eventType: 'REQUISITION_LINE_APPROVED',
-        message: `Item request approved: ${item.name} (${approvedQty} ${item.unit})`,
+        message: `Item request approved: ${itemObj.name} (${approvedQty} ${itemObj.unit})`,
         link: `/requisitions/${req.params.id}`,
       },
     });
 
     res.json({ message: 'Line item approved', qtyApproved: approvedQty });
-  } catch (err) { next(err); }
+  } catch (err) {
+    const knownErrors = [
+      'Item not found',
+      'Medication co-verification is required before approval.',
+      'Insufficient Medication batch quantities remaining to fulfill this request.'
+    ];
+    if (knownErrors.includes(err.message) || err.message.startsWith('Insufficient stock for this quantity')) {
+      return res.status(400).json({ error: err.message });
+    }
+    next(err);
+  }
 };
 
 const rejectLine = async (req, res, next) => {
@@ -221,6 +272,11 @@ const rejectLine = async (req, res, next) => {
 const resubmitLine = async (req, res, next) => {
   try {
     const { itemId, quantity, reason } = req.body;
+    
+    if (quantity !== undefined && (typeof quantity !== 'number' || quantity <= 0)) {
+      return res.status(400).json({ error: 'Quantity must be a positive number' });
+    }
+
     const originalLine = await prisma.requisitionLine.findUnique({ where: { id: req.params.lineId } });
     if (!originalLine) return res.status(404).json({ error: 'Original line not found' });
     if (originalLine.status !== 'REJECTED') return res.status(400).json({ error: 'Only rejected lines can be resubmitted' });
