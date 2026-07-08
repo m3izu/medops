@@ -30,11 +30,6 @@ const Users = () => {
   const [allPermissionKeys, setAllPermissionKeys] = useState([]);
   const [lockedPermissions, setLockedPermissions] = useState([]);
 
-  // Session timeout state
-  const [sessionTimeout, setSessionTimeout] = useState(30);
-  const [sessionLoading, setSessionLoading] = useState(false);
-  const [savingSession, setSavingSession] = useState(false);
-
   const ROLES = [
     'TOP_ADMIN',
     'INVENTORY_MANAGER',
@@ -73,41 +68,11 @@ const Users = () => {
     }
   };
 
-  const fetchSessionTimeout = async () => {
-    try {
-      setSessionLoading(true);
-      const response = await api.get('/permissions/session');
-      setSessionTimeout(response.data.timeoutMinutes || 30);
-    } catch (err) {
-      console.error('Error fetching session timeout', err);
-    } finally {
-      setSessionLoading(false);
-    }
-  };
-
-  const handleSaveSessionTimeout = async (e) => {
-    e.preventDefault();
-    setError('');
-    setSuccess('');
-    try {
-      setSavingSession(true);
-      await api.put('/permissions/session', { timeoutMinutes: parseInt(sessionTimeout, 10) });
-      setSuccess('Session inactivity timeout updated successfully.');
-    } catch (err) {
-      setError(err.response?.data?.error || 'Failed to save session timeout.');
-    } finally {
-      setSavingSession(false);
-    }
-  };
-
   useEffect(() => {
     fetchUsers();
     fetchRolePermissions();
     fetchAuditLogs();
-    if (currentUser?.role === 'TOP_ADMIN') {
-      fetchSessionTimeout();
-    }
-  }, [currentUser]);
+  }, []);
 
   const handleCreateUser = async (e) => {
     e.preventDefault();
@@ -229,14 +194,6 @@ const Users = () => {
         >
           📜 Permission Changes Audit Log
         </button>
-        {currentUser?.role === 'TOP_ADMIN' && (
-          <button 
-            className={`btn ${activeTab === 'settings' ? 'btn-primary' : 'btn-secondary'}`}
-            onClick={() => { setActiveTab('settings'); setSelectedUser(null); fetchSessionTimeout(); }}
-          >
-            ⏰ Inactivity Timeout Settings
-          </button>
-        )}
       </div>
 
       {activeTab === 'list' && (
@@ -477,47 +434,6 @@ const Users = () => {
                 ))}
               </tbody>
             </table>
-          </div>
-        </div>
-      )}
-
-      {activeTab === 'settings' && currentUser?.role === 'TOP_ADMIN' && (
-        <div className="widget-card" style={{ maxWidth: '600px' }}>
-          <div className="widget-header">
-            <span className="widget-title">Configure Session Inactivity Timeout</span>
-          </div>
-          <div className="widget-body">
-            <p style={{ fontSize: '13px', color: 'var(--theme-text-muted)', marginBottom: '20px' }}>
-              Set the inactivity period (in minutes) after which staff members are automatically signed out.
-            </p>
-            {sessionLoading ? (
-              <p style={{ color: 'var(--theme-text-muted)', fontSize: '13px' }}>Loading session configuration...</p>
-            ) : (
-              <form onSubmit={handleSaveSessionTimeout} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                <div className="form-group">
-                  <label className="form-label" htmlFor="sessionTimeoutInput">Inactivity Limit (Minutes)</label>
-                  <input
-                    id="sessionTimeoutInput"
-                    className="form-control"
-                    type="number"
-                    min="1"
-                    max="1440"
-                    value={sessionTimeout}
-                    onChange={(e) => setSessionTimeout(e.target.value)}
-                    required
-                    style={{ maxWidth: '200px' }}
-                  />
-                </div>
-                <button
-                  type="submit"
-                  className="btn btn-primary"
-                  disabled={savingSession}
-                  style={{ alignSelf: 'flex-start' }}
-                >
-                  {savingSession ? 'Saving...' : 'Save Settings'}
-                </button>
-              </form>
-            )}
           </div>
         </div>
       )}
