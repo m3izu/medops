@@ -11,6 +11,8 @@ const getLogs = async (req, res, next) => {
       if (to) where.timestamp.lte = new Date(to);
     }
 
+    const parsedLimit = Math.min(Math.max(parseInt(limit, 10) || 100, 1), 500);
+
     const logs = await prisma.transactionLog.findMany({
       where,
       include: {
@@ -23,7 +25,7 @@ const getLogs = async (req, res, next) => {
         },
       },
       orderBy: { timestamp: 'desc' },
-      take: parseInt(limit),
+      take: parsedLimit,
     });
     res.json(logs);
   } catch (err) { next(err); }

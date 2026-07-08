@@ -90,9 +90,14 @@ const importCsv = async (req, res, next) => {
             }
           }
 
-          const warningLevel = parseInt(row.warningLevel) || 10;
-          const criticalLevel = parseInt(row.criticalLevel) || 5;
-          const initialQty = parseInt(row.initialQty) || 0;
+          const parsedWarn = parseInt(row.warningLevel, 10);
+          const warningLevel = isNaN(parsedWarn) ? 10 : parsedWarn;
+
+          const parsedCrit = parseInt(row.criticalLevel, 10);
+          const criticalLevel = isNaN(parsedCrit) ? 5 : parsedCrit;
+
+          const parsedInit = parseInt(row.initialQty, 10);
+          const initialQty = isNaN(parsedInit) ? 0 : parsedInit;
 
           if (initialQty < 0) {
             throw new Error(`Row ${lineNum}: Initial quantity cannot be negative.`);

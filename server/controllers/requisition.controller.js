@@ -101,21 +101,37 @@ const cancel = async (req, res, next) => {
     const { role, id: userId } = req.user;
     const canCancel = role === 'TOP_ADMIN' || role === 'INVENTORY_MANAGER' || requisition.submittedById === userId;
     if (!canCancel) return res.status(403).json({ error: 'You cannot cancel this requisition' });
-    if (requisition.status !== 'PENDING' && requisition.status !== 'PARTIALLY_APPROVED') {
-      return res.status(400).json({ error: 'Only pending requisitions can be cancelled' });
-    }
 
-    await prisma.requisition.update({
-      where: { id: req.params.id },
-      data: {
-        status: 'CANCELLED',
-        cancelledBy: userId,
-        cancelledAt: new Date(),
-        lines: { updateMany: { where: { status: 'PENDING' }, data: { status: 'CANCELLED' } } },
-      },
+    await prisma.$transaction(async (tx) => {
+      const reqDb = await tx.requisition.findUnique({ where: { id: req.params.id } });
+      if (!reqDb) {
+        throw new Error('Requisition not found');
+      }
+      if (reqDb.status !== 'PENDING' && reqDb.status !== 'PARTIALLY_APPROVED') {
+        throw new Error('Only pending requisitions can be cancelled');
+      }
+
+      await tx.requisition.update({
+        where: { id: req.params.id },
+        data: {
+          status: 'CANCELLED',
+          cancelledBy: userId,
+          cancelledAt: new Date(),
+          lines: { updateMany: { where: { status: 'PENDING' }, data: { status: 'CANCELLED' } } },
+        },
+      });
     });
+
     res.json({ message: 'Requisition cancelled' });
-  } catch (err) { next(err); }
+  } catch (err) {
+    if (err.message === 'Requisition not found') {
+      return res.status(404).json({ error: err.message });
+    }
+    if (err.message === 'Only pending requisitions can be cancelled') {
+      return res.status(400).json({ error: err.message });
+    }
+    next(err);
+  }
 };
 
 const approveLine = async (req, res, next) => {
@@ -128,14 +144,22 @@ const approveLine = async (req, res, next) => {
 
     const line = await prisma.requisitionLine.findUnique({ where: { id: req.params.lineId } });
     if (!line) return res.status(404).json({ error: 'Line item not found' });
-    if (line.status !== 'PENDING') return res.status(400).json({ error: 'Line item is not pending' });
 
     const approvedQty = qtyApproved ?? line.qtyRequested;
+    let requisition;
 
     // Execute batch deduction and stock updates in a single database transaction
     await prisma.$transaction(async (tx) => {
+      const lineDb = await tx.requisitionLine.findUnique({ where: { id: req.params.lineId } });
+      if (!lineDb) {
+        throw new Error('Line item not found');
+      }
+      if (lineDb.status !== 'PENDING') {
+        throw new Error('Line item is not pending');
+      }
+
       const item = await tx.item.findUnique({
-        where: { id: line.itemId },
+        where: { id: lineDb.itemId },
         include: { stockLevel: true, batches: { where: { quantityRemaining: { gt: 0 } }, orderBy: { expiryDate: 'asc' } } },
       });
 
@@ -143,7 +167,7 @@ const approveLine = async (req, res, next) => {
         throw new Error('Item not found');
       }
 
-      if (item.itemType === 'MEDICATION' && !line.coVerifiedById) {
+      if (item.itemType === 'MEDICATION' && !lineDb.coVerifiedById) {
         throw new Error('Medication co-verification is required before approval.');
       }
 
@@ -166,12 +190,12 @@ const approveLine = async (req, res, next) => {
 
           await tx.transactionLog.create({
             data: {
-              itemId: line.itemId,
+              itemId: lineDb.itemId,
               batchId: batch.id,
               type: 'OUTBOUND',
               qty: deduct,
               userId: req.user.id,
-              requisitionLineId: line.id,
+              requisitionLineId: lineDb.id,
             },
           });
           remaining -= deduct;
@@ -184,49 +208,52 @@ const approveLine = async (req, res, next) => {
         // Non-medication outbound logging
         await tx.transactionLog.create({
           data: {
-            itemId: line.itemId,
+            itemId: lineDb.itemId,
             type: 'OUTBOUND',
             qty: approvedQty,
             userId: req.user.id,
-            requisitionLineId: line.id,
+            requisitionLineId: lineDb.id,
           },
         });
       }
 
       // Update stock level
       await tx.stockLevel.update({
-        where: { itemId: line.itemId },
+        where: { itemId: lineDb.itemId },
         data: { quantityOnHand: { decrement: approvedQty }, lastUpdated: new Date() },
       });
 
       // Update line status
       await tx.requisitionLine.update({
-        where: { id: line.id },
+        where: { id: lineDb.id },
         data: { status: 'APPROVED', qtyApproved: approvedQty, reviewedById: req.user.id },
       });
+
+      // Update requisition status (Bug #3, #8)
+      await updateRequisitionStatus(lineDb.requisitionId, tx);
+
+      requisition = await tx.requisition.findUnique({ where: { id: lineDb.requisitionId } });
     });
 
     // Check stock alerts (outside transaction to avoid blocking locks)
     await checkAndFireAlerts(line.itemId);
 
-    // Update requisition status
-    await updateRequisitionStatus(req.params.id);
-
-    // Notify the submitter
-    const requisition = await prisma.requisition.findUnique({ where: { id: req.params.id } });
+    // Notify the submitter using correct requisition ID (Bug #8)
     const itemObj = await prisma.item.findUnique({ where: { id: line.itemId } });
     await prisma.notification.create({
       data: {
         userId: requisition.submittedById,
         eventType: 'REQUISITION_LINE_APPROVED',
         message: `Item request approved: ${itemObj.name} (${approvedQty} ${itemObj.unit})`,
-        link: `/requisitions/${req.params.id}`,
+        link: `/requisitions/${requisition.id}`,
       },
     });
 
     res.json({ message: 'Line item approved', qtyApproved: approvedQty });
   } catch (err) {
     const knownErrors = [
+      'Line item not found',
+      'Line item is not pending',
       'Item not found',
       'Medication co-verification is required before approval.',
       'Insufficient Medication batch quantities remaining to fulfill this request.'
@@ -245,28 +272,45 @@ const rejectLine = async (req, res, next) => {
 
     const line = await prisma.requisitionLine.findUnique({ where: { id: req.params.lineId } });
     if (!line) return res.status(404).json({ error: 'Line item not found' });
-    if (line.status !== 'PENDING') return res.status(400).json({ error: 'Line item is not pending' });
 
-    await prisma.requisitionLine.update({
-      where: { id: line.id },
-      data: { status: 'REJECTED', rejectionReason, reviewedById: req.user.id },
+    let requisition;
+    await prisma.$transaction(async (tx) => {
+      const lineDb = await tx.requisitionLine.findUnique({ where: { id: req.params.lineId } });
+      if (!lineDb) {
+        throw new Error('Line item not found');
+      }
+      if (lineDb.status !== 'PENDING') {
+        throw new Error('Line item is not pending');
+      }
+
+      await tx.requisitionLine.update({
+        where: { id: lineDb.id },
+        data: { status: 'REJECTED', rejectionReason, reviewedById: req.user.id },
+      });
+
+      await updateRequisitionStatus(lineDb.requisitionId, tx);
+
+      requisition = await tx.requisition.findUnique({ where: { id: lineDb.requisitionId } });
     });
 
-    await updateRequisitionStatus(req.params.id);
-
-    const requisition = await prisma.requisition.findUnique({ where: { id: req.params.id } });
     const item = await prisma.item.findUnique({ where: { id: line.itemId }, select: { name: true } });
     await prisma.notification.create({
       data: {
         userId: requisition.submittedById,
         eventType: 'REQUISITION_LINE_REJECTED',
         message: `Item request rejected: ${item.name} — ${rejectionReason}`,
-        link: `/requisitions/${req.params.id}`,
+        link: `/requisitions/${requisition.id}`,
       },
     });
 
     res.json({ message: 'Line item rejected' });
-  } catch (err) { next(err); }
+  } catch (err) {
+    const knownErrors = ['Line item not found', 'Line item is not pending'];
+    if (knownErrors.includes(err.message)) {
+      return res.status(400).json({ error: err.message });
+    }
+    next(err);
+  }
 };
 
 const resubmitLine = async (req, res, next) => {
@@ -334,15 +378,16 @@ const coVerifyLine = async (req, res, next) => {
 };
 
 // Helper to sync requisition status from its lines
-async function updateRequisitionStatus(requisitionId) {
-  const lines = await prisma.requisitionLine.findMany({ where: { requisitionId } });
+async function updateRequisitionStatus(requisitionId, tx) {
+  const client = tx || prisma;
+  const lines = await client.requisitionLine.findMany({ where: { requisitionId } });
   const statuses = lines.map(l => l.status);
   let newStatus = 'PENDING';
   if (statuses.every(s => s === 'APPROVED')) newStatus = 'FULLY_APPROVED';
   else if (statuses.every(s => s === 'REJECTED' || s === 'CANCELLED')) newStatus = 'REJECTED';
   else if (statuses.some(s => s === 'APPROVED')) newStatus = 'PARTIALLY_APPROVED';
 
-  await prisma.requisition.update({ where: { id: requisitionId }, data: { status: newStatus } });
+  await client.requisition.update({ where: { id: requisitionId }, data: { status: newStatus } });
 }
 
 module.exports = { list, create, getOne, cancel, approveLine, rejectLine, resubmitLine, coVerifyLine };

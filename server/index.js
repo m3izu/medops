@@ -1,7 +1,14 @@
 const express = require('express');
 const cors = require('cors');
 const cookieParser = require('cookie-parser');
+const path = require('path');
 require('dotenv').config();
+
+if (process.env.NODE_ENV === 'production' && (!process.env.JWT_SECRET || process.env.JWT_SECRET === 'medops-super-secret-jwt-key-change-in-production')) {
+  console.error('FATAL: JWT_SECRET must be set to a secure custom value in production!');
+  process.exit(1);
+}
+
 
 const authRoutes = require('./routes/auth.routes');
 const userRoutes = require('./routes/user.routes');
@@ -46,6 +53,15 @@ app.use('/api/reports', reportRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/mgmt', mgmtRoutes);
 app.use('/api/import', importRoutes);
+
+// Serve static frontend files in production
+if (process.env.NODE_ENV === 'production') {
+  app.use(express.static(path.join(__dirname, '../client/dist')));
+  app.get('*', (req, res, next) => {
+    if (req.path.startsWith('/api')) return next();
+    res.sendFile(path.join(__dirname, '../client/dist/index.html'));
+  });
+}
 
 // Health check
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));

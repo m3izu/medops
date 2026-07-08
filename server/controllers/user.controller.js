@@ -75,6 +75,10 @@ const updateUser = async (req, res, next) => {
     if (role && req.params.id === req.user.id) {
       return res.status(400).json({ error: 'You cannot change your own role' });
     }
+
+    const existing = await prisma.user.findUnique({ where: { id: req.params.id } });
+    if (!existing || existing.isDeleted) return res.status(404).json({ error: 'User not found' });
+
     const user = await prisma.user.update({
       where: { id: req.params.id },
       data: { name, role },
@@ -104,6 +108,9 @@ const resetPassword = async (req, res, next) => {
       return res.status(400).json({ error: 'Password must be at least 6 characters' });
     }
 
+    const existing = await prisma.user.findUnique({ where: { id: req.params.id } });
+    if (!existing || existing.isDeleted) return res.status(404).json({ error: 'User not found' });
+
     const passwordHash = await bcrypt.hash(temporaryPassword, 12);
     await prisma.user.update({
       where: { id: req.params.id },
@@ -118,6 +125,10 @@ const deleteUser = async (req, res, next) => {
     if (req.params.id === req.user.id) {
       return res.status(400).json({ error: 'You cannot delete your own account' });
     }
+
+    const existing = await prisma.user.findUnique({ where: { id: req.params.id } });
+    if (!existing || existing.isDeleted) return res.status(404).json({ error: 'User not found' });
+
     // Soft delete — preserve all history
     await prisma.user.update({
       where: { id: req.params.id },

@@ -12,6 +12,13 @@ const list = async (req, res, next) => {
 
 const initiate = async (req, res, next) => {
   try {
+    const existing = await prisma.stocktake.findFirst({
+      where: { status: 'IN_PROGRESS' },
+    });
+    if (existing) {
+      return res.status(400).json({ error: 'A stocktake session is already in progress.' });
+    }
+
     const items = await prisma.item.findMany({
       where: { isArchived: false },
       include: { stockLevel: true },
@@ -70,8 +77,14 @@ const updateLine = async (req, res, next) => {
       return res.status(400).json({ error: 'Physical quantity must be a non-negative number' });
     }
 
-    const line = await prisma.stocktakeLine.findUnique({ where: { id: req.params.lineId } });
+    const line = await prisma.stocktakeLine.findUnique({
+      where: { id: req.params.lineId },
+      include: { stocktake: true },
+    });
     if (!line) return res.status(404).json({ error: 'Stocktake line not found' });
+    if (line.stocktake.status !== 'IN_PROGRESS') {
+      return res.status(400).json({ error: 'Cannot update counts on a completed or cancelled stocktake.' });
+    }
 
     const discrepancy = physicalQty - line.systemQty;
     await prisma.stocktakeLine.update({
@@ -94,6 +107,15 @@ const complete = async (req, res, next) => {
       where: { stocktakeId: req.params.id },
       include: { item: true }
     });
+
+    // Verify all lines have been counted (Bug #2)
+    const uncounted = lines.filter(l => l.physicalQty === null);
+    if (uncounted.length > 0) {
+      return res.status(400).json({
+        error: 'Cannot complete stocktake. Some items have not been counted.',
+        uncountedItems: uncounted.map(l => ({ id: l.itemId, name: l.item.name, sku: l.item.sku }))
+      });
+    }
 
     // Execute all adjustments and state changes in a single atomic database transaction
     await prisma.$transaction(async (tx) => {

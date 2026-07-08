@@ -34,8 +34,14 @@ const PrivateRoute = ({ children, requiredPermission }) => {
     return <Navigate to="/login" replace />;
   }
 
-  if (requiredPermission && !hasPermission(requiredPermission)) {
-    return <Navigate to="/" replace />;
+  if (requiredPermission) {
+    const isAllowed = Array.isArray(requiredPermission)
+      ? requiredPermission.some(p => hasPermission(p))
+      : hasPermission(requiredPermission);
+
+    if (!isAllowed) {
+      return <Navigate to="/" replace />;
+    }
   }
 
   return <Layout>{children}</Layout>;
@@ -69,7 +75,7 @@ function App() {
           <Route
             path="/patients"
             element={
-              <PrivateRoute requiredPermission="manage_patients">
+              <PrivateRoute requiredPermission={['manage_patients', 'submit_requisition', 'view_inventory_logs']}>
                 <Patients />
               </PrivateRoute>
             }

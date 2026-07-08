@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
 import api from '../services/api';
 
 const AuthContext = createContext(null);
@@ -30,7 +30,7 @@ export const AuthProvider = ({ children }) => {
   }, []);
 
   // Inactivity timeout handling
-  const resetInactivityTimer = () => {
+  const resetInactivityTimer = useCallback(() => {
     if (timeoutTimerRef.current) {
       clearTimeout(timeoutTimerRef.current);
     }
@@ -39,7 +39,7 @@ export const AuthProvider = ({ children }) => {
         logout(true); // logout due to inactivity
       }, sessionTimeoutMinutes * 60 * 1000);
     }
-  };
+  }, [user, sessionTimeoutMinutes]);
 
   useEffect(() => {
     if (!user) {
@@ -58,7 +58,7 @@ export const AuthProvider = ({ children }) => {
       events.forEach(event => window.removeEventListener(event, handleActivity));
       if (timeoutTimerRef.current) clearTimeout(timeoutTimerRef.current);
     };
-  }, [user, sessionTimeoutMinutes]);
+  }, [user, resetInactivityTimer]);
 
   const login = async (username, password) => {
     const response = await api.post('/auth/login', { username, password });
@@ -85,8 +85,6 @@ export const AuthProvider = ({ children }) => {
   };
 
   const hasPermission = (permissionKey) => {
-    // TOP_ADMIN bypasses all checks except locked permissions (which they always have)
-    if (user?.role === 'TOP_ADMIN') return true;
     return !!permissions[permissionKey];
   };
 

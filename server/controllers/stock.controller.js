@@ -63,63 +63,78 @@ const receiveStock = async (req, res, next) => {
       return res.status(400).json({ error: 'itemId and positive quantity are required' });
     }
 
-    // Verify item exists
-    const item = await prisma.item.findUnique({ where: { id: itemId } });
-    if (!item) {
-      return res.status(404).json({ error: 'Item not found' });
-    }
-    if (item.isArchived) {
-      return res.status(400).json({ error: 'Cannot receive stock for an archived item' });
-    }
-
-    // Create batch if batch details provided (medications)
-    let batchId = null;
-    if (batchNo || expiryDate) {
-      if (expiryDate) {
-        const expDate = new Date(expiryDate);
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-        if (expDate < today) {
-          return res.status(400).json({ error: 'Medication batch cannot be registered with a past expiry date.' });
-        }
+    const result = await prisma.$transaction(async (tx) => {
+      // Verify item exists
+      const item = await tx.item.findUnique({ where: { id: itemId } });
+      if (!item) {
+        throw new Error('Item not found');
+      }
+      if (item.isArchived) {
+        throw new Error('Cannot receive stock for an archived item');
       }
 
-      const batch = await prisma.itemBatch.create({
+      // Create batch if batch details provided (medications)
+      let batchId = null;
+      if (batchNo || expiryDate) {
+        if (expiryDate) {
+          const expDate = new Date(expiryDate);
+          const today = new Date();
+          today.setHours(0, 0, 0, 0);
+          if (expDate < today) {
+            throw new Error('Medication batch cannot be registered with a past expiry date.');
+          }
+        }
+
+        const batch = await tx.itemBatch.create({
+          data: {
+            itemId,
+            batchNo,
+            expiryDate: expiryDate ? new Date(expiryDate) : null,
+            quantityRemaining: quantity,
+            supplierId,
+          },
+        });
+        batchId = batch.id;
+      }
+
+      // Transaction log
+      const txn = await tx.transactionLog.create({
         data: {
           itemId,
-          batchNo,
-          expiryDate: expiryDate ? new Date(expiryDate) : null,
-          quantityRemaining: quantity,
-          supplierId,
+          batchId,
+          type: 'INBOUND',
+          qty: quantity,
+          userId: req.user.id,
+          notes,
         },
       });
-      batchId = batch.id;
-    }
 
-    // Transaction log
-    const txn = await prisma.transactionLog.create({
-      data: {
-        itemId,
-        batchId,
-        type: 'INBOUND',
-        qty: quantity,
-        userId: req.user.id,
-        notes,
-      },
-    });
+      // Update stock level
+      await tx.stockLevel.upsert({
+        where: { itemId },
+        update: { quantityOnHand: { increment: quantity }, lastUpdated: new Date() },
+        create: { itemId, quantityOnHand: quantity },
+      });
 
-    // Update stock level
-    await prisma.stockLevel.upsert({
-      where: { itemId },
-      update: { quantityOnHand: { increment: quantity }, lastUpdated: new Date() },
-      create: { itemId, quantityOnHand: quantity },
+      return { txn, batchId };
     });
 
     // Re-evaluate stock alerts (stock may have come back above warning/critical)
     await checkAndFireAlerts(itemId);
 
-    res.status(201).json({ transaction: txn, batchId });
-  } catch (err) { next(err); }
+    res.status(201).json({ transaction: result.txn, batchId: result.batchId });
+  } catch (err) {
+    if (err.message === 'Item not found') {
+      return res.status(404).json({ error: err.message });
+    }
+    if (
+      err.message === 'Cannot receive stock for an archived item' ||
+      err.message === 'Medication batch cannot be registered with a past expiry date.'
+    ) {
+      return res.status(400).json({ error: err.message });
+    }
+    next(err);
+  }
 };
 
 const getTransactions = async (req, res, next) => {
@@ -154,7 +169,15 @@ const getTransactions = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
+let lastExpiryAlertCheck = 0;
+
 const checkAndFireExpiryAlerts = async () => {
+  const now = Date.now();
+  if (now - lastExpiryAlertCheck < 5 * 60 * 1000) {
+    return; // Cooldown active (Bug #19)
+  }
+  lastExpiryAlertCheck = now;
+
   const today = new Date();
   const in90 = new Date(today);
   in90.setDate(today.getDate() + 90);
