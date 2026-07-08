@@ -20,6 +20,9 @@ RUN npm ci
 # Copy server code
 COPY server/ ./
 
+# Generate Prisma client
+RUN npx prisma generate
+
 # Copy compiled frontend from client-builder stage
 COPY --from=client-builder /app/client/dist /app/client/dist
 
