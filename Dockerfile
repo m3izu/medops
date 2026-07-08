@@ -29,7 +29,6 @@ COPY --from=client-builder /app/client/dist /app/client/dist
 # Expose port and configure production env
 ENV NODE_ENV=production
 ENV PORT=8080
-ENV DATABASE_PATH=/data/medops.db
 EXPOSE 8080
 
 # Command to generate Prisma client and run seed/start script on boot
