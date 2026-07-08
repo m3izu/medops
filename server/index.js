@@ -57,7 +57,7 @@ app.use('/api/import', importRoutes);
 // Serve static frontend files in production
 if (process.env.NODE_ENV === 'production') {
   app.use(express.static(path.join(__dirname, '../client/dist')));
-  app.get('*', (req, res, next) => {
+  app.get('/*', (req, res, next) => {
     if (req.path.startsWith('/api')) return next();
     res.sendFile(path.join(__dirname, '../client/dist/index.html'));
   });
