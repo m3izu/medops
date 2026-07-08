@@ -46,6 +46,7 @@ const login = async (req, res, next) => {
     const permissions = await getEffectivePermissions(user.id, user.role);
 
     return res.json({
+      token,
       user: {
         id: user.id,
         name: user.name,

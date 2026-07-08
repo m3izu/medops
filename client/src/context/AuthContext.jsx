@@ -12,6 +12,14 @@ export const AuthProvider = ({ children }) => {
 
   // Checks current session status on mount
   const checkSession = async () => {
+    const token = localStorage.getItem('token');
+    if (!token) {
+      setUser(null);
+      setPermissions({});
+      setLoading(false);
+      return;
+    }
+
     try {
       const response = await api.get('/auth/me');
       setUser(response.data.user);
@@ -20,6 +28,7 @@ export const AuthProvider = ({ children }) => {
     } catch (err) {
       setUser(null);
       setPermissions({});
+      localStorage.removeItem('token');
     } finally {
       setLoading(false);
     }
@@ -62,9 +71,13 @@ export const AuthProvider = ({ children }) => {
 
   const login = async (username, password) => {
     const response = await api.post('/auth/login', { username, password });
-    setUser(response.data.user);
-    setPermissions(response.data.permissions || {});
-    setSessionTimeoutMinutes(response.data.sessionTimeoutMinutes || 30);
+    const { token, user, permissions, sessionTimeoutMinutes } = response.data;
+    if (token) {
+      localStorage.setItem('token', token);
+    }
+    setUser(user);
+    setPermissions(permissions || {});
+    setSessionTimeoutMinutes(sessionTimeoutMinutes || 30);
     return response.data;
   };
 
@@ -74,6 +87,7 @@ export const AuthProvider = ({ children }) => {
     } catch (err) {
       console.error('Logout error', err);
     } finally {
+      localStorage.removeItem('token');
       setUser(null);
       setPermissions({});
       if (timeoutTimerRef.current) clearTimeout(timeoutTimerRef.current);
