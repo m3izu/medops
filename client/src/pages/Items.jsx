@@ -113,6 +113,7 @@ const Items = () => {
   const [filterCategory, setFilterCategory] = useState('');
   const [filterItemType, setFilterItemType] = useState('');
   const [filterStockStatus, setFilterStockStatus] = useState('');
+  const [filterArchived, setFilterArchived] = useState(false);
 
   // Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -168,6 +169,7 @@ const Items = () => {
       if (filterCategory) params.category = filterCategory;
       if (filterItemType) params.itemType = filterItemType;
       if (filterStockStatus) params.stockStatus = filterStockStatus;
+      if (filterArchived) params.archived = 'true';
 
       const response = await api.get('/items', { params });
       setItems(response.data || []);
@@ -212,7 +214,7 @@ const Items = () => {
   // Poll items when filters change
   useEffect(() => {
     fetchItems();
-  }, [filterSearch, filterCategory, filterItemType, filterStockStatus]);
+  }, [filterSearch, filterCategory, filterItemType, filterStockStatus, filterArchived]);
 
   const openAddModal = () => {
     setModalMode('add');
@@ -354,6 +356,24 @@ const Items = () => {
 
       {error && <div className="login-error" style={{ margin: 0 }}>{error}</div>}
 
+      {/* Archive / Active tabs for authorized roles */}
+      {hasPermission('view_archived_items') && (
+        <div className="tab-container" style={{ display: 'flex', gap: '8px', marginBottom: '20px' }}>
+          <button 
+            className={`btn ${!filterArchived ? 'btn-primary' : 'btn-secondary'}`}
+            onClick={() => setFilterArchived(false)}
+          >
+            Active Catalog
+          </button>
+          <button 
+            className={`btn ${filterArchived ? 'btn-primary' : 'btn-secondary'}`}
+            onClick={() => setFilterArchived(true)}
+          >
+            Archived Items
+          </button>
+        </div>
+      )}
+
       {/* Filter Bar */}
       <div className="filter-bar">
         <div className="filter-item" style={{ flexGrow: 1, minWidth: '200px' }}>
@@ -489,10 +509,10 @@ const Items = () => {
                               Edit
                             </button>
                             <button 
-                              className="btn btn-danger btn-sm"
+                              className={`btn ${item.isArchived ? 'btn-primary' : 'btn-danger'} btn-sm`}
                               onClick={(e) => handleToggleArchive(item.id, item.isArchived, item.name, e)}
                             >
-                              Archive
+                              {item.isArchived ? 'Unarchive' : 'Archive'}
                             </button>
                           </>
                         )}

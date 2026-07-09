@@ -1,9 +1,15 @@
 const prisma = require('../lib/prisma');
+const { getEffectivePermissions } = require('../middleware/rbac');
 
 const list = async (req, res, next) => {
   try {
-    const { category, itemType, stockStatus, search } = req.query;
-    const where = { isArchived: false };
+    const { category, itemType, stockStatus, search, archived } = req.query;
+
+    // Check permission to view archived items
+    const perms = await getEffectivePermissions(req.user.id, req.user.role);
+    const canViewArchived = !!perms['view_archived_items'];
+
+    const where = { isArchived: canViewArchived ? (archived === 'true') : false };
     if (category) where.categoryId = category;
     if (itemType) where.itemType = itemType;
     if (search) where.OR = [

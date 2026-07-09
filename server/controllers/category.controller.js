@@ -97,7 +97,10 @@ const remove = async (req, res, next) => {
     const categoryId = req.params.id;
     const category = await prisma.category.findUnique({
       where: { id: categoryId },
-      include: { children: true, items: true },
+      include: { 
+        children: true, 
+        items: { where: { isArchived: false } }
+      },
     });
 
     if (!category) {
