@@ -48,7 +48,7 @@ const ReceiveStock = () => {
   }, []);
 
   const selectedItem = items.find(i => i.id === selectedItemId);
-  const isMedication = selectedItem?.itemType === 'MEDICATION';
+  const isBatchControlled = selectedItem?.itemType === 'MEDICATION' || (selectedItem?.category?.hasBatchControl ?? false);
 
   // Automatically pre-populate default supplier when item changes
   useEffect(() => {
@@ -81,17 +81,17 @@ const ReceiveStock = () => {
       return;
     }
 
-    if (isMedication) {
+    if (isBatchControlled) {
       if (!batchNo.trim()) {
-        setSubmitError('Batch / Lot number is required for medication items.');
+        setSubmitError('Batch / Lot number is required for batch-controlled items.');
         return;
       }
       if (!expiryDate) {
-        setSubmitError('Expiry date is required for medication items.');
+        setSubmitError('Expiry date is required for batch-controlled items.');
         return;
       }
       if (new Date(expiryDate) < new Date().setHours(0,0,0,0)) {
-        setSubmitError('Medication batch cannot be registered with a past expiry date.');
+        setSubmitError('Batch cannot be registered with a past expiry date.');
         return;
       }
     }
@@ -103,7 +103,7 @@ const ReceiveStock = () => {
       notes,
     };
 
-    if (isMedication) {
+    if (isBatchControlled) {
       payload.batchNo = batchNo;
       payload.expiryDate = expiryDate;
     }
@@ -225,11 +225,11 @@ const ReceiveStock = () => {
                   </div>
                 </div>
 
-                {/* Conditional Medication Batch Fields */}
-                {isMedication && (
+                {/* Conditional Batch Fields */}
+                {isBatchControlled && (
                   <div style={{ background: 'var(--theme-bg)', padding: '20px', borderRadius: 'var(--border-radius-lg)', border: '1px solid var(--theme-border)' }}>
                     <h4 style={{ fontSize: '13px', textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--theme-primary)', marginBottom: '16px' }}>
-                      💊 Medication Batch Control (FIFO Enforced)
+                      💊 Batch & Expiry Control (FIFO Enforced)
                     </h4>
                     
                     <div className="form-row">

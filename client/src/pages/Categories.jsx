@@ -16,6 +16,7 @@ const Categories = () => {
   // Form Fields
   const [name, setName] = useState('');
   const [parentId, setParentId] = useState('');
+  const [hasBatchControl, setHasBatchControl] = useState(false);
   const [formError, setFormError] = useState('');
 
   const fetchCategories = async () => {
@@ -42,6 +43,16 @@ const Categories = () => {
     setModalCatId(null);
     setName('');
     setParentId(defaultParentId);
+    
+    // Auto-inherit batch control from parent if parent has it enabled
+    let inheritBatch = false;
+    if (defaultParentId) {
+      const parent = categories.find(c => c.id === defaultParentId);
+      if (parent && parent.hasBatchControl) {
+        inheritBatch = true;
+      }
+    }
+    setHasBatchControl(inheritBatch);
     setFormError('');
     setIsModalOpen(true);
   };
@@ -52,8 +63,30 @@ const Categories = () => {
     setModalCatId(cat.id);
     setName(cat.name || '');
     setParentId(cat.parentId || '');
+    setHasBatchControl(cat.hasBatchControl || false);
     setFormError('');
     setIsModalOpen(true);
+  };
+
+  const handleParentChange = (newParentId) => {
+    setParentId(newParentId);
+    if (newParentId) {
+      const parent = categories.find(c => c.id === newParentId);
+      if (parent && parent.hasBatchControl) {
+        setHasBatchControl(true);
+      } else {
+        setHasBatchControl(false);
+      }
+    } else {
+      setHasBatchControl(false);
+    }
+  };
+
+  const handleNameChange = (val) => {
+    setName(val);
+    if (val.toLowerCase().includes('medication')) {
+      setHasBatchControl(true);
+    }
   };
 
   const handleFormSubmit = async (e) => {
@@ -67,9 +100,9 @@ const Categories = () => {
 
     try {
       if (modalMode === 'add') {
-        await api.post('/categories', { name, parentId: parentId || null });
+        await api.post('/categories', { name, parentId: parentId || null, hasBatchControl });
       } else {
-        await api.put(`/categories/${modalCatId}`, { name });
+        await api.put(`/categories/${modalCatId}`, { name, hasBatchControl });
       }
       setIsModalOpen(false);
       fetchCategories(); // Refresh tree
@@ -138,7 +171,7 @@ const Categories = () => {
               <div key={root.id} className="widget-card" style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
                 <div className="widget-header" style={{ padding: '12px 20px', background: 'var(--theme-primary-bg)', borderBottom: '1px solid var(--theme-border)' }}>
                   <span className="widget-title" style={{ fontSize: '15px', color: 'var(--theme-primary)', fontWeight: 'bold' }}>
-                    🏷️ {root.name}
+                    🏷️ {root.name} {root.hasBatchControl && <span className="badge badge-warning" style={{ fontSize: '10px', marginLeft: '6px', padding: '2px 6px' }}>Batch Controlled</span>}
                   </span>
                   
                   {canManage && (
@@ -177,7 +210,9 @@ const Categories = () => {
                             borderLeft: '3px solid var(--theme-border)'
                           }}
                         >
-                          <span style={{ fontSize: '13px', fontWeight: '500' }}>{sub.name}</span>
+                          <span style={{ fontSize: '13px', fontWeight: '500' }}>
+                            {sub.name} {sub.hasBatchControl && <span className="badge badge-warning" style={{ fontSize: '9px', marginLeft: '6px', padding: '1px 4px' }}>Batch Controlled</span>}
+                          </span>
                           
                           {canManage && (
                             <div style={{ display: 'flex', gap: '4px' }}>
@@ -244,7 +279,7 @@ const Categories = () => {
                     className="form-control" 
                     placeholder="e.g. Medications, Dialysis Supplies, Oral"
                     value={name}
-                    onChange={(e) => setName(e.target.value)}
+                    onChange={(e) => handleNameChange(e.target.value)}
                     required
                   />
                 </div>
@@ -255,7 +290,7 @@ const Categories = () => {
                     <select 
                       className="form-control" 
                       value={parentId}
-                      onChange={(e) => setParentId(e.target.value)}
+                      onChange={(e) => handleParentChange(e.target.value)}
                     >
                       <option value="">None (Make it a Top-level Category)</option>
                       {categories.map(root => (
@@ -269,6 +304,25 @@ const Categories = () => {
                     </p>
                   </div>
                 )}
+
+                <div className="form-group" style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '12px' }}>
+                  <input 
+                    type="checkbox" 
+                    id="hasBatchControlCheckbox"
+                    checked={hasBatchControl}
+                    onChange={(e) => setHasBatchControl(e.target.checked)}
+                    style={{ width: '16px', height: '16px', cursor: 'pointer' }}
+                  />
+                  <label htmlFor="hasBatchControlCheckbox" style={{ fontWeight: '500', cursor: 'pointer', fontSize: '13px' }}>
+                    Enable Batch & Expiry Control (FIFO Enforced)
+                  </label>
+                </div>
+
+                {modalMode === 'edit' && hasBatchControl && !(categories.find(c => c.id === modalCatId)?.hasBatchControl) && (
+                  <p style={{ fontSize: '11px', color: 'var(--color-warning)', marginTop: '4px', maxWidth: '380px', lineHeight: '1.4' }}>
+                    ⚠️ Warning: Enabling batch control retroactively will auto-generate placeholder batches for any items under this category that currently have stock.
+                  </p>
+                )}
               </div>
               
               <div className="modal-footer">
@@ -276,7 +330,7 @@ const Categories = () => {
                   Cancel
                 </button>
                 <button type="submit" className="btn btn-primary">
-                  {modalMode === 'add' ? 'Create Category' : 'Save Name'}
+                  {modalMode === 'add' ? 'Create Category' : 'Save Changes'}
                 </button>
               </div>
             </form>

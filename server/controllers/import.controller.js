@@ -75,8 +75,9 @@ const importCsv = async (req, res, next) => {
 
           // Validate Category and Supplier if provided
           let categoryId = row.categoryId?.trim() || null;
+          let cat = null;
           if (categoryId) {
-            const cat = await prisma.category.findUnique({ where: { id: categoryId } });
+            cat = await prisma.category.findUnique({ where: { id: categoryId } });
             if (!cat) {
               throw new Error(`Row ${lineNum}: Category ID "${categoryId}" not found.`);
             }
@@ -127,14 +128,18 @@ const importCsv = async (req, res, next) => {
             }
           });
 
-          // Create a default batch for medications with initial quantity
+          // Create a default batch for medications/batch-controlled items with initial quantity
           let batchId = null;
-          if (itemType === 'MEDICATION' && initialQty > 0) {
+          const isBatchControlled = itemType === 'MEDICATION' || (cat?.hasBatchControl ?? false);
+          if (isBatchControlled && initialQty > 0) {
+            const importBatchNo = row.batchNo?.trim() || `IMPORT-${row.sku.trim()}`;
+            const importExpiryDate = row.expiryDate ? new Date(row.expiryDate) : new Date(Date.now() + 365 * 24 * 60 * 60 * 1000);
+            
             const batch = await prisma.itemBatch.create({
               data: {
                 itemId: newItem.id,
-                batchNo: `IMPORT-${row.sku.trim()}`,
-                expiryDate: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000), // 1 year default
+                batchNo: importBatchNo,
+                expiryDate: importExpiryDate,
                 quantityRemaining: initialQty,
                 supplierId
               }

@@ -55,29 +55,29 @@ async function main() {
   // 5. Sample categories
   await prisma.category.upsert({
     where: { id: 'cat-medication' },
-    update: {},
-    create: { id: 'cat-medication', name: 'Medications', createdById: admin.id },
+    update: { hasBatchControl: true },
+    create: { id: 'cat-medication', name: 'Medications', hasBatchControl: true, createdById: admin.id },
   });
 
   const subcats = [
-    { id: 'cat-med-injectable', name: 'Injectable', parentId: 'cat-medication' },
-    { id: 'cat-med-oral', name: 'Oral', parentId: 'cat-medication' },
-    { id: 'cat-med-topical', name: 'Topical', parentId: 'cat-medication' },
-    { id: 'cat-consumable', name: 'Medical Consumables', parentId: null },
-    { id: 'cat-consumable-dialysis', name: 'Dialysis Supplies', parentId: 'cat-consumable' },
-    { id: 'cat-consumable-wound', name: 'Wound Care', parentId: 'cat-consumable' },
-    { id: 'cat-equipment', name: 'Medical Equipment', parentId: null },
-    { id: 'cat-ppe', name: 'PPE', parentId: null },
-    { id: 'cat-ppe-gloves', name: 'Gloves', parentId: 'cat-ppe' },
-    { id: 'cat-ppe-masks', name: 'Masks', parentId: 'cat-ppe' },
-    { id: 'cat-office', name: 'Office & Cleaning Supplies', parentId: null },
+    { id: 'cat-med-injectable', name: 'Injectable', parentId: 'cat-medication', hasBatchControl: true },
+    { id: 'cat-med-oral', name: 'Oral', parentId: 'cat-medication', hasBatchControl: true },
+    { id: 'cat-med-topical', name: 'Topical', parentId: 'cat-medication', hasBatchControl: true },
+    { id: 'cat-consumable', name: 'Medical Consumables', parentId: null, hasBatchControl: false },
+    { id: 'cat-consumable-dialysis', name: 'Dialysis Supplies', parentId: 'cat-consumable', hasBatchControl: false },
+    { id: 'cat-consumable-wound', name: 'Wound Care', parentId: 'cat-consumable', hasBatchControl: false },
+    { id: 'cat-equipment', name: 'Medical Equipment', parentId: null, hasBatchControl: false },
+    { id: 'cat-ppe', name: 'PPE', parentId: null, hasBatchControl: false },
+    { id: 'cat-ppe-gloves', name: 'Gloves', parentId: 'cat-ppe', hasBatchControl: false },
+    { id: 'cat-ppe-masks', name: 'Masks', parentId: 'cat-ppe', hasBatchControl: false },
+    { id: 'cat-office', name: 'Office & Cleaning Supplies', parentId: null, hasBatchControl: false },
   ];
 
   for (const cat of subcats) {
     await prisma.category.upsert({
       where: { id: cat.id },
-      update: {},
-      create: { id: cat.id, name: cat.name, parentId: cat.parentId, createdById: admin.id },
+      update: { hasBatchControl: cat.hasBatchControl },
+      create: { id: cat.id, name: cat.name, parentId: cat.parentId, hasBatchControl: cat.hasBatchControl, createdById: admin.id },
     });
   }
   console.log('Categories seeded');

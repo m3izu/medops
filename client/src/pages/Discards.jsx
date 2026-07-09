@@ -102,10 +102,10 @@ const Discards = () => {
       return;
     }
 
-    // Check if the selected item is a medication, and if so, enforce batch selection
-    const isMedication = selectedItemDetails?.itemType === 'MEDICATION';
-    if (isMedication && !batchId) {
-      setFormError('Please select the specific medication batch being discarded.');
+    // Check if the selected item is batch-controlled, and if so, enforce batch selection
+    const isBatchControlled = selectedItemDetails?.itemType === 'MEDICATION' || (selectedItemDetails?.category?.hasBatchControl ?? false);
+    if (isBatchControlled && !batchId) {
+      setFormError('Please select the specific batch being discarded.');
       return;
     }
 
@@ -209,10 +209,10 @@ const Discards = () => {
                   </select>
                 </div>
 
-                {/* Conditional Batch selection for medication/batch-tracked items */}
-                {itemId && !batchesLoading && selectedItemDetails?.batches && selectedItemDetails.batches.length > 0 && (
+                {/* Conditional Batch selection for batch-tracked items */}
+                {itemId && !batchesLoading && (selectedItemDetails?.itemType === 'MEDICATION' || (selectedItemDetails?.category?.hasBatchControl ?? false)) && selectedItemDetails?.batches && selectedItemDetails.batches.length > 0 && (
                   <div className="form-group" style={{ background: 'var(--theme-bg)', padding: '12px', borderRadius: 'var(--border-radius-md)', border: '1px solid var(--theme-border)' }}>
-                    <label className="form-label">Select Medication Batch *</label>
+                    <label className="form-label">Select Batch & Expiry *</label>
                     <select 
                       className="form-control"
                       value={batchId}

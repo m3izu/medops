@@ -2,6 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const cookieParser = require('cookie-parser');
 const path = require('path');
+const { rateLimit } = require('express-rate-limit');
 require('dotenv').config();
 
 if (process.env.NODE_ENV === 'production' && (!process.env.JWT_SECRET || process.env.JWT_SECRET === 'medops-super-secret-jwt-key-change-in-production')) {
@@ -29,12 +30,35 @@ const importRoutes = require('./routes/import.routes');
 
 const app = express();
 
+app.set('trust proxy', 1);
+
 app.use(cors({
   origin: process.env.CLIENT_URL || 'http://localhost:5173',
   credentials: true,
 }));
 app.use(express.json({ limit: '1mb' }));
 app.use(cookieParser());
+
+// Configure Rate Limiters
+const globalLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  limit: 300, // Limit each IP to 300 requests per 15 mins
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  message: { error: 'Too many requests from this IP, please try again after 15 minutes.' },
+});
+
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  limit: 15, // Limit each IP to 15 login attempts per 15 mins
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  message: { error: 'Too many login attempts. Please try again after 15 minutes.' },
+});
+
+// Apply rate limiters
+app.use('/api/', globalLimiter);
+app.use('/api/auth/login', loginLimiter);
 
 // Routes
 app.use('/api/auth', authRoutes);
@@ -78,7 +102,10 @@ app.use((err, req, res, next) => {
   });
 });
 
+const { startScheduler } = require('./lib/scheduler');
+
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(`MedOPS Server running on port ${PORT}`);
+  startScheduler();
 });

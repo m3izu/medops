@@ -31,6 +31,14 @@ const create = async (req, res, next) => {
       return res.status(400).json({ error: 'patientId, sessionDate, and at least one line item are required' });
     }
 
+    const patient = await prisma.patient.findUnique({ where: { id: patientId } });
+    if (!patient) {
+      return res.status(404).json({ error: 'Patient not found' });
+    }
+    if (patient.status !== 'ACTIVE') {
+      return res.status(400).json({ error: 'Cannot submit requisition for an inactive patient.' });
+    }
+
     const requisition = await prisma.requisition.create({
       data: {
         patientId,
@@ -75,7 +83,16 @@ const getOne = async (req, res, next) => {
         lines: {
           include: {
             item: {
-              include: { stockLevel: true, batches: { where: { quantityRemaining: { gt: 0 } }, orderBy: { expiryDate: 'asc' } } },
+              include: { 
+                stockLevel: true, 
+                batches: { 
+                  where: { 
+                    quantityRemaining: { gt: 0 },
+                    expiryDate: { gte: new Date() } // Exclude expired batches!
+                  }, 
+                  orderBy: { expiryDate: 'asc' } 
+                } 
+              },
             },
           },
         },
@@ -160,7 +177,17 @@ const approveLine = async (req, res, next) => {
 
       const item = await tx.item.findUnique({
         where: { id: lineDb.itemId },
-        include: { stockLevel: true, batches: { where: { quantityRemaining: { gt: 0 } }, orderBy: { expiryDate: 'asc' } } },
+        include: { 
+          stockLevel: true, 
+          category: true,
+          batches: { 
+            where: { 
+              quantityRemaining: { gt: 0 },
+              expiryDate: { gte: new Date() } // Clinical safety fix: exclude expired batches!
+            }, 
+            orderBy: { expiryDate: 'asc' } 
+          } 
+        },
       });
 
       if (!item) {
@@ -177,16 +204,20 @@ const approveLine = async (req, res, next) => {
       }
 
       let remaining = approvedQty;
+      const isBatchControlled = item.itemType === 'MEDICATION' || (item.category?.hasBatchControl ?? false);
       
-      if (item.itemType === 'MEDICATION') {
+      if (isBatchControlled) {
         for (const batch of item.batches) {
           if (remaining <= 0) break;
           const deduct = Math.min(batch.quantityRemaining, remaining);
           
-          await tx.itemBatch.update({
-            where: { id: batch.id },
+          const updatedBatch = await tx.itemBatch.updateMany({
+            where: { id: batch.id, quantityRemaining: { gte: deduct } },
             data: { quantityRemaining: { decrement: deduct } },
           });
+          if (updatedBatch.count === 0) {
+            throw new Error('Concurrent modification detected: Insufficient batch quantity.');
+          }
 
           await tx.transactionLog.create({
             data: {
@@ -202,10 +233,10 @@ const approveLine = async (req, res, next) => {
         }
 
         if (remaining > 0) {
-          throw new Error('Insufficient Medication batch quantities remaining to fulfill this request.');
+          throw new Error('Insufficient batch quantities remaining to fulfill this request.');
         }
       } else {
-        // Non-medication outbound logging
+        // Non-medication/non-batch outbound logging
         await tx.transactionLog.create({
           data: {
             itemId: lineDb.itemId,
@@ -218,10 +249,13 @@ const approveLine = async (req, res, next) => {
       }
 
       // Update stock level
-      await tx.stockLevel.update({
-        where: { itemId: lineDb.itemId },
+      const updatedStock = await tx.stockLevel.updateMany({
+        where: { itemId: lineDb.itemId, quantityOnHand: { gte: approvedQty } },
         data: { quantityOnHand: { decrement: approvedQty }, lastUpdated: new Date() },
       });
+      if (updatedStock.count === 0) {
+        throw new Error('Concurrent modification detected: Insufficient stock level.');
+      }
 
       // Update line status
       await tx.requisitionLine.update({
@@ -256,7 +290,9 @@ const approveLine = async (req, res, next) => {
       'Line item is not pending',
       'Item not found',
       'Medication co-verification is required before approval.',
-      'Insufficient Medication batch quantities remaining to fulfill this request.'
+      'Insufficient Medication batch quantities remaining to fulfill this request.',
+      'Concurrent modification detected: Insufficient batch quantity.',
+      'Concurrent modification detected: Insufficient stock level.'
     ];
     if (knownErrors.includes(err.message) || err.message.startsWith('Insufficient stock for this quantity')) {
       return res.status(400).json({ error: err.message });
@@ -321,9 +357,18 @@ const resubmitLine = async (req, res, next) => {
       return res.status(400).json({ error: 'Quantity must be a positive number' });
     }
 
-    const originalLine = await prisma.requisitionLine.findUnique({ where: { id: req.params.lineId } });
+    const originalLine = await prisma.requisitionLine.findUnique({ 
+      where: { id: req.params.lineId },
+      include: { requisition: true }
+    });
     if (!originalLine) return res.status(404).json({ error: 'Original line not found' });
     if (originalLine.status !== 'REJECTED') return res.status(400).json({ error: 'Only rejected lines can be resubmitted' });
+
+    // Auth check: Only the original submitter or top admin can resubmit
+    const { role, id: userId } = req.user;
+    if (role !== 'TOP_ADMIN' && originalLine.requisition?.submittedById !== userId) {
+      return res.status(403).json({ error: 'You are not authorized to resubmit this line item' });
+    }
 
     const newLine = await prisma.requisitionLine.create({
       data: {

@@ -136,6 +136,30 @@ const Items = () => {
   
   const [formError, setFormError] = useState('');
 
+  // Batches Modal State
+  const [batchesModalOpen, setBatchesModalOpen] = useState(false);
+  const [selectedItemBatches, setSelectedItemBatches] = useState([]);
+  const [selectedItemName, setSelectedItemName] = useState('');
+  const [selectedItemUnit, setSelectedItemUnit] = useState('');
+  const [batchesModalLoading, setBatchesModalLoading] = useState(false);
+
+  const openBatchesModal = async (item, e) => {
+    e.stopPropagation();
+    setSelectedItemName(item.name);
+    setSelectedItemUnit(item.unit);
+    setBatchesModalOpen(true);
+    try {
+      setBatchesModalLoading(true);
+      const res = await api.get(`/items/${item.id}`);
+      setSelectedItemBatches(res.data.batches || []);
+    } catch (err) {
+      console.error(err);
+      alert('Failed to load batch details.');
+    } finally {
+      setBatchesModalLoading(false);
+    }
+  };
+
   const fetchItems = async () => {
     try {
       setLoading(true);
@@ -410,7 +434,7 @@ const Items = () => {
                   <th>Thresholds (Warn / Crit)</th>
                   <th>Default Supplier</th>
                   <th>Stock Alert</th>
-                  {canManage && <th style={{ textAlign: 'right' }}>Actions</th>}
+                  <th style={{ textAlign: 'right' }}>Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -445,23 +469,35 @@ const Items = () => {
                     </td>
                     <td>{item.supplier?.name || <span style={{ color: 'var(--theme-text-muted)', fontSize: '12px' }}>—</span>}</td>
                     <td>{getStatusBadge(item.stockStatus)}</td>
-                    {canManage && (
-                      <td style={{ textAlign: 'right' }}>
-                        <button 
-                          className="btn btn-secondary btn-sm"
-                          style={{ marginRight: '8px' }}
-                          onClick={(e) => openEditModal(item, e)}
-                        >
-                          Edit
-                        </button>
-                        <button 
-                          className="btn btn-danger btn-sm"
-                          onClick={(e) => handleToggleArchive(item.id, item.isArchived, item.name, e)}
-                        >
-                          Archive
-                        </button>
-                      </td>
-                    )}
+                    <td style={{ textAlign: 'right' }}>
+                      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '6px' }}>
+                        {(item.itemType === 'MEDICATION' || (item.category?.hasBatchControl ?? false)) && (
+                          <button 
+                            className="btn btn-secondary btn-sm"
+                            onClick={(e) => openBatchesModal(item, e)}
+                            style={{ borderColor: 'var(--theme-primary)', color: 'var(--theme-primary)' }}
+                          >
+                            Batches
+                          </button>
+                        )}
+                        {canManage && (
+                          <>
+                            <button 
+                              className="btn btn-secondary btn-sm"
+                              onClick={(e) => openEditModal(item, e)}
+                            >
+                              Edit
+                            </button>
+                            <button 
+                              className="btn btn-danger btn-sm"
+                              onClick={(e) => handleToggleArchive(item.id, item.isArchived, item.name, e)}
+                            >
+                              Archive
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -656,6 +692,68 @@ const Items = () => {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Batches Details Modal */}
+      {batchesModalOpen && (
+        <div className="modal-overlay">
+          <div className="modal-content" style={{ maxWidth: '640px' }}>
+            <div className="modal-header">
+              <span className="modal-title">Active Batches: {selectedItemName}</span>
+              <button className="modal-close" onClick={() => setBatchesModalOpen(false)}>×</button>
+            </div>
+            <div className="modal-body" style={{ maxHeight: '60vh', overflowY: 'auto' }}>
+              {batchesModalLoading ? (
+                <p style={{ color: 'var(--theme-text-muted)', fontSize: '13px' }}>Loading batch records...</p>
+              ) : selectedItemBatches.length === 0 ? (
+                <p style={{ color: 'var(--theme-text-muted)', fontSize: '13px', fontStyle: 'italic', padding: '16px 0' }}>
+                  No active batches with remaining stock are currently registered in the clinic for this item.
+                </p>
+              ) : (
+                <table className="table" style={{ fontSize: '13px' }}>
+                  <thead>
+                    <tr>
+                      <th>Batch / Lot No</th>
+                      <th>Expiration Date</th>
+                      <th>Quantity Remaining</th>
+                      <th>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {selectedItemBatches.map(b => {
+                      const today = new Date();
+                      today.setHours(0,0,0,0);
+                      const expDate = new Date(b.expiryDate);
+                      const isExpired = expDate < today;
+                      const diffTime = expDate - today;
+                      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                      const isExpiringSoon = !isExpired && diffDays <= 90;
+                      
+                      let badge = <span className="badge badge-success">OK</span>;
+                      if (isExpired) {
+                        badge = <span className="badge badge-critical">Expired</span>;
+                      } else if (isExpiringSoon) {
+                        badge = <span className="badge badge-warning">Expiring ({diffDays}d)</span>;
+                      }
+                      
+                      return (
+                        <tr key={b.id} style={{ background: isExpired ? 'var(--color-critical-bg)' : 'transparent' }}>
+                          <td><code>{b.batchNo || 'N/A'}</code></td>
+                          <td>{new Date(b.expiryDate).toLocaleDateString()}</td>
+                          <td><strong>{b.quantityRemaining}</strong> {selectedItemUnit}</td>
+                          <td>{badge}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              )}
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-secondary" onClick={() => setBatchesModalOpen(false)}>Close</button>
+            </div>
           </div>
         </div>
       )}

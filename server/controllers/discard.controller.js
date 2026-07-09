@@ -16,14 +16,15 @@ const logDiscard = async (req, res, next) => {
       // Verify item and stock level inside transaction
       const item = await tx.item.findUnique({
         where: { id: itemId },
-        include: { stockLevel: true },
+        include: { stockLevel: true, category: true },
       });
       if (!item) {
         throw new Error('Item not found');
       }
 
-      if (item.itemType === 'MEDICATION' && !batchId) {
-        throw new Error('A specific medication batch must be selected for discard.');
+      const isBatch = item.itemType === 'MEDICATION' || (item.category?.hasBatchControl ?? false);
+      if (isBatch && !batchId) {
+        throw new Error('A specific batch must be selected for discard.');
       }
 
       if (!item.stockLevel || item.stockLevel.quantityOnHand < quantity) {
@@ -49,17 +50,23 @@ const logDiscard = async (req, res, next) => {
       });
 
       // Update stock level
-      await tx.stockLevel.update({
-        where: { itemId },
+      const updatedStock = await tx.stockLevel.updateMany({
+        where: { itemId, quantityOnHand: { gte: quantity } },
         data: { quantityOnHand: { decrement: quantity }, lastUpdated: new Date() },
       });
+      if (updatedStock.count === 0) {
+        throw new Error('Concurrent modification detected: Insufficient stock level.');
+      }
 
       // Update batch if specified
       if (batchId) {
-        await tx.itemBatch.update({
-          where: { id: batchId },
+        const updatedBatch = await tx.itemBatch.updateMany({
+          where: { id: batchId, quantityRemaining: { gte: quantity } },
           data: { quantityRemaining: { decrement: quantity } },
         });
+        if (updatedBatch.count === 0) {
+          throw new Error('Concurrent modification detected: Insufficient batch quantity.');
+        }
       }
 
       // Transaction log entry
@@ -77,7 +84,9 @@ const logDiscard = async (req, res, next) => {
       'Item not found',
       'A specific medication batch must be selected for discard.',
       'Batch not found',
-      'Selected batch does not belong to the selected item'
+      'Selected batch does not belong to the selected item',
+      'Concurrent modification detected: Insufficient batch quantity.',
+      'Concurrent modification detected: Insufficient stock level.'
     ];
     if (knownErrors.includes(err.message) || err.message.startsWith('Insufficient stock on hand') || err.message.startsWith('Insufficient quantity in selected batch')) {
       return res.status(400).json({ error: err.message });

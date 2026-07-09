@@ -118,11 +118,12 @@ model Supplier {
 // ─── Categories ───────────────────────────────────────────────────────────────
 
 model Category {
-  id          String   @id @default(cuid())
-  name        String
-  parentId    String?  @map("parent_id")
-  createdById String?  @map("created_by_id")
-  createdAt   DateTime @default(now()) @map("created_at")
+  id              String   @id @default(cuid())
+  name            String
+  parentId        String?  @map("parent_id")
+  hasBatchControl Boolean  @default(false) @map("has_batch_control")
+  createdById     String?  @map("created_by_id")
+  createdAt       DateTime @default(now()) @map("created_at")
 
   parent   Category?  @relation("CategoryParent", fields: [parentId], references: [id])
   children Category[] @relation("CategoryParent")

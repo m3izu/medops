@@ -64,8 +64,11 @@ const receiveStock = async (req, res, next) => {
     }
 
     const result = await prisma.$transaction(async (tx) => {
-      // Verify item exists
-      const item = await tx.item.findUnique({ where: { id: itemId } });
+      // Verify item exists with category
+      const item = await tx.item.findUnique({ 
+        where: { id: itemId },
+        include: { category: true }
+      });
       if (!item) {
         throw new Error('Item not found');
       }
@@ -73,7 +76,17 @@ const receiveStock = async (req, res, next) => {
         throw new Error('Cannot receive stock for an archived item');
       }
 
-      // Create batch if batch details provided (medications)
+      const isBatch = item.itemType === 'MEDICATION' || (item.category?.hasBatchControl ?? false);
+      if (isBatch) {
+        if (!batchNo || !batchNo.trim()) {
+          throw new Error('Batch / Lot number is required for batch-controlled items.');
+        }
+        if (!expiryDate) {
+          throw new Error('Expiry date is required for batch-controlled items.');
+        }
+      }
+
+      // Create batch if batch details provided
       let batchId = null;
       if (batchNo || expiryDate) {
         if (expiryDate) {

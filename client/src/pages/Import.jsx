@@ -4,7 +4,7 @@ import { useAuth } from '../context/AuthContext';
 
 const TEMPLATES = {
   suppliers: 'name,contactPerson,phone,email,address,notes',
-  items: 'name,sku,itemType,unit,categoryId,supplierId,warningLevel,criticalLevel,serialNumber,acquisitionDate,condition,initialQty',
+  items: 'name,sku,itemType,unit,categoryId,supplierId,warningLevel,criticalLevel,serialNumber,acquisitionDate,condition,initialQty,batchNo,expiryDate',
   patients: 'name,chartNumber,diagnosis,schedule,firstSessionDate,contact,status'
 };
 
@@ -318,6 +318,7 @@ const Import = () => {
               <ul style={{ paddingLeft: '16px', marginTop: '6px', color: 'var(--theme-text-muted)', display: 'flex', flexDirection: 'column', gap: '2px' }}>
                 <li><code>itemType</code> must be: MEDICATION, MEDICAL_CONSUMABLE, MEDICAL_EQUIPMENT, PPE, OFFICE_SUPPLY</li>
                 <li><code>initialQty</code> will automatically create matching Inbound Logs</li>
+                <li><code>batchNo</code> and <code>expiryDate</code> (e.g. 2027-06-30) are optional but recommended for batch-controlled items</li>
               </ul>
             </div>
 
