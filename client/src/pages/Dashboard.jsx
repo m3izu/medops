@@ -189,32 +189,32 @@ const Dashboard = () => {
       <div className="dashboard-grid">
         {user?.role !== 'NURSE' ? (
           <>
-            <div className="metric-card" style={{ borderLeft: '4px solid var(--theme-primary)' }}>
+            <div className="metric-card neon-teal">
               <div className="metric-header">Total Stock Catalog</div>
               <div className="metric-value">{summary?.totalItems ?? 0}</div>
               <div className="metric-desc">Registered medical supplies</div>
             </div>
             
-            <div className="metric-card" style={{ borderLeft: '4px solid var(--color-warning)' }}>
+            <div className="metric-card neon-warning">
               <div className="metric-header">Warning Threshold Reached</div>
               <div className="metric-value">{summary?.lowStockCount ?? 0}</div>
               <div className="metric-desc">Items at reorder limit</div>
             </div>
 
-            <div className="metric-card" style={{ borderLeft: '4px solid var(--color-critical)' }}>
+            <div className="metric-card neon-critical">
               <div className="metric-header">Critical Level / Out of Stock</div>
               <div className="metric-value">{(summary?.criticalStockCount ?? 0) + (summary?.outOfStockCount ?? 0)}</div>
               <div className="metric-desc">Action required immediately</div>
             </div>
 
-            <div className="metric-card" style={{ borderLeft: '4px solid #8b5cf6' }}>
+            <div className="metric-card neon-purple">
               <div className="metric-header">Expiring Soon</div>
               <div className="metric-value">{summary?.expiringCount ?? 0}</div>
               <div className="metric-desc">Medications within 90 days</div>
             </div>
           </>
         ) : (
-          <div className="metric-card" style={{ borderLeft: '4px solid var(--theme-primary)', maxWidth: '360px' }}>
+          <div className="metric-card neon-teal" style={{ maxWidth: '360px' }}>
             <div className="metric-header">My Pending Requisitions</div>
             <div className="metric-value">{summary?.myPendingForms ?? 0}</div>
             <div className="metric-desc">Forms awaiting manager approval</div>

@@ -488,6 +488,47 @@ h1, h2, h3, h4, h5, h6 {
   color: var(--theme-text-muted);
 }
 
+/* Neon Glow Themes for Dashboard Metric Cards */
+.metric-card.neon-teal {
+  border-left: 4px solid #06b6d4 !important;
+  border-color: rgba(6, 182, 212, 0.4) !important;
+  box-shadow: 0 0 15px rgba(6, 182, 212, 0.15);
+}
+.metric-card.neon-teal .metric-value {
+  color: #06b6d4;
+  text-shadow: 0 0 10px rgba(6, 182, 212, 0.4);
+}
+
+.metric-card.neon-warning {
+  border-left: 4px solid #f97316 !important;
+  border-color: rgba(249, 115, 22, 0.4) !important;
+  box-shadow: 0 0 15px rgba(249, 115, 22, 0.15);
+}
+.metric-card.neon-warning .metric-value {
+  color: #f97316;
+  text-shadow: 0 0 10px rgba(249, 115, 22, 0.4);
+}
+
+.metric-card.neon-critical {
+  border-left: 4px solid #ef4444 !important;
+  border-color: rgba(239, 68, 68, 0.4) !important;
+  box-shadow: 0 0 15px rgba(239, 68, 68, 0.2);
+}
+.metric-card.neon-critical .metric-value {
+  color: #ef4444;
+  text-shadow: 0 0 10px rgba(239, 68, 68, 0.4);
+}
+
+.metric-card.neon-purple {
+  border-left: 4px solid #a855f7 !important;
+  border-color: rgba(168, 85, 247, 0.4) !important;
+  box-shadow: 0 0 15px rgba(168, 85, 247, 0.15);
+}
+.metric-card.neon-purple .metric-value {
+  color: #a855f7;
+  text-shadow: 0 0 10px rgba(168, 85, 247, 0.4);
+}
+
 .widget-card {
   background-color: var(--theme-card-bg);
   border: 1px solid var(--theme-border);
