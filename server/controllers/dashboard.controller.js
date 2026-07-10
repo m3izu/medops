@@ -16,7 +16,7 @@ const getSummary = async (req, res, next) => {
     ] = await Promise.all([
       prisma.item.count({ where: { isArchived: false } }),
       prisma.requisition.count({ where: { status: { in: ['PENDING', 'PARTIALLY_APPROVED'] } } }),
-      prisma.itemBatch.count({ where: { expiryDate: { lte: in90 }, quantityRemaining: { gt: 0 } } }),
+      prisma.itemBatch.count({ where: { expiryDate: { lte: in90, not: null }, quantityRemaining: { gt: 0 } } }),
       prisma.transactionLog.findMany({
         take: 10,
         orderBy: { timestamp: 'desc' },

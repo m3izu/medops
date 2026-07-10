@@ -23,24 +23,26 @@ const importCsv = async (req, res, next) => {
             throw new Error(`Row ${lineNum}: Supplier name is required.`);
           }
 
-          // Check if supplier already exists
-          const existing = await prisma.supplier.findFirst({
-            where: { name: { equals: row.name.trim() } }
-          });
-          if (existing) {
-            throw new Error(`Row ${lineNum}: Supplier "${row.name}" already exists.`);
-          }
-
-          await prisma.supplier.create({
-            data: {
-              name: row.name.trim(),
-              contactPerson: row.contactPerson?.trim() || null,
-              phone: row.phone?.trim() || null,
-              email: row.email?.trim() || null,
-              address: row.address?.trim() || null,
-              notes: row.notes?.trim() || null,
-              createdById: req.user.id
+          await prisma.$transaction(async (tx) => {
+            // Check if supplier already exists
+            const existing = await tx.supplier.findFirst({
+              where: { name: { equals: row.name.trim() } }
+            });
+            if (existing) {
+              throw new Error(`Row ${lineNum}: Supplier "${row.name}" already exists.`);
             }
+
+            await tx.supplier.create({
+              data: {
+                name: row.name.trim(),
+                contactPerson: row.contactPerson?.trim() || null,
+                phone: row.phone?.trim() || null,
+                email: row.email?.trim() || null,
+                address: row.address?.trim() || null,
+                notes: row.notes?.trim() || null,
+                createdById: req.user.id
+              }
+            });
           });
           rowsSuccess++;
 
@@ -65,102 +67,120 @@ const importCsv = async (req, res, next) => {
             throw new Error(`Row ${lineNum}: Invalid Item Type "${itemType}". Must be one of: ${validTypes.join(', ')}`);
           }
 
-          // Check unique SKU
-          const existingSku = await prisma.item.findUnique({
-            where: { sku: row.sku.trim() }
-          });
-          if (existingSku) {
-            throw new Error(`Row ${lineNum}: SKU "${row.sku}" is already in use.`);
-          }
-
-          // Validate Category and Supplier if provided
-          let categoryId = row.categoryId?.trim() || null;
-          let cat = null;
-          if (categoryId) {
-            cat = await prisma.category.findUnique({ where: { id: categoryId } });
-            if (!cat) {
-              throw new Error(`Row ${lineNum}: Category ID "${categoryId}" not found.`);
+          await prisma.$transaction(async (tx) => {
+            // Check unique SKU
+            const existingSku = await tx.item.findUnique({
+              where: { sku: row.sku.trim() }
+            });
+            if (existingSku) {
+              throw new Error(`Row ${lineNum}: SKU "${row.sku}" is already in use.`);
             }
-          }
 
-          let supplierId = row.supplierId?.trim() || null;
-          if (supplierId) {
-            const sup = await prisma.supplier.findUnique({ where: { id: supplierId } });
-            if (!sup) {
-              throw new Error(`Row ${lineNum}: Supplier ID "${supplierId}" not found.`);
+            // Validate Category and Supplier if provided
+            let categoryId = row.categoryId?.trim() || null;
+            let cat = null;
+            if (categoryId) {
+              cat = await tx.category.findUnique({ where: { id: categoryId } });
+              if (!cat) {
+                throw new Error(`Row ${lineNum}: Category ID "${categoryId}" not found.`);
+              }
             }
-          }
 
-          const parsedWarn = parseInt(row.warningLevel, 10);
-          const warningLevel = isNaN(parsedWarn) ? 10 : parsedWarn;
+            let supplierId = row.supplierId?.trim() || null;
+            if (supplierId) {
+              const sup = await tx.supplier.findUnique({ where: { id: supplierId } });
+              if (!sup) {
+                throw new Error(`Row ${lineNum}: Supplier ID "${supplierId}" not found.`);
+              }
+            }
 
-          const parsedCrit = parseInt(row.criticalLevel, 10);
-          const criticalLevel = isNaN(parsedCrit) ? 5 : parsedCrit;
+            const parsedWarn = parseInt(row.warningLevel, 10);
+            const warningLevel = isNaN(parsedWarn) ? 10 : parsedWarn;
 
-          const parsedInit = parseInt(row.initialQty, 10);
-          const initialQty = isNaN(parsedInit) ? 0 : parsedInit;
+            const parsedCrit = parseInt(row.criticalLevel, 10);
+            const criticalLevel = isNaN(parsedCrit) ? 5 : parsedCrit;
 
-          if (initialQty < 0) {
-            throw new Error(`Row ${lineNum}: Initial quantity cannot be negative.`);
-          }
+            const parsedInit = parseInt(row.initialQty, 10);
+            const initialQty = isNaN(parsedInit) ? 0 : parsedInit;
 
-          // Create item and its stock level
-          const newItem = await prisma.item.create({
-            data: {
-              name: row.name.trim(),
-              sku: row.sku.trim(),
-              itemType,
-              unit: row.unit.trim(),
-              categoryId,
-              supplierId,
-              warningLevel,
-              criticalLevel,
-              serialNumber: row.serialNumber?.trim() || null,
-              acquisitionDate: row.acquisitionDate ? new Date(row.acquisitionDate) : null,
-              condition: row.condition?.trim() || 'GOOD',
-              createdById: req.user.id,
-              stockLevel: {
-                create: {
-                  quantityOnHand: initialQty,
-                  lastUpdated: new Date()
+            if (initialQty < 0) {
+              throw new Error(`Row ${lineNum}: Initial quantity cannot be negative.`);
+            }
+
+            let acquisitionDate = null;
+            if (row.acquisitionDate) {
+              const parsedDate = new Date(row.acquisitionDate);
+              if (isNaN(parsedDate.getTime())) {
+                throw new Error(`Row ${lineNum}: Invalid acquisition date format.`);
+              }
+              acquisitionDate = parsedDate;
+            }
+
+            // Create item and its stock level
+            const newItem = await tx.item.create({
+              data: {
+                name: row.name.trim(),
+                sku: row.sku.trim(),
+                itemType,
+                unit: row.unit.trim(),
+                categoryId,
+                supplierId,
+                warningLevel,
+                criticalLevel,
+                serialNumber: row.serialNumber?.trim() || null,
+                acquisitionDate,
+                condition: row.condition?.trim() || 'GOOD',
+                createdById: req.user.id,
+                stockLevel: {
+                  create: {
+                    quantityOnHand: initialQty,
+                    lastUpdated: new Date()
+                  }
                 }
               }
+            });
+
+            // Create a default batch for medications/batch-controlled items with initial quantity
+            let batchId = null;
+            const isBatchControlled = itemType === 'MEDICATION' || (cat?.hasBatchControl ?? false);
+            if (isBatchControlled && initialQty > 0) {
+              const importBatchNo = row.batchNo?.trim() || `IMPORT-${row.sku.trim()}`;
+              
+              let importExpiryDate = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000);
+              if (row.expiryDate) {
+                const parsedExpiry = new Date(row.expiryDate);
+                if (isNaN(parsedExpiry.getTime())) {
+                  throw new Error(`Row ${lineNum}: Invalid expiry date format.`);
+                }
+                importExpiryDate = parsedExpiry;
+              }
+              
+              const batch = await tx.itemBatch.create({
+                data: {
+                  itemId: newItem.id,
+                  batchNo: importBatchNo,
+                  expiryDate: importExpiryDate,
+                  quantityRemaining: initialQty,
+                  supplierId
+                }
+              });
+              batchId = batch.id;
+            }
+
+            // Log transaction if there is initial qty
+            if (initialQty > 0) {
+              await tx.transactionLog.create({
+                data: {
+                  itemId: newItem.id,
+                  batchId,
+                  type: 'INBOUND',
+                  qty: initialQty,
+                  userId: req.user.id,
+                  notes: 'Initial stock intake from CSV bulk import'
+                }
+              });
             }
           });
-
-          // Create a default batch for medications/batch-controlled items with initial quantity
-          let batchId = null;
-          const isBatchControlled = itemType === 'MEDICATION' || (cat?.hasBatchControl ?? false);
-          if (isBatchControlled && initialQty > 0) {
-            const importBatchNo = row.batchNo?.trim() || `IMPORT-${row.sku.trim()}`;
-            const importExpiryDate = row.expiryDate ? new Date(row.expiryDate) : new Date(Date.now() + 365 * 24 * 60 * 60 * 1000);
-            
-            const batch = await prisma.itemBatch.create({
-              data: {
-                itemId: newItem.id,
-                batchNo: importBatchNo,
-                expiryDate: importExpiryDate,
-                quantityRemaining: initialQty,
-                supplierId
-              }
-            });
-            batchId = batch.id;
-          }
-
-          // Log transaction if there is initial qty
-          if (initialQty > 0) {
-            await prisma.transactionLog.create({
-              data: {
-                itemId: newItem.id,
-                batchId,
-                type: 'INBOUND',
-                qty: initialQty,
-                userId: req.user.id,
-                notes: 'Initial stock intake from CSV bulk import'
-              }
-            });
-          }
-
           rowsSuccess++;
 
         } else if (type === 'patients') {
@@ -172,32 +192,42 @@ const importCsv = async (req, res, next) => {
             throw new Error(`Row ${lineNum}: Chart number is required.`);
           }
 
-          // Check chart number uniqueness
-          const existingPatient = await prisma.patient.findUnique({
-            where: { chartNumber: row.chartNumber.trim() }
-          });
-          if (existingPatient) {
-            throw new Error(`Row ${lineNum}: Chart number "${row.chartNumber}" is already in use.`);
-          }
-
-          const status = row.status?.trim().toUpperCase() || 'ACTIVE';
-          if (status !== 'ACTIVE' && status !== 'INACTIVE') {
-            throw new Error(`Row ${lineNum}: Invalid status "${status}". Must be ACTIVE or INACTIVE.`);
-          }
-
-          await prisma.patient.create({
-            data: {
-              name: row.name.trim(),
-              chartNumber: row.chartNumber.trim(),
-              diagnosis: row.diagnosis?.trim() || null,
-              schedule: row.schedule?.trim() || null,
-              firstSessionDate: row.firstSessionDate ? new Date(row.firstSessionDate) : null,
-              contact: row.contact?.trim() || null,
-              status,
-              managedById: req.user.id
+          await prisma.$transaction(async (tx) => {
+            // Check chart number uniqueness
+            const existingPatient = await tx.patient.findUnique({
+              where: { chartNumber: row.chartNumber.trim() }
+            });
+            if (existingPatient) {
+              throw new Error(`Row ${lineNum}: Chart number "${row.chartNumber}" is already in use.`);
             }
-          });
 
+            const status = row.status?.trim().toUpperCase() || 'ACTIVE';
+            if (status !== 'ACTIVE' && status !== 'INACTIVE') {
+              throw new Error(`Row ${lineNum}: Invalid status "${status}". Must be ACTIVE or INACTIVE.`);
+            }
+
+            let firstSessionDate = null;
+            if (row.firstSessionDate) {
+              const parsedDate = new Date(row.firstSessionDate);
+              if (isNaN(parsedDate.getTime())) {
+                throw new Error(`Row ${lineNum}: Invalid first session date format.`);
+              }
+              firstSessionDate = parsedDate;
+            }
+
+            await tx.patient.create({
+              data: {
+                name: row.name.trim(),
+                chartNumber: row.chartNumber.trim(),
+                diagnosis: row.diagnosis?.trim() || null,
+                schedule: row.schedule?.trim() || null,
+                firstSessionDate,
+                contact: row.contact?.trim() || null,
+                status,
+                managedById: req.user.id
+              }
+            });
+          });
           rowsSuccess++;
         } else {
           throw new Error(`Unsupported import type: ${type}`);

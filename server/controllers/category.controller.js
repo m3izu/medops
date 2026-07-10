@@ -48,9 +48,9 @@ const update = async (req, res, next) => {
       data: { name, hasBatchControl },
     });
 
-    // If hasBatchControl toggled from false/null to true, retroactively create batches for active items in this category
-    if (hasBatchControl && !existing.hasBatchControl) {
-      const categoriesToCheck = [req.params.id];
+    // Recursively propagate hasBatchControl changes to child subcategories in the database
+    if (hasBatchControl !== undefined && hasBatchControl !== existing.hasBatchControl) {
+      const categoriesToPropagate = [];
       const queue = [req.params.id];
       while (queue.length > 0) {
         const currentId = queue.shift();
@@ -59,31 +59,41 @@ const update = async (req, res, next) => {
           select: { id: true }
         });
         for (const child of children) {
-          if (!categoriesToCheck.includes(child.id)) {
-            categoriesToCheck.push(child.id);
-            queue.push(child.id);
-          }
+          categoriesToPropagate.push(child.id);
+          queue.push(child.id);
         }
       }
 
-      const items = await prisma.item.findMany({
-        where: { categoryId: { in: categoriesToCheck }, isArchived: false },
-        include: { stockLevel: true, batches: true }
-      });
+      if (categoriesToPropagate.length > 0) {
+        await prisma.category.updateMany({
+          where: { id: { in: categoriesToPropagate } },
+          data: { hasBatchControl },
+        });
+      }
 
-      for (const item of items) {
-        const qty = item.stockLevel?.quantityOnHand ?? 0;
-        const activeBatchesCount = item.batches.filter(b => b.quantityRemaining > 0).length;
-        if (qty > 0 && activeBatchesCount === 0) {
-          await prisma.itemBatch.create({
-            data: {
-              itemId: item.id,
-              batchNo: `IMPORT-${item.sku.trim()}`,
-              expiryDate: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000), // 1 year default
-              quantityRemaining: qty,
-              supplierId: item.supplierId
-            }
-          });
+      // If hasBatchControl toggled from false/null to true, retroactively create batches for active items in this hierarchy
+      if (hasBatchControl) {
+        const categoriesToCheck = [req.params.id, ...categoriesToPropagate];
+
+        const items = await prisma.item.findMany({
+          where: { categoryId: { in: categoriesToCheck }, isArchived: false },
+          include: { stockLevel: true, batches: true }
+        });
+
+        for (const item of items) {
+          const qty = item.stockLevel?.quantityOnHand ?? 0;
+          const activeBatchesCount = item.batches.filter(b => b.quantityRemaining > 0).length;
+          if (qty > 0 && activeBatchesCount === 0) {
+            await prisma.itemBatch.create({
+              data: {
+                itemId: item.id,
+                batchNo: `IMPORT-${item.sku.trim()}`,
+                expiryDate: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000), // 1 year default
+                quantityRemaining: qty,
+                supplierId: item.supplierId
+              }
+            });
+          }
         }
       }
     }

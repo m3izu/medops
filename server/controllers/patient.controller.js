@@ -56,9 +56,20 @@ const getOne = async (req, res, next) => {
 const update = async (req, res, next) => {
   try {
     const { name, diagnosis, schedule, firstSessionDate, contact } = req.body;
+
+    let parsedDate = undefined;
+    if (firstSessionDate === null || firstSessionDate === '') {
+      parsedDate = null;
+    } else if (firstSessionDate !== undefined) {
+      parsedDate = new Date(firstSessionDate);
+      if (isNaN(parsedDate.getTime())) {
+        return res.status(400).json({ error: 'Invalid first session date format' });
+      }
+    }
+
     const patient = await prisma.patient.update({
       where: { id: req.params.id },
-      data: { name, diagnosis, schedule, firstSessionDate: firstSessionDate ? new Date(firstSessionDate) : undefined, contact },
+      data: { name, diagnosis, schedule, firstSessionDate: parsedDate, contact },
     });
     res.json(patient);
   } catch (err) { next(err); }

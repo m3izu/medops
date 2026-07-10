@@ -105,7 +105,7 @@ const complete = async (req, res, next) => {
 
     const lines = await prisma.stocktakeLine.findMany({
       where: { stocktakeId: req.params.id },
-      include: { item: true }
+      include: { item: { include: { category: true } } }
     });
 
     // Verify all lines have been counted (Bug #2)
@@ -128,8 +128,9 @@ const complete = async (req, res, next) => {
             create: { itemId: line.itemId, quantityOnHand: line.physicalQty, lastUpdated: new Date() },
           });
 
-          // Reconcile batch quantities if item is a medication
-          if (line.item.itemType === 'MEDICATION') {
+          // Reconcile batch quantities if item is batch-controlled
+          const isBatchControlled = line.item.itemType === 'MEDICATION' || (line.item.category?.hasBatchControl ?? false);
+          if (isBatchControlled) {
             if (line.discrepancy < 0) {
               // Deduct from batches in FIFO order
               let diff = Math.abs(line.discrepancy);
@@ -145,6 +146,29 @@ const complete = async (req, res, next) => {
                   data: { quantityRemaining: { decrement: deduct } }
                 });
                 diff -= deduct;
+              }
+
+              // Reconcile remaining discrepancy if active batch totals were insufficient
+              if (diff > 0) {
+                const fallbackBatch = await tx.itemBatch.findFirst({
+                  where: { itemId: line.itemId },
+                  orderBy: { expiryDate: 'asc' }
+                });
+                if (fallbackBatch) {
+                  await tx.itemBatch.update({
+                    where: { id: fallbackBatch.id },
+                    data: { quantityRemaining: { decrement: diff } }
+                  });
+                } else {
+                  await tx.itemBatch.create({
+                    data: {
+                      itemId: line.itemId,
+                      batchNo: 'RECONCILED',
+                      expiryDate: new Date(Date.now() + 180 * 24 * 60 * 60 * 1000),
+                      quantityRemaining: -diff,
+                    }
+                  });
+                }
               }
             } else if (line.discrepancy > 0) {
               // Add stock discrepancy to the oldest active batch

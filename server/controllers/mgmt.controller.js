@@ -36,6 +36,11 @@ const addComment = async (req, res, next) => {
     const { commentText, isFlagged } = req.body;
     if (!commentText) return res.status(400).json({ error: 'commentText is required' });
 
+    const log = await prisma.transactionLog.findUnique({ where: { id: req.params.logId } });
+    if (!log) {
+      return res.status(404).json({ error: 'Transaction log not found' });
+    }
+
     const comment = await prisma.mgmtComment.create({
       data: {
         transactionLogId: req.params.logId,

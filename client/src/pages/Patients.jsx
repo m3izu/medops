@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
+import EmptyState from '../components/EmptyState';
 
 const HighlightText = ({ text, search }) => {
   if (!search || !text) return <span>{text}</span>;
@@ -39,6 +40,7 @@ const Patients = () => {
   const [firstSessionDate, setFirstSessionDate] = useState('');
   const [contact, setContact] = useState('');
   const [formError, setFormError] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const fetchPatients = async () => {
     try {
@@ -114,6 +116,7 @@ const Patients = () => {
     const payload = { name, chartNumber, diagnosis, schedule, firstSessionDate: firstSessionDate || null, contact };
 
     try {
+      setIsSubmitting(true);
       if (modalMode === 'add') {
         await api.post('/patients', payload);
       } else {
@@ -127,6 +130,8 @@ const Patients = () => {
     } catch (err) {
       console.error('Submit failed:', err);
       setFormError(err.response?.data?.error || 'An error occurred while saving the patient record.');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -221,9 +226,13 @@ const Patients = () => {
             {loading ? (
               <p style={{ padding: '24px', color: 'var(--theme-text-muted)' }}>Loading patient records...</p>
             ) : patients.length === 0 ? (
-              <p style={{ padding: '24px', color: 'var(--theme-text-muted)', textAlign: 'center' }}>
-                No patients found matching your filters.
-              </p>
+              <EmptyState
+                icon="🧑‍⚕️"
+                title="No Patients Registered"
+                description="No active dialysis patients are currently registered under these filter criteria. Add a new patient record to get started."
+                actionText={canManage ? "Register New Patient" : undefined}
+                onAction={canManage ? openAddModal : undefined}
+              />
             ) : (
               <table className="table">
                 <thead>
@@ -459,9 +468,9 @@ const Patients = () => {
               </div>
 
               <div className="modal-footer">
-                <button type="button" className="btn" onClick={() => setIsModalOpen(false)}>Cancel</button>
-                <button type="submit" className="btn btn-primary">
-                  {modalMode === 'add' ? 'Register Patient' : 'Save Changes'}
+                <button type="button" className="btn" onClick={() => setIsModalOpen(false)} disabled={isSubmitting}>Cancel</button>
+                <button type="submit" className="btn btn-primary" disabled={isSubmitting}>
+                  {isSubmitting ? 'Saving...' : (modalMode === 'add' ? 'Register Patient' : 'Save Changes')}
                 </button>
               </div>
             </form>

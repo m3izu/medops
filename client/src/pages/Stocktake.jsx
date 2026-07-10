@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
+import EmptyState from '../components/EmptyState';
 
 const STATUS_BADGE = {
   IN_PROGRESS: 'badge-warning',
@@ -236,10 +237,13 @@ const Stocktake = () => {
             {loading ? (
               <p style={{ padding: '20px', color: 'var(--theme-text-muted)' }}>Loading...</p>
             ) : stocktakes.length === 0 ? (
-              <p style={{ padding: '20px', color: 'var(--theme-text-muted)', textAlign: 'center', fontSize: '13px' }}>
-                No stocktake sessions yet.<br />
-                {canManage && 'Click "+ New Stocktake" to begin.'}
-              </p>
+              <EmptyState
+                icon="📋"
+                title="No Stocktake Sessions"
+                description="No physical inventory count sheets or stock reconciliation logs have been initiated yet."
+                actionText={canManage ? "Initiate New Stocktake" : undefined}
+                onAction={canManage ? () => setConfirmInitiate(true) : undefined}
+              />
             ) : (
               <div>
                 {stocktakes.map(st => (

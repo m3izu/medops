@@ -75,10 +75,14 @@ const setUserPermission = async (req, res, next) => {
       return res.status(403).json({ error: 'This permission is locked and cannot be modified' });
     }
 
-    const current = await prisma.userPermission.findUnique({
-      where: { userId_permissionKey: { userId, permissionKey } },
-    });
-    const oldValue = current?.isEnabled ?? false;
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    const { getEffectivePermissions } = require('../middleware/rbac');
+    const effectivePerms = await getEffectivePermissions(userId, user.role);
+    const oldValue = !!effectivePerms[permissionKey];
 
     await prisma.userPermission.upsert({
       where: { userId_permissionKey: { userId, permissionKey } },

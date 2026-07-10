@@ -14,45 +14,63 @@ const Dashboard = () => {
   const quickActions = [
     { 
       label: 'Receive Stock', 
+      desc: 'Register inbound shipments & allocate batch numbers',
       path: '/stock/receive', 
-      icon: <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12"></polyline><path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"></path></svg>, 
+      icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12"></polyline><path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"></path></svg>, 
       permission: 'receive_stock', 
-      color: 'var(--theme-primary)' 
+      color: 'var(--theme-primary)',
+      bgColor: 'rgba(13,148,136,0.08)',
+      shadowColor: 'rgba(13,148,136,0.15)'
     },
     { 
       label: 'Submit Requisition', 
+      desc: 'Request clinic consumables for dialysis sessions',
       path: '/requisitions', 
-      icon: <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>, 
+      icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>, 
       permission: 'submit_requisition', 
-      color: '#8b5cf6' 
+      color: '#8b5cf6',
+      bgColor: 'rgba(139,92,246,0.08)',
+      shadowColor: 'rgba(139,92,246,0.15)'
     },
     { 
       label: 'Log Discard/Waste', 
+      desc: 'Report expired, damaged, or recalled items',
       path: '/discards', 
-      icon: <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>, 
+      icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>, 
       permission: 'log_discard', 
-      color: 'var(--color-critical)' 
+      color: 'var(--color-critical)',
+      bgColor: 'rgba(239,68,68,0.08)',
+      shadowColor: 'rgba(239,68,68,0.15)'
     },
     { 
       label: 'Initiate Stocktake', 
+      desc: 'Start physical counts to reconcile inventory levels',
       path: '/stocktake', 
-      icon: <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"></path></svg>, 
+      icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"></path></svg>, 
       permission: 'initiate_stocktake', 
-      color: 'var(--color-warning)' 
+      color: 'var(--color-warning)',
+      bgColor: 'rgba(245,158,11,0.08)',
+      shadowColor: 'rgba(245,158,11,0.15)'
     },
     { 
       label: 'Manage Staff', 
+      desc: 'Configure user logins, roles, and permission levels',
       path: '/users', 
-      icon: <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>, 
+      icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>, 
       permission: 'create_users', 
-      color: '#3b82f6' 
+      color: '#3b82f6',
+      bgColor: 'rgba(59,130,246,0.08)',
+      shadowColor: 'rgba(59,130,246,0.15)'
     },
     { 
       label: 'View Reports', 
+      desc: 'Analyze monthly analytics and auto-summaries',
       path: '/reports', 
-      icon: <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>, 
+      icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>, 
       permission: 'generate_reports', 
-      color: '#10b981' 
+      color: '#10b981',
+      bgColor: 'rgba(16,185,129,0.08)',
+      shadowColor: 'rgba(16,185,129,0.15)'
     }
   ].filter(action => hasPermission(action.permission));
 
@@ -224,40 +242,56 @@ const Dashboard = () => {
 
       {/* Quick Actions Panel */}
       {quickActions.length > 0 && (
-        <div className="widget-card" style={{ padding: '20px' }}>
-          <div style={{ fontSize: '15px', fontWeight: '600', marginBottom: '14px', color: 'var(--theme-text-bold)' }}>⚡ Quick Action Shortcuts</div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: '14px' }}>
+        <div className="widget-card" style={{ padding: '24px', background: 'var(--card-bg)' }}>
+          <div style={{ fontSize: '15px', fontWeight: '700', marginBottom: '16px', color: 'var(--theme-text-bold)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>⚡ Quick Action Shortcuts</div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '16px' }}>
             {quickActions.map(action => (
               <Link 
                 key={action.path}
                 to={action.path}
-                className="btn btn-secondary"
                 style={{ 
                   display: 'flex', 
                   flexDirection: 'column', 
                   alignItems: 'center', 
-                  justifyContent: 'center',
-                  padding: '16px 12px',
-                  borderRadius: 'var(--border-radius-md)',
-                  gap: '8px',
-                  height: '100%',
-                  textAlign: 'center',
+                  padding: '20px 16px',
+                  borderRadius: 'var(--border-radius-lg)',
+                  background: 'var(--theme-bg)',
+                  textDecoration: 'none',
                   border: '1px solid var(--theme-border)',
-                  transition: 'transform var(--transition-fast), box-shadow var(--transition-fast), border-color var(--transition-fast)'
+                  boxShadow: 'var(--shadow-sm)',
+                  transition: 'transform 0.25s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.25s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.25s cubic-bezier(0.4, 0, 0.2, 1)'
                 }}
                 onMouseEnter={(e) => {
-                  e.currentTarget.style.transform = 'scale(1.03)';
+                  e.currentTarget.style.transform = 'translateY(-4px)';
                   e.currentTarget.style.borderColor = action.color;
-                  e.currentTarget.style.boxShadow = 'var(--shadow-md)';
+                  e.currentTarget.style.boxShadow = `0 12px 20px ${action.shadowColor}`;
                 }}
                 onMouseLeave={(e) => {
-                  e.currentTarget.style.transform = 'scale(1)';
+                  e.currentTarget.style.transform = 'translateY(0)';
                   e.currentTarget.style.borderColor = 'var(--theme-border)';
-                  e.currentTarget.style.boxShadow = 'none';
+                  e.currentTarget.style.boxShadow = 'var(--shadow-sm)';
                 }}
               >
-                <span style={{ fontSize: '28px' }}>{action.icon}</span>
-                <span style={{ fontWeight: '600', fontSize: '13px', color: 'var(--theme-text-bold)' }}>{action.label}</span>
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  width: '44px',
+                  height: '44px',
+                  borderRadius: '50%',
+                  background: action.bgColor,
+                  color: action.color,
+                  marginBottom: '12px',
+                  transition: 'transform 0.25s ease'
+                }}>
+                  {action.icon}
+                </div>
+                <span style={{ fontWeight: '700', fontSize: '14px', color: 'var(--theme-text-bold)', textAlign: 'center' }}>
+                  {action.label}
+                </span>
+                <span style={{ fontSize: '11px', color: 'var(--theme-text-muted)', textAlign: 'center', marginTop: '6px', lineHeight: '1.4' }}>
+                  {action.desc}
+                </span>
               </Link>
             ))}
           </div>

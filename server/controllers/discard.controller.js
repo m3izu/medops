@@ -21,6 +21,9 @@ const logDiscard = async (req, res, next) => {
       if (!item) {
         throw new Error('Item not found');
       }
+      if (item.isArchived) {
+        throw new Error('Cannot discard stock for an archived item');
+      }
 
       const isBatch = item.itemType === 'MEDICATION' || (item.category?.hasBatchControl ?? false);
       if (isBatch && !batchId) {
@@ -82,7 +85,8 @@ const logDiscard = async (req, res, next) => {
   } catch (err) {
     const knownErrors = [
       'Item not found',
-      'A specific medication batch must be selected for discard.',
+      'Cannot discard stock for an archived item',
+      'A specific batch must be selected for discard.',
       'Batch not found',
       'Selected batch does not belong to the selected item',
       'Concurrent modification detected: Insufficient batch quantity.',

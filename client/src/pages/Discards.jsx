@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
+import EmptyState from '../components/EmptyState';
 
 const REASONS = [
   { value: 'EXPIRED', label: 'Expired' },
@@ -305,9 +306,11 @@ const Discards = () => {
             {loading ? (
               <p style={{ padding: '24px', color: 'var(--theme-text-muted)' }}>Loading logs...</p>
             ) : discards.length === 0 ? (
-              <p style={{ padding: '24px', color: 'var(--theme-text-muted)', textAlign: 'center' }}>
-                No discard or waste log entries compiled.
-              </p>
+              <EmptyState
+                icon="🗑️"
+                title="No Discards Logged"
+                description="No medication discards, damage logs, or chemical disposal records have been registered yet."
+              />
             ) : (
               <table className="table">
                 <thead>

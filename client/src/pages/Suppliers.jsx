@@ -1,6 +1,20 @@
 import React, { useState, useEffect } from 'react';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
+import EmptyState from '../components/EmptyState';
+
+const HighlightText = ({ text, search }) => {
+  if (!search || !text) return <span>{text}</span>;
+  const regex = new RegExp(`(${search.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&')})`, 'gi');
+  const parts = String(text).split(regex);
+  return (
+    <span>
+      {parts.map((part, i) => 
+        regex.test(part) ? <mark key={i} className="search-highlight">{part}</mark> : part
+      )}
+    </span>
+  );
+};
 
 const Suppliers = () => {
   const { hasPermission } = useAuth();
@@ -8,6 +22,7 @@ const Suppliers = () => {
   const [selectedSupplier, setSelectedSupplier] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [filterSearch, setFilterSearch] = useState('');
 
   // Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -22,6 +37,7 @@ const Suppliers = () => {
   const [address, setAddress] = useState('');
   const [notes, setNotes] = useState('');
   const [formError, setFormError] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const fetchSuppliers = async () => {
     try {
@@ -90,6 +106,7 @@ const Suppliers = () => {
     const payload = { name, contactPerson, phone, email, address, notes };
 
     try {
+      setIsSubmitting(true);
       if (modalMode === 'add') {
         const res = await api.post('/suppliers', payload);
         setSuppliers([...suppliers, res.data]);
@@ -105,6 +122,8 @@ const Suppliers = () => {
     } catch (err) {
       console.error('Submit failed:', err);
       setFormError(err.response?.data?.error || 'An error occurred while saving the supplier.');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -130,6 +149,17 @@ const Suppliers = () => {
     fetchSupplierDetails(id);
   };
 
+  const filteredSuppliers = suppliers.filter(s => {
+    const query = filterSearch.toLowerCase().trim();
+    if (!query) return true;
+    return (
+      (s.name || '').toLowerCase().includes(query) ||
+      (s.contactPerson || '').toLowerCase().includes(query) ||
+      (s.phone || '').toLowerCase().includes(query) ||
+      (s.email || '').toLowerCase().includes(query)
+    );
+  });
+
   const canManage = hasPermission('manage_suppliers');
 
   return (
@@ -148,6 +178,20 @@ const Suppliers = () => {
 
       {error && <div className="login-error" style={{ margin: 0 }}>{error}</div>}
 
+      {/* Filter Bar */}
+      <div className="filter-bar" style={{ marginBottom: '20px' }}>
+        <div className="filter-item" style={{ minWidth: '200px', flexGrow: 1 }}>
+          <label>Search Name, Contact, or Info</label>
+          <input
+            type="text"
+            className="form-control"
+            placeholder="Search suppliers..."
+            value={filterSearch}
+            onChange={(e) => setFilterSearch(e.target.value)}
+          />
+        </div>
+      </div>
+
       <div style={{ display: 'grid', gridTemplateColumns: selectedSupplier ? '1.5fr 1fr' : '1fr', gap: '24px', transition: 'grid-template-columns 0.3s ease' }}>
         
         {/* Left Panel: Suppliers List */}
@@ -155,15 +199,21 @@ const Suppliers = () => {
           <div className="widget-header">
             <span className="widget-title">Suppliers Registry</span>
             <span style={{ fontSize: '13px', color: 'var(--theme-text-muted)' }}>
-              {suppliers.length} Supplier{suppliers.length !== 1 ? 's' : ''} Listed
+              {filteredSuppliers.length} Supplier{filteredSuppliers.length !== 1 ? 's' : ''} Found
             </span>
           </div>
           
           <div className="widget-body" style={{ padding: 0 }}>
             {loading ? (
               <p style={{ padding: '24px', color: 'var(--theme-text-muted)' }}>Loading suppliers directory...</p>
-            ) : suppliers.length === 0 ? (
-              <p style={{ padding: '24px', color: 'var(--theme-text-muted)', textAlign: 'center' }}>No suppliers registered in the database yet.</p>
+            ) : filteredSuppliers.length === 0 ? (
+              <EmptyState
+                icon="🤝"
+                title="No Suppliers Found"
+                description="No pharmaceutical suppliers, manufacturers, or distributors matched your active search term."
+                actionText={canManage ? "Register New Supplier" : undefined}
+                onAction={canManage ? openAddModal : undefined}
+              />
             ) : (
               <table className="table">
                 <thead>
@@ -176,7 +226,7 @@ const Suppliers = () => {
                   </tr>
                 </thead>
                 <tbody>
-                  {suppliers.map(s => (
+                  {filteredSuppliers.map(s => (
                     <tr 
                       key={s.id} 
                       onClick={() => handleRowClick(s.id)}
@@ -185,10 +235,10 @@ const Suppliers = () => {
                         backgroundColor: selectedSupplier?.id === s.id ? 'var(--theme-primary-bg)' : 'transparent'
                       }}
                     >
-                      <td><strong>{s.name}</strong></td>
-                      <td>{s.contactPerson || <span style={{ color: 'var(--theme-text-muted)', fontSize: '12px' }}>—</span>}</td>
-                      <td>{s.phone || <span style={{ color: 'var(--theme-text-muted)', fontSize: '12px' }}>—</span>}</td>
-                      <td>{s.email || <span style={{ color: 'var(--theme-text-muted)', fontSize: '12px' }}>—</span>}</td>
+                      <td><strong><HighlightText text={s.name} search={filterSearch} /></strong></td>
+                      <td>{s.contactPerson ? <HighlightText text={s.contactPerson} search={filterSearch} /> : <span style={{ color: 'var(--theme-text-muted)', fontSize: '12px' }}>—</span>}</td>
+                      <td>{s.phone ? <HighlightText text={s.phone} search={filterSearch} /> : <span style={{ color: 'var(--theme-text-muted)', fontSize: '12px' }}>—</span>}</td>
+                      <td>{s.email ? <HighlightText text={s.email} search={filterSearch} /> : <span style={{ color: 'var(--theme-text-muted)', fontSize: '12px' }}>—</span>}</td>
                       {canManage && (
                         <td style={{ textAlign: 'right' }}>
                           <button 
@@ -371,11 +421,11 @@ const Suppliers = () => {
               </div>
               
               <div className="modal-footer">
-                <button type="button" className="btn btn-secondary" onClick={() => setIsModalOpen(false)}>
+                <button type="button" className="btn btn-secondary" onClick={() => setIsModalOpen(false)} disabled={isSubmitting}>
                   Cancel
                 </button>
-                <button type="submit" className="btn btn-primary">
-                  {modalMode === 'add' ? 'Create Supplier' : 'Save Changes'}
+                <button type="submit" className="btn btn-primary" disabled={isSubmitting}>
+                  {isSubmitting ? 'Saving...' : (modalMode === 'add' ? 'Create Supplier' : 'Save Changes')}
                 </button>
               </div>
             </form>

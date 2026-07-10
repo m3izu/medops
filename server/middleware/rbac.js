@@ -16,11 +16,20 @@ const getEffectivePermissions = async (userId, role) => {
     where: { userId },
   });
 
+  const { DEFAULT_ROLE_PERMISSIONS, PERMISSIONS } = require('../lib/permissions');
   const permMap = {};
 
-  // Apply role defaults
+  // Apply role defaults from database overrides first
   for (const rp of rolePerms) {
     permMap[rp.permissionKey] = rp.isEnabled;
+  }
+
+  // Fall back to default role permission config if no database overrides exist
+  const defaults = DEFAULT_ROLE_PERMISSIONS[role] || [];
+  for (const key of Object.values(PERMISSIONS)) {
+    if (permMap[key] === undefined) {
+      permMap[key] = defaults.includes(key);
+    }
   }
 
   // Apply user overrides

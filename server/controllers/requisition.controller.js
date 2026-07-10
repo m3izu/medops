@@ -88,7 +88,10 @@ const getOne = async (req, res, next) => {
                 batches: { 
                   where: { 
                     quantityRemaining: { gt: 0 },
-                    expiryDate: { gte: new Date() } // Exclude expired batches!
+                    OR: [
+                      { expiryDate: { gte: new Date() } },
+                      { expiryDate: null }
+                    ]
                   }, 
                   orderBy: { expiryDate: 'asc' } 
                 } 
@@ -124,7 +127,7 @@ const cancel = async (req, res, next) => {
       if (!reqDb) {
         throw new Error('Requisition not found');
       }
-      if (reqDb.status !== 'PENDING' && reqDb.status !== 'PARTIALLY_APPROVED') {
+      if (reqDb.status !== 'PENDING') {
         throw new Error('Only pending requisitions can be cancelled');
       }
 
@@ -175,6 +178,15 @@ const approveLine = async (req, res, next) => {
         throw new Error('Line item is not pending');
       }
 
+      // Verify patient status is still active before approving
+      const requisitionDb = await tx.requisition.findUnique({
+        where: { id: lineDb.requisitionId },
+        include: { patient: true }
+      });
+      if (!requisitionDb || requisitionDb.patient.status !== 'ACTIVE') {
+        throw new Error('Cannot approve requisition line for an inactive patient.');
+      }
+
       const item = await tx.item.findUnique({
         where: { id: lineDb.itemId },
         include: { 
@@ -183,7 +195,10 @@ const approveLine = async (req, res, next) => {
           batches: { 
             where: { 
               quantityRemaining: { gt: 0 },
-              expiryDate: { gte: new Date() } // Clinical safety fix: exclude expired batches!
+              OR: [
+                { expiryDate: { gte: new Date() } },
+                { expiryDate: null }
+              ]
             }, 
             orderBy: { expiryDate: 'asc' } 
           } 
@@ -289,6 +304,7 @@ const approveLine = async (req, res, next) => {
       'Line item not found',
       'Line item is not pending',
       'Item not found',
+      'Cannot approve requisition line for an inactive patient.',
       'Medication co-verification is required before approval.',
       'Insufficient Medication batch quantities remaining to fulfill this request.',
       'Concurrent modification detected: Insufficient batch quantity.',
@@ -426,7 +442,12 @@ const coVerifyLine = async (req, res, next) => {
 async function updateRequisitionStatus(requisitionId, tx) {
   const client = tx || prisma;
   const lines = await client.requisitionLine.findMany({ where: { requisitionId } });
-  const statuses = lines.map(l => l.status);
+
+  // Exclude superceded lines (lines that have been resubmitted) from status calculation
+  const supercededIds = lines.filter(l => l.originalLineId).map(l => l.originalLineId);
+  const activeLines = lines.filter(l => !supercededIds.includes(l.id));
+
+  const statuses = activeLines.map(l => l.status);
   let newStatus = 'PENDING';
   if (statuses.every(s => s === 'APPROVED')) newStatus = 'FULLY_APPROVED';
   else if (statuses.every(s => s === 'REJECTED' || s === 'CANCELLED')) newStatus = 'REJECTED';

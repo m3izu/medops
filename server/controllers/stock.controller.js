@@ -86,7 +86,7 @@ const receiveStock = async (req, res, next) => {
         }
       }
 
-      // Create batch if batch details provided
+      // Create or update batch if batch details provided
       let batchId = null;
       if (batchNo || expiryDate) {
         if (expiryDate) {
@@ -98,16 +98,32 @@ const receiveStock = async (req, res, next) => {
           }
         }
 
-        const batch = await tx.itemBatch.create({
-          data: {
-            itemId,
-            batchNo,
-            expiryDate: expiryDate ? new Date(expiryDate) : null,
-            quantityRemaining: quantity,
-            supplierId,
-          },
-        });
-        batchId = batch.id;
+        // Try to find an existing batch with the same batchNo for consolidation
+        let existingBatch = null;
+        if (batchNo && batchNo.trim()) {
+          existingBatch = await tx.itemBatch.findFirst({
+            where: { itemId, batchNo: batchNo.trim() }
+          });
+        }
+
+        if (existingBatch) {
+          await tx.itemBatch.update({
+            where: { id: existingBatch.id },
+            data: { quantityRemaining: { increment: quantity } }
+          });
+          batchId = existingBatch.id;
+        } else {
+          const batch = await tx.itemBatch.create({
+            data: {
+              itemId,
+              batchNo: batchNo ? batchNo.trim() : null,
+              expiryDate: expiryDate ? new Date(expiryDate) : null,
+              quantityRemaining: quantity,
+              supplierId,
+            },
+          });
+          batchId = batch.id;
+        }
       }
 
       // Transaction log
@@ -271,7 +287,7 @@ const getAlerts = async (req, res, next) => {
 
     const expiringBatches = await prisma.itemBatch.findMany({
       where: {
-        expiryDate: { lte: in90 },
+        expiryDate: { lte: in90, not: null },
         quantityRemaining: { gt: 0 },
       },
       include: { item: { select: { id: true, name: true, sku: true } } },

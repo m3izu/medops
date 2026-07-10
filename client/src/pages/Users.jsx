@@ -1,6 +1,37 @@
 import React, { useState, useEffect } from 'react';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
+import EmptyState from '../components/EmptyState';
+
+const HighlightText = ({ text, search }) => {
+  if (!search || !text) return <span>{text}</span>;
+  const regex = new RegExp(`(${search.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&')})`, 'gi');
+  const parts = String(text).split(regex);
+  return (
+    <span>
+      {parts.map((part, i) => 
+        regex.test(part) ? <mark key={i} className="search-highlight">{part}</mark> : part
+      )}
+    </span>
+  );
+};
+
+const PERMISSION_DESCS = {
+  view_items: "Permits searching and viewing the inventory catalog and stock levels.",
+  manage_items: "Allows creating, editing, and archiving catalog items.",
+  view_archived_items: "Grants access to toggle and view archived catalog items.",
+  receive_stock: "Allows recording inbound deliveries and allocating batch numbers.",
+  submit_requisition: "Allows clinics to request consumable stock items.",
+  approve_requisition: "Allows managers to authorize/partially approve requisitions.",
+  dispatch_requisition: "Allows inventory officers to dispatch authorized supplies.",
+  deliver_requisition: "Allows clinic staff to receive and log inbound requisitions.",
+  log_discard: "Allows logging expired, damaged, or recalled stock as discard.",
+  initiate_stocktake: "Allows creating stock count reconciliation sheets.",
+  submit_stocktake: "Allows completing and syncing physical counts into inventory.",
+  generate_reports: "Permits building and printing consumption analysis reports.",
+  create_users: "Allows creating and managing staff account logins.",
+  manage_rbac: "Allows changing roles and overriding system permission matrices."
+};
 
 const Users = () => {
   const { user: currentUser } = useAuth();
@@ -25,6 +56,10 @@ const Users = () => {
   const [tempPassword, setTempPassword] = useState('');
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isResetting, setIsResetting] = useState(false);
+  const [filterSearch, setFilterSearch] = useState('');
+  const [loading, setLoading] = useState(true);
 
   // Permission structure
   const [allPermissionKeys, setAllPermissionKeys] = useState([]);
@@ -41,10 +76,13 @@ const Users = () => {
 
   const fetchUsers = async () => {
     try {
+      setLoading(true);
       const response = await api.get('/users');
       setUsers(response.data);
     } catch (err) {
       console.error('Error fetching users', err);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -79,6 +117,7 @@ const Users = () => {
     setError('');
     setSuccess('');
     try {
+      setIsSubmitting(true);
       await api.post('/users', { name, username, password, role });
       setSuccess(`Account for ${name} created successfully.`);
       setName('');
@@ -89,6 +128,8 @@ const Users = () => {
       fetchUsers();
     } catch (err) {
       setError(err.response?.data?.error || 'Failed to create user account');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -106,12 +147,15 @@ const Users = () => {
     setError('');
     setSuccess('');
     try {
+      setIsResetting(true);
       await api.post(`/users/${passwordModal.id}/reset-password`, { temporaryPassword: tempPassword });
       setSuccess(`Password for ${passwordModal.name} reset successfully.`);
       setTempPassword('');
       setPasswordModal(null);
     } catch (err) {
       setError(err.response?.data?.error || 'Failed to reset password');
+    } finally {
+      setIsResetting(false);
     }
   };
 
@@ -168,6 +212,15 @@ const Users = () => {
     }
   };
 
+  const filteredUsers = users.filter(u => {
+    const query = filterSearch.toLowerCase().trim();
+    if (!query) return true;
+    return (
+      (u.name || '').toLowerCase().includes(query) ||
+      (u.username || '').toLowerCase().includes(query)
+    );
+  });
+
   return (
     <div className="page-container">
       {/* Messages */}
@@ -206,8 +259,32 @@ const Users = () => {
                 + Create Staff Account
               </button>
             </div>
+            {/* Filter Bar */}
+            <div className="filter-bar" style={{ padding: '12px 24px', borderBottom: '1px solid var(--theme-border)', gap: '12px' }}>
+              <div className="filter-item" style={{ minWidth: '200px', flexGrow: 1 }}>
+                <label>Search Staff Member</label>
+                <input
+                  type="text"
+                  className="form-control"
+                  placeholder="Search name or username..."
+                  value={filterSearch}
+                  onChange={(e) => setFilterSearch(e.target.value)}
+                />
+              </div>
+            </div>
             <div className="widget-body" style={{ padding: 0 }}>
-              <table className="table">
+              {loading ? (
+                <p style={{ padding: '24px', color: 'var(--theme-text-muted)' }}>Loading staff accounts...</p>
+              ) : filteredUsers.length === 0 ? (
+                <EmptyState
+                  icon="👤"
+                  title="No Staff Accounts Found"
+                  description="No clinical staff accounts matched your search keyword. Check spelling or register a new login."
+                  actionText="+ Create Staff Account"
+                  onAction={() => setAddUserModal(true)}
+                />
+              ) : (
+                <table className="table">
                 <thead>
                   <tr>
                     <th>Name</th>
@@ -217,11 +294,13 @@ const Users = () => {
                   </tr>
                 </thead>
                 <tbody>
-                  {users.map(u => (
+                  {filteredUsers.map(u => (
                     <tr key={u.id} style={{ background: selectedUser?.id === u.id ? 'var(--theme-primary-bg)' : 'transparent' }}>
                       <td>
-                        <strong>{u.name}</strong>
-                        <div style={{ fontSize: '12px', color: 'var(--theme-text-muted)' }}>@{u.username}</div>
+                        <strong><HighlightText text={u.name} search={filterSearch} /></strong>
+                        <div style={{ fontSize: '12px', color: 'var(--theme-text-muted)' }}>
+                          @<HighlightText text={u.username} search={filterSearch} />
+                        </div>
                       </td>
                       <td>
                         <span className="badge badge-neutral">{u.role.replace('_', ' ')}</span>
@@ -269,6 +348,7 @@ const Users = () => {
                   ))}
                 </tbody>
               </table>
+              )}
             </div>
           </div>
 
@@ -306,7 +386,12 @@ const Users = () => {
                       return (
                         <tr key={key}>
                           <td>
-                            <strong>{key.replace(/_/g, ' ')}</strong>
+                            <span className="tooltip-container" style={{ borderBottom: '1px dotted var(--theme-text-muted)' }}>
+                              <strong>{key.replace(/_/g, ' ')}</strong>
+                              {PERMISSION_DESCS[key] && (
+                                <span className="tooltip-text">{PERMISSION_DESCS[key]}</span>
+                              )}
+                            </span>
                           </td>
                           <td>
                             <span className={`badge ${roleDefault ? 'badge-success' : 'badge-neutral'}`}>
@@ -394,7 +479,14 @@ const Users = () => {
             <span className="widget-title">Security & Role Adjustment Logs</span>
           </div>
           <div className="widget-body" style={{ padding: 0 }}>
-            <table className="table">
+            {permissionAuditLogs.length === 0 ? (
+              <EmptyState
+                icon="📜"
+                title="No Audit Logs Available"
+                description="No security privilege adjustments or custom role overrides have been logged in the system database."
+              />
+            ) : (
+              <table className="table">
               <thead>
                 <tr>
                   <th>Timestamp</th>
@@ -434,6 +526,7 @@ const Users = () => {
                 ))}
               </tbody>
             </table>
+            )}
           </div>
         </div>
       )}
@@ -487,9 +580,11 @@ const Users = () => {
                   </select>
                 </div>
               </div>
-              <div className="modal-footer">
-                <button type="button" className="btn btn-secondary" onClick={() => setAddUserModal(false)}>Cancel</button>
-                <button type="submit" className="btn btn-primary">Create User</button>
+               <div className="modal-footer">
+                <button type="button" className="btn btn-secondary" onClick={() => setAddUserModal(false)} disabled={isSubmitting}>Cancel</button>
+                <button type="submit" className="btn btn-primary" disabled={isSubmitting}>
+                  {isSubmitting ? 'Creating...' : 'Create User'}
+                </button>
               </div>
             </form>
           </div>
@@ -518,9 +613,11 @@ const Users = () => {
                   />
                 </div>
               </div>
-              <div className="modal-footer">
-                <button type="button" className="btn btn-secondary" onClick={() => setPasswordModal(null)}>Cancel</button>
-                <button type="submit" className="btn btn-primary">Reset Password</button>
+               <div className="modal-footer">
+                <button type="button" className="btn btn-secondary" onClick={() => setPasswordModal(null)} disabled={isResetting}>Cancel</button>
+                <button type="submit" className="btn btn-primary" disabled={isResetting}>
+                  {isResetting ? 'Resetting...' : 'Reset Password'}
+                </button>
               </div>
             </form>
           </div>

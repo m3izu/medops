@@ -42,7 +42,7 @@ const generate = async (req, res, next) => {
       }),
       // 3. Expiring batches within 90 days
       prisma.itemBatch.findMany({
-        where: { expiryDate: { lte: in90 }, quantityRemaining: { gt: 0 } },
+        where: { expiryDate: { lte: in90, not: null }, quantityRemaining: { gt: 0 } },
         include: { item: { select: { name: true, sku: true, unit: true } } },
         orderBy: { expiryDate: 'asc' },
       }),
@@ -187,7 +187,7 @@ const getOne = async (req, res, next) => {
       }),
       // 3. Expiring batches within 90 days
       prisma.itemBatch.findMany({
-        where: { expiryDate: { lte: in90 }, quantityRemaining: { gt: 0 } },
+        where: { expiryDate: { lte: in90, not: null }, quantityRemaining: { gt: 0 } },
         include: { item: { select: { name: true, sku: true, unit: true } } },
         orderBy: { expiryDate: 'asc' },
       }),

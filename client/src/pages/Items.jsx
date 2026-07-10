@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
+import EmptyState from '../components/EmptyState';
 
 const ITEM_TYPES = [
   { value: 'MEDICATION', label: 'Medication' },
@@ -136,6 +137,7 @@ const Items = () => {
   const [condition, setCondition] = useState('GOOD');
   
   const [formError, setFormError] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Batches Modal State
   const [batchesModalOpen, setBatchesModalOpen] = useState(false);
@@ -287,6 +289,7 @@ const Items = () => {
     }
 
     try {
+      setIsSubmitting(true);
       if (modalMode === 'add') {
         await api.post('/items', payload);
       } else {
@@ -306,6 +309,8 @@ const Items = () => {
     } catch (err) {
       console.error('Submit item failed:', err);
       setFormError(err.response?.data?.error || 'An error occurred while saving the item.');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -439,9 +444,11 @@ const Items = () => {
           {loading ? (
             <p style={{ padding: '24px', color: 'var(--theme-text-muted)' }}>Loading inventory catalog...</p>
           ) : items.length === 0 ? (
-            <p style={{ padding: '24px', color: 'var(--theme-text-muted)', textAlign: 'center' }}>
-              No inventory items matched your search filters.
-            </p>
+            <EmptyState
+              icon="📦"
+              title="No Items Found"
+              description="No inventory items matched your active filters or search criteria. Try modifying your search term or select another category."
+            />
           ) : (
             <table className="table">
               <thead>
@@ -451,9 +458,19 @@ const Items = () => {
                   <th>Type</th>
                   <th>Category</th>
                   <th>In Stock Qty</th>
-                  <th>Thresholds (Warn / Crit)</th>
+                  <th>
+                    <span className="tooltip-container" style={{ borderBottom: '1px dotted var(--theme-text-muted)' }}>
+                      Thresholds (Warn/Crit)
+                      <span className="tooltip-text">Warn: Quantity level that triggers a warning. Crit: Quantity level that triggers a critical low warning.</span>
+                    </span>
+                  </th>
                   <th>Default Supplier</th>
-                  <th>Stock Alert</th>
+                  <th>
+                    <span className="tooltip-container" style={{ borderBottom: '1px dotted var(--theme-text-muted)' }}>
+                      Alert Status
+                      <span className="tooltip-text">Current status calculated dynamically from stock level and thresholds.</span>
+                    </span>
+                  </th>
                   <th style={{ textAlign: 'right' }}>Actions</th>
                 </tr>
               </thead>
@@ -704,11 +721,11 @@ const Items = () => {
               </div>
               
               <div className="modal-footer">
-                <button type="button" className="btn btn-secondary" onClick={() => setIsModalOpen(false)}>
+                <button type="button" className="btn btn-secondary" onClick={() => setIsModalOpen(false)} disabled={isSubmitting}>
                   Cancel
                 </button>
-                <button type="submit" className="btn btn-primary">
-                  {modalMode === 'add' ? 'Create Catalog Item' : 'Save Changes'}
+                <button type="submit" className="btn btn-primary" disabled={isSubmitting}>
+                  {isSubmitting ? 'Saving...' : (modalMode === 'add' ? 'Create Catalog Item' : 'Save Changes')}
                 </button>
               </div>
             </form>

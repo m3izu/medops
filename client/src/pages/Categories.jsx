@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
+import EmptyState from '../components/EmptyState';
 
 const Categories = () => {
   const { hasPermission } = useAuth();
@@ -18,6 +19,7 @@ const Categories = () => {
   const [parentId, setParentId] = useState('');
   const [hasBatchControl, setHasBatchControl] = useState(false);
   const [formError, setFormError] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const fetchCategories = async () => {
     try {
@@ -99,6 +101,7 @@ const Categories = () => {
     }
 
     try {
+      setIsSubmitting(true);
       if (modalMode === 'add') {
         await api.post('/categories', { name, parentId: parentId || null, hasBatchControl });
       } else {
@@ -109,6 +112,8 @@ const Categories = () => {
     } catch (err) {
       console.error('Submit failed:', err);
       setFormError(err.response?.data?.error || 'An error occurred while saving the category.');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -155,23 +160,25 @@ const Categories = () => {
             </div>
           </div>
         ) : categories.length === 0 ? (
-          <div className="widget-card">
-            <div className="widget-body" style={{ textAlign: 'center', padding: '40px 24px' }}>
-              <p style={{ color: 'var(--theme-text-muted)', marginBottom: '16px' }}>No categories registered yet.</p>
-              {canManage && (
-                <button className="btn btn-primary btn-sm" onClick={() => openAddModal('')}>
-                  Create First Category
-                </button>
-              )}
-            </div>
-          </div>
+          <EmptyState
+            icon="🏷️"
+            title="No Categories Configured"
+            description="Organize your clinic inventory by setting up classifications (e.g., Medications, Consumables) to manage batch controls and generate structured monthly reports."
+            actionText={canManage ? "Create First Category" : undefined}
+            onAction={canManage ? () => openAddModal('') : undefined}
+          />
         ) : (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))', gap: '24px' }}>
             {categories.map(root => (
               <div key={root.id} className="widget-card" style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
                 <div className="widget-header" style={{ padding: '12px 20px', background: 'var(--theme-primary-bg)', borderBottom: '1px solid var(--theme-border)' }}>
                   <span className="widget-title" style={{ fontSize: '15px', color: 'var(--theme-primary)', fontWeight: 'bold' }}>
-                    🏷️ {root.name} {root.hasBatchControl && <span className="badge badge-warning" style={{ fontSize: '10px', marginLeft: '6px', padding: '2px 6px' }}>Batch Controlled</span>}
+                    🏷️ {root.name} {root.hasBatchControl && (
+                      <span className="tooltip-container" style={{ border: 'none', marginLeft: '6px' }}>
+                        <span className="badge badge-warning" style={{ fontSize: '10px', padding: '2px 6px' }}>Batch Controlled</span>
+                        <span className="tooltip-text">Items under this category require strict lot number and expiration date tracking (FIFO enforced).</span>
+                      </span>
+                    )}
                   </span>
                   
                   {canManage && (
@@ -211,7 +218,12 @@ const Categories = () => {
                           }}
                         >
                           <span style={{ fontSize: '13px', fontWeight: '500' }}>
-                            {sub.name} {sub.hasBatchControl && <span className="badge badge-warning" style={{ fontSize: '9px', marginLeft: '6px', padding: '1px 4px' }}>Batch Controlled</span>}
+                            {sub.name} {sub.hasBatchControl && (
+                              <span className="tooltip-container" style={{ border: 'none', marginLeft: '6px' }}>
+                                <span className="badge badge-warning" style={{ fontSize: '9px', padding: '1px 4px' }}>Batch Controlled</span>
+                                <span className="tooltip-text">Inherited: Items in this subcategory enforce batch code and expiration tracking.</span>
+                              </span>
+                            )}
                           </span>
                           
                           {canManage && (
@@ -326,11 +338,11 @@ const Categories = () => {
               </div>
               
               <div className="modal-footer">
-                <button type="button" className="btn btn-secondary" onClick={() => setIsModalOpen(false)}>
+                <button type="button" className="btn btn-secondary" onClick={() => setIsModalOpen(false)} disabled={isSubmitting}>
                   Cancel
                 </button>
-                <button type="submit" className="btn btn-primary">
-                  {modalMode === 'add' ? 'Create Category' : 'Save Changes'}
+                <button type="submit" className="btn btn-primary" disabled={isSubmitting}>
+                  {isSubmitting ? 'Saving...' : (modalMode === 'add' ? 'Create Category' : 'Save Changes')}
                 </button>
               </div>
             </form>
