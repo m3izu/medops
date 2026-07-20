@@ -29,7 +29,8 @@ const authenticate = async (req, res, next) => {
       return res.status(401).json({ error: 'Not authenticated' });
     }
 
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const jwtSecret = process.env.JWT_SECRET || 'medops-super-secret-jwt-key-change-in-production';
+    const decoded = jwt.verify(token, jwtSecret);
     const user = await prisma.user.findUnique({
       where: { id: decoded.userId },
       select: {
@@ -59,7 +60,7 @@ const authenticate = async (req, res, next) => {
 
       const newToken = jwt.sign(
         { userId: user.id, role: user.role },
-        process.env.JWT_SECRET,
+        jwtSecret,
         { expiresIn: `${timeoutMinutes}m` }
       );
 

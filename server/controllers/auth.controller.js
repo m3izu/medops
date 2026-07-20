@@ -29,9 +29,10 @@ const login = async (req, res, next) => {
     const sessionConfig = await prisma.sessionConfig.findUnique({ where: { id: 1 } });
     const timeoutMinutes = sessionConfig?.timeoutMinutes ?? 30;
 
+    const jwtSecret = process.env.JWT_SECRET || 'medops-super-secret-jwt-key-change-in-production';
     const token = jwt.sign(
       { userId: user.id, role: user.role },
-      process.env.JWT_SECRET,
+      jwtSecret,
       { expiresIn: `${timeoutMinutes}m` }
     );
 
