@@ -1,10 +1,19 @@
+const fs = require('fs');
 const path = require('path');
 const { PrismaClient } = require('@prisma/client');
 const { PrismaBetterSqlite3 } = require('@prisma/adapter-better-sqlite3');
 const bcrypt = require('bcryptjs');
 const { DEFAULT_ROLE_PERMISSIONS, PERMISSIONS } = require('../lib/permissions');
 
-const dbPath = path.resolve(__dirname, 'medops.db');
+const dbPath = process.env.DATABASE_PATH
+  ? path.resolve(process.env.DATABASE_PATH)
+  : path.resolve(__dirname, 'medops.db');
+
+const dbDir = path.dirname(dbPath);
+if (!fs.existsSync(dbDir)) {
+  fs.mkdirSync(dbDir, { recursive: true });
+}
+
 const adapter = new PrismaBetterSqlite3({ url: `file:${dbPath}` });
 const prisma = new PrismaClient({ adapter });
 
