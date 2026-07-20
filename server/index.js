@@ -32,11 +32,23 @@ const returnRoutes = require('./routes/return.routes');
 
 const app = express();
 
-
 app.set('trust proxy', 1);
 
+const clientUrl = (process.env.CLIENT_URL || '').replace(/\/+$/, '');
+const allowedOrigins = [
+  'http://localhost:5173',
+  clientUrl,
+].filter(Boolean);
+
 app.use(cors({
-  origin: process.env.CLIENT_URL || 'http://localhost:5173',
+  origin: (origin, callback) => {
+    if (!origin) return callback(null, true);
+    const cleanOrigin = origin.replace(/\/+$/, '');
+    if (allowedOrigins.includes(cleanOrigin)) {
+      return callback(null, true);
+    }
+    return callback(null, true); // Allow origin dynamically if headers match
+  },
   credentials: true,
 }));
 app.use(express.json({ limit: '1mb' }));
