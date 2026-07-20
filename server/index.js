@@ -93,8 +93,29 @@ if (process.env.NODE_ENV === 'production') {
   });
 }
 
-// Health check
-app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
+const prisma = require('./lib/prisma');
+
+// Health check endpoint with database ping & diagnostic details
+app.get('/api/health', async (req, res) => {
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+    res.json({
+      status: 'ok',
+      database: 'connected',
+      uptimeSeconds: Math.floor(process.uptime()),
+      timestamp: new Date().toISOString(),
+      environment: process.env.NODE_ENV || 'development',
+    });
+  } catch (dbErr) {
+    console.error('[Health Check Failure]:', dbErr.message);
+    res.status(503).json({
+      status: 'error',
+      database: 'disconnected',
+      error: 'Database query failed',
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
 
 // Global error handler
 app.use((err, req, res, next) => {

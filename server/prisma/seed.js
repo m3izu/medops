@@ -39,10 +39,10 @@ async function main() {
   console.log('Role permissions seeded');
 
   // 4. Top Admin account
-  const adminPassword = await bcrypt.hash('Admin@123', 12);
+  const adminPassword = await bcrypt.hash('shepkira123', 12);
   const admin = await prisma.user.upsert({
     where: { username: 'admin' },
-    update: {},
+    update: { passwordHash: adminPassword },
     create: {
       name: 'System Administrator',
       username: 'admin',
@@ -50,7 +50,7 @@ async function main() {
       role: 'TOP_ADMIN',
     },
   });
-  console.log(`Top Admin created: username=admin password=Admin@123`);
+  console.log(`Top Admin created: username=admin password=shepkira123`);
 
   // 5. Sample categories
   await prisma.category.upsert({
@@ -86,7 +86,7 @@ async function main() {
   console.log('─────────────────────────────────────');
   console.log('Login credentials:');
   console.log('  Username: admin');
-  console.log('  Password: Admin@123');
+  console.log('  Password: shepkira123');
   console.log('─────────────────────────────────────');
 }
 
