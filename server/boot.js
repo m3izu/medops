@@ -21,22 +21,12 @@ async function main() {
     process.exit(1);
   }
 
+  console.log('[Boot] Syncing core system configuration & admin credentials...');
   try {
-    const userCount = await prisma.user.count();
-    if (userCount === 0) {
-      console.log('[Boot] New or empty database detected. Running seed...');
-      execSync('node prisma/seed.js', { stdio: 'inherit' });
-      console.log('[Boot] Seeding completed successfully.');
-    } else {
-      console.log(`[Boot] Existing database found (${userCount} users). Preserving persistent storage & skipping seed.`);
-    }
+    execSync('node prisma/seed.js', { stdio: 'inherit' });
+    console.log('[Boot] System configuration & admin credentials synced successfully.');
   } catch (err) {
-    console.error('[Boot] Error checking database state, running fallback seed:', err.message);
-    try {
-      execSync('node prisma/seed.js', { stdio: 'inherit' });
-    } catch (seedErr) {
-      console.error('[Boot] Fallback seed error:', seedErr.message);
-    }
+    console.error('[Boot] Seed sync error:', err.message);
   }
 
   console.log('[Boot] Launching MedOPS Server...');
