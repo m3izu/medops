@@ -262,10 +262,24 @@ const bulkRecord = async (req, res, next) => {
       return res.status(400).json({ error: 'ids must be a non-empty array.' });
     }
 
+    const logs = await prisma.dispenseLog.findMany({
+      where: { id: { in: ids } },
+      select: { id: true, billingStatus: true }
+    });
+
+    if (logs.length !== ids.length) {
+      return res.status(404).json({ error: 'One or more dispense logs were not found.' });
+    }
+
+    const alreadyRecorded = logs.filter(l => l.billingStatus === 'RECORDED');
+    if (alreadyRecorded.length > 0) {
+      return res.status(400).json({ error: 'One or more selected entries have already been recorded.' });
+    }
+
     const result = await prisma.dispenseLog.updateMany({
       where: {
         id: { in: ids },
-        billingStatus: 'PENDING', // Only update pending ones
+        billingStatus: 'PENDING',
       },
       data: {
         billingStatus: 'RECORDED',

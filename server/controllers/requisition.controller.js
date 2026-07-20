@@ -378,8 +378,8 @@ const resubmitLine = async (req, res, next) => {
   try {
     const { itemId, quantity, reason } = req.body;
     
-    if (quantity !== undefined && (typeof quantity !== 'number' || quantity <= 0)) {
-      return res.status(400).json({ error: 'Quantity must be a positive number' });
+    if (quantity !== undefined && (typeof quantity !== 'number' || quantity <= 0 || !Number.isInteger(quantity))) {
+      return res.status(400).json({ error: 'Quantity must be a positive whole number' });
     }
 
     const originalLine = await prisma.requisitionLine.findUnique({ 
@@ -399,7 +399,7 @@ const resubmitLine = async (req, res, next) => {
       data: {
         requisitionId: originalLine.requisitionId,
         itemId: itemId || originalLine.itemId,
-        qtyRequested: quantity || originalLine.qtyRequested,
+        qtyRequested: (quantity !== undefined && quantity !== null) ? quantity : originalLine.qtyRequested,
         reason: reason || originalLine.reason,
         isResubmission: true,
         originalLineId: originalLine.id,

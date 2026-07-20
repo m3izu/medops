@@ -129,8 +129,27 @@ const update = async (req, res, next) => {
 
 const toggleArchive = async (req, res, next) => {
   try {
-    const item = await prisma.item.findUnique({ where: { id: req.params.id } });
+    const item = await prisma.item.findUnique({
+      where: { id: req.params.id },
+      include: {
+        stockLevel: true,
+        batches: { where: { quantityRemaining: { gt: 0 } } }
+      }
+    });
     if (!item) return res.status(404).json({ error: 'Item not found' });
+
+    // Prevent archiving an item with remaining stock
+    if (!item.isArchived) {
+      const qtyOnHand = item.stockLevel?.quantityOnHand ?? 0;
+      const activeBatchesCount = item.batches ? item.batches.length : 0;
+
+      if (qtyOnHand > 0 || activeBatchesCount > 0) {
+        return res.status(400).json({
+          error: `Cannot archive item with positive stock on hand (${qtyOnHand} ${item.unit}) or active batch inventory. Discard or transfer remaining stock before archiving.`
+        });
+      }
+    }
+
     const updated = await prisma.item.update({
       where: { id: req.params.id },
       data: { isArchived: !item.isArchived },

@@ -7,8 +7,8 @@ const logDiscard = async (req, res, next) => {
     if (!itemId || !quantity || !reason) {
       return res.status(400).json({ error: 'itemId, quantity, and reason are required' });
     }
-    if (typeof quantity !== 'number' || quantity <= 0) {
-      return res.status(400).json({ error: 'Discard quantity must be a positive number' });
+    if (typeof quantity !== 'number' || quantity <= 0 || !Number.isInteger(quantity)) {
+      return res.status(400).json({ error: 'Discard quantity must be a positive whole number.' });
     }
 
     let discard;

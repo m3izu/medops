@@ -4,7 +4,23 @@ const { authenticate } = require('../middleware/authenticate');
 const { requirePermission } = require('../middleware/rbac');
 const c = require('../controllers/requisition.controller');
 
-router.get('/', authenticate, c.list);
+const requireAnyPermission = (permissionsArray) => {
+  return async (req, res, next) => {
+    try {
+      const { id: userId, role } = req.user;
+      const { getEffectivePermissions } = require('../middleware/rbac');
+      const perms = await getEffectivePermissions(userId, role);
+      if (permissionsArray.some(p => perms[p])) {
+        return next();
+      }
+      return res.status(403).json({ error: 'You do not have permission to view requisitions.' });
+    } catch (err) {
+      next(err);
+    }
+  };
+};
+
+router.get('/', authenticate, requireAnyPermission(['submit_requisition', 'approve_requisition', 'view_inventory_logs', 'view_own_forms']), c.list);
 router.post('/', authenticate, requirePermission('submit_requisition'), c.create);
 router.get('/:id', authenticate, c.getOne);
 router.patch('/:id/cancel', authenticate, c.cancel);

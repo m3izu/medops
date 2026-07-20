@@ -25,6 +25,11 @@ const setRolePermission = async (req, res, next) => {
     const { role, permissionKey } = req.params;
     const { isEnabled } = req.body;
 
+    const validRoles = Object.keys(DEFAULT_ROLE_PERMISSIONS);
+    if (!validRoles.includes(role)) {
+      return res.status(400).json({ error: `Invalid role "${role}". Valid roles: ${validRoles.join(', ')}` });
+    }
+
     if (LOCKED_PERMISSIONS.includes(permissionKey)) {
       return res.status(403).json({ error: 'This permission is locked and cannot be modified' });
     }

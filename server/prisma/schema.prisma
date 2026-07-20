@@ -360,6 +360,7 @@ model MonthlyReport {
   generatedById String @map("generated_by_id")
   generatedAt DateTime @default(now()) @map("generated_at")
   pdfPath     String?  @map("pdf_path")
+  reportData  String?  @map("report_data")
 
   generatedBy User @relation(fields: [generatedById], references: [id])
 

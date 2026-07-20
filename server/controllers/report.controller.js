@@ -98,11 +98,24 @@ const generate = async (req, res, next) => {
       return qty <= item.warningLevel;
     });
 
+    const compiledData = {
+      inventorySummary,
+      lowStockItems,
+      expiringBatches,
+      inboundLogs,
+      outboundLogs,
+      discardLogs,
+      adjustmentLogs,
+      requisitions,
+      returnLogs,
+    };
+
     const report = await prisma.monthlyReport.create({
       data: {
         periodStart,
         periodEnd,
         generatedById: req.user.id,
+        reportData: JSON.stringify(compiledData),
       },
     });
 
@@ -165,6 +178,18 @@ const getOne = async (req, res, next) => {
       include: { generatedBy: { select: { name: true } } }
     });
     if (!report) return res.status(404).json({ error: 'Report not found' });
+
+    if (report.reportData) {
+      try {
+        const parsedData = JSON.parse(report.reportData);
+        return res.json({
+          report,
+          data: parsedData,
+        });
+      } catch (parseErr) {
+        console.error('Failed to parse historical reportData JSON:', parseErr);
+      }
+    }
 
     const periodStart = report.periodStart;
     const periodEnd = report.periodEnd;

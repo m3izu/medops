@@ -103,22 +103,53 @@ const complete = async (req, res, next) => {
       return res.status(400).json({ error: 'This stocktake has already been completed' });
     }
 
-    const lines = await prisma.stocktakeLine.findMany({
-      where: { stocktakeId: req.params.id },
-      include: { item: { include: { category: true } } }
-    });
-
-    // Verify all lines have been counted (Bug #2)
-    const uncounted = lines.filter(l => l.physicalQty === null);
-    if (uncounted.length > 0) {
-      return res.status(400).json({
-        error: 'Cannot complete stocktake. Some items have not been counted.',
-        uncountedItems: uncounted.map(l => ({ id: l.itemId, name: l.item.name, sku: l.item.sku }))
-      });
-    }
-
-    // Execute all adjustments and state changes in a single atomic database transaction
+    // Execute all adjustments, checks, and state changes inside a single atomic database transaction
     await prisma.$transaction(async (tx) => {
+      const stDb = await tx.stocktake.findUnique({ where: { id: req.params.id } });
+      if (!stDb || stDb.status !== 'IN_PROGRESS') {
+        throw new Error('Stocktake is not in progress or has already been processed.');
+      }
+
+      let lines = await tx.stocktakeLine.findMany({
+        where: { stocktakeId: req.params.id },
+        include: { item: { include: { category: true } } }
+      });
+
+      // Check for newly added or unarchived items that have no stocktake line
+      const existingItemIds = lines.map(l => l.itemId);
+      const missingItems = await tx.item.findMany({
+        where: {
+          isArchived: false,
+          id: { notIn: existingItemIds.length > 0 ? existingItemIds : ['__dummy__'] }
+        },
+        include: { stockLevel: true }
+      });
+
+      if (missingItems.length > 0) {
+        // Dynamically add lines for new items added during the stocktake session
+        await tx.stocktakeLine.createMany({
+          data: missingItems.map(item => ({
+            stocktakeId: req.params.id,
+            itemId: item.id,
+            systemQty: item.stockLevel?.quantityOnHand ?? 0,
+          }))
+        });
+
+        // Re-fetch updated lines
+        lines = await tx.stocktakeLine.findMany({
+          where: { stocktakeId: req.params.id },
+          include: { item: { include: { category: true } } }
+        });
+      }
+
+      // Verify all lines have been counted
+      const uncounted = lines.filter(l => l.physicalQty === null);
+      if (uncounted.length > 0) {
+        const error = new Error('Cannot complete stocktake. Some items have not been counted.');
+        error.uncountedItems = uncounted.map(l => ({ id: l.itemId, name: l.item.name, sku: l.item.sku }));
+        throw error;
+      }
+
       for (const line of lines) {
         if (line.physicalQty !== null && line.discrepancy !== 0) {
           // Update global stock level (upsert in case stockLevel record was deleted or is missing)
@@ -155,17 +186,19 @@ const complete = async (req, res, next) => {
                   orderBy: { expiryDate: 'asc' }
                 });
                 if (fallbackBatch) {
+                  // Cap batch remaining quantity at 0 so it never goes negative
                   await tx.itemBatch.update({
                     where: { id: fallbackBatch.id },
-                    data: { quantityRemaining: { decrement: diff } }
+                    data: { quantityRemaining: 0 }
                   });
                 } else {
+                  // Create a RECONCILED batch with 0 remaining (never negative)
                   await tx.itemBatch.create({
                     data: {
                       itemId: line.itemId,
                       batchNo: 'RECONCILED',
                       expiryDate: new Date(Date.now() + 180 * 24 * 60 * 60 * 1000),
-                      quantityRemaining: -diff,
+                      quantityRemaining: 0,
                     }
                   });
                 }
@@ -228,7 +261,15 @@ const complete = async (req, res, next) => {
     });
 
     res.json({ message: 'Stocktake completed and adjustments applied' });
-  } catch (err) { next(err); }
+  } catch (err) {
+    if (err.uncountedItems) {
+      return res.status(400).json({ error: err.message, uncountedItems: err.uncountedItems });
+    }
+    if (err.message === 'Stocktake is not in progress or has already been processed.') {
+      return res.status(400).json({ error: err.message });
+    }
+    next(err);
+  }
 };
 
 module.exports = { list, initiate, getOne, updateLine, complete };

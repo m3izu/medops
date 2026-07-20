@@ -101,9 +101,19 @@ const receiveStock = async (req, res, next) => {
         // Try to find an existing batch with the same batchNo for consolidation
         let existingBatch = null;
         if (batchNo && batchNo.trim()) {
-          existingBatch = await tx.itemBatch.findFirst({
+          const candidateBatch = await tx.itemBatch.findFirst({
             where: { itemId, batchNo: batchNo.trim() }
           });
+
+          if (candidateBatch) {
+            // Check if expiry dates match (comparing YYYY-MM-DD or null states)
+            const incomingExpStr = expiryDate ? new Date(expiryDate).toISOString().slice(0, 10) : null;
+            const existingExpStr = candidateBatch.expiryDate ? new Date(candidateBatch.expiryDate).toISOString().slice(0, 10) : null;
+
+            if (incomingExpStr === existingExpStr) {
+              existingBatch = candidateBatch;
+            }
+          }
         }
 
         if (existingBatch) {

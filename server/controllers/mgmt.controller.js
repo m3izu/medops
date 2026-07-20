@@ -74,6 +74,11 @@ const toggleFlag = async (req, res, next) => {
   try {
     const comment = await prisma.mgmtComment.findUnique({ where: { id: req.params.commentId } });
     if (!comment) return res.status(404).json({ error: 'Comment not found' });
+
+    if (req.user.role !== 'TOP_ADMIN' && comment.commentedById !== req.user.id) {
+      return res.status(403).json({ error: 'You can only toggle flags on comments you created.' });
+    }
+
     const updated = await prisma.mgmtComment.update({
       where: { id: req.params.commentId },
       data: { isFlagged: !comment.isFlagged },
