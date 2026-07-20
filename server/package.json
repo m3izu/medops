@@ -4,7 +4,8 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "start": "node index.js",
+    "start": "node boot.js",
+    "start:bare": "node index.js",
     "dev": "node --watch-path=./controllers --watch-path=./routes --watch-path=./middleware --watch-path=./lib --watch-path=./index.js index.js",
     "seed": "node prisma/seed.js",
     "nuke": "node -e \"const fs=require('fs'); if (fs.existsSync('prisma/medops.db')) fs.unlinkSync('prisma/medops.db');\" && npx prisma db push --accept-data-loss && npm run seed",

@@ -1,0 +1,21 @@
+services:
+  - type: web
+    name: medops-api
+    env: docker
+    plan: starter
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 8080
+      - key: DATABASE_PATH
+        value: /var/data/medops.db
+      - key: JWT_SECRET
+        generateValue: true
+      - key: CLIENT_URL
+        value: https://yourcustomdomain.com # Replace with your Vercel Custom Domain
+    disk:
+      name: medops-db-storage
+      mountPath: /var/data
+      sizeGB: 1

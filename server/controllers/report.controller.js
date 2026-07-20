@@ -10,138 +10,132 @@ const list = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
+const createReportInternal = async (userId) => {
+  const lastReport = await prisma.monthlyReport.findFirst({ orderBy: { generatedAt: 'desc' } });
+  const periodStart = lastReport ? lastReport.periodEnd : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+  const periodEnd   = new Date();
+  const in90        = new Date(); in90.setDate(in90.getDate() + 90);
+
+  const [
+    inventorySummary,
+    lowStockItemsRaw,
+    expiringBatches,
+    inboundLogs,
+    outboundLogs,
+    discardLogs,
+    adjustmentLogs,
+    requisitions,
+    returnLogs,
+  ] = await Promise.all([
+    prisma.item.findMany({
+      where: { isArchived: false },
+      include: { stockLevel: true },
+      orderBy: { name: 'asc' },
+    }),
+    prisma.item.findMany({
+      where: { isArchived: false },
+      include: { stockLevel: true },
+    }),
+    prisma.itemBatch.findMany({
+      where: { expiryDate: { lte: in90, not: null }, quantityRemaining: { gt: 0 } },
+      include: { item: { select: { name: true, sku: true, unit: true } } },
+      orderBy: { expiryDate: 'asc' },
+    }),
+    prisma.transactionLog.findMany({
+      where: { type: 'INBOUND', timestamp: { gte: periodStart, lte: periodEnd } },
+      include: { item: { select: { name: true, sku: true } }, user: { select: { name: true } } },
+      orderBy: { timestamp: 'desc' },
+    }),
+    prisma.transactionLog.findMany({
+      where: { type: { in: ['OUTBOUND', 'DISPENSE'] }, timestamp: { gte: periodStart, lte: periodEnd } },
+      include: { item: { select: { name: true, sku: true } }, user: { select: { name: true } } },
+      orderBy: { timestamp: 'desc' },
+    }),
+    prisma.discardLog.findMany({
+      where: { timestamp: { gte: periodStart, lte: periodEnd } },
+      include: {
+        item: { select: { name: true, sku: true } },
+        loggedBy: { select: { name: true } },
+      },
+      orderBy: { timestamp: 'desc' },
+    }),
+    prisma.transactionLog.findMany({
+      where: { type: 'ADJUSTMENT', timestamp: { gte: periodStart, lte: periodEnd } },
+      include: { item: { select: { name: true, sku: true } }, user: { select: { name: true } } },
+      orderBy: { timestamp: 'desc' },
+    }),
+    prisma.requisition.findMany({
+      where: { createdAt: { gte: periodStart, lte: periodEnd } },
+      include: {
+        patient: { select: { name: true, chartNumber: true } },
+        submittedBy: { select: { name: true } },
+        lines: {
+          include: { item: { select: { name: true } } },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    }),
+    prisma.transactionLog.findMany({
+      where: { type: 'RETURN', timestamp: { gte: periodStart, lte: periodEnd } },
+      include: { item: { select: { name: true, sku: true } }, user: { select: { name: true } } },
+      orderBy: { timestamp: 'desc' },
+    }),
+  ]);
+
+  const lowStockItems = lowStockItemsRaw.filter(item => {
+    const qty = item.stockLevel?.quantityOnHand ?? 0;
+    return qty <= item.warningLevel;
+  });
+
+  const compiledData = {
+    inventorySummary,
+    lowStockItems,
+    expiringBatches,
+    inboundLogs,
+    outboundLogs,
+    discardLogs,
+    adjustmentLogs,
+    requisitions,
+    returnLogs,
+  };
+
+  const report = await prisma.monthlyReport.create({
+    data: {
+      periodStart,
+      periodEnd,
+      generatedById: userId,
+      reportData: JSON.stringify(compiledData),
+    },
+  });
+
+  await prisma.notification.create({
+    data: {
+      userId,
+      eventType: 'MONTHLY_REPORT_GENERATED',
+      message: `Monthly report generated for ${periodStart.toLocaleDateString()} – ${periodEnd.toLocaleDateString()}`,
+      link: `/reports`,
+    },
+  });
+
+  return {
+    ...report,
+    sections: {
+      inventoryCount: inventorySummary.length,
+      expiringBatchCount: expiringBatches.length,
+      inboundCount: inboundLogs.length,
+      outboundCount: outboundLogs.length,
+      discardCount: discardLogs.length,
+      adjustmentCount: adjustmentLogs.length,
+      requisitionCount: requisitions.length,
+      returnCount: returnLogs.length,
+    },
+  };
+};
+
 const generate = async (req, res, next) => {
   try {
-    // Determine period: from last report's end, or last 30 days
-    const lastReport = await prisma.monthlyReport.findFirst({ orderBy: { generatedAt: 'desc' } });
-    const periodStart = lastReport ? lastReport.periodEnd : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-    const periodEnd   = new Date();
-    const in90        = new Date(); in90.setDate(in90.getDate() + 90);
-
-    const [
-      inventorySummary,
-      lowStockItemsRaw,
-      expiringBatches,
-      inboundLogs,
-      outboundLogs,
-      discardLogs,
-      adjustmentLogs,
-      requisitions,
-      returnLogs,
-    ] = await Promise.all([
-      // 1. Full inventory snapshot
-      prisma.item.findMany({
-        where: { isArchived: false },
-        include: { stockLevel: true },
-        orderBy: { name: 'asc' },
-      }),
-      // 2. Items below warning/critical
-      prisma.item.findMany({
-        where: { isArchived: false },
-        include: { stockLevel: true },
-      }),
-      // 3. Expiring batches within 90 days
-      prisma.itemBatch.findMany({
-        where: { expiryDate: { lte: in90, not: null }, quantityRemaining: { gt: 0 } },
-        include: { item: { select: { name: true, sku: true, unit: true } } },
-        orderBy: { expiryDate: 'asc' },
-      }),
-      // 4. Inbound transactions in period
-      prisma.transactionLog.findMany({
-        where: { type: 'INBOUND', timestamp: { gte: periodStart, lte: periodEnd } },
-        include: { item: { select: { name: true, sku: true } }, user: { select: { name: true } } },
-        orderBy: { timestamp: 'desc' },
-      }),
-      // 5. Outbound (dispensing) in period
-      prisma.transactionLog.findMany({
-        where: { type: { in: ['OUTBOUND', 'DISPENSE'] }, timestamp: { gte: periodStart, lte: periodEnd } },
-        include: { item: { select: { name: true, sku: true } }, user: { select: { name: true } } },
-        orderBy: { timestamp: 'desc' },
-      }),
-      // 6. Discard logs in period
-      prisma.discardLog.findMany({
-        where: { timestamp: { gte: periodStart, lte: periodEnd } },
-        include: {
-          item: { select: { name: true, sku: true } },
-          loggedBy: { select: { name: true } },
-        },
-        orderBy: { timestamp: 'desc' },
-      }),
-      // 7. Stocktake adjustments in period
-      prisma.transactionLog.findMany({
-        where: { type: 'ADJUSTMENT', timestamp: { gte: periodStart, lte: periodEnd } },
-        include: { item: { select: { name: true, sku: true } }, user: { select: { name: true } } },
-        orderBy: { timestamp: 'desc' },
-      }),
-      // 8. Requisition activity in period
-      prisma.requisition.findMany({
-        where: { createdAt: { gte: periodStart, lte: periodEnd } },
-        include: {
-          patient: { select: { name: true, chartNumber: true } },
-          submittedBy: { select: { name: true } },
-          lines: {
-            include: { item: { select: { name: true } } },
-          },
-        },
-        orderBy: { createdAt: 'desc' },
-      }),
-      // 9. Return transactions in period
-      prisma.transactionLog.findMany({
-        where: { type: 'RETURN', timestamp: { gte: periodStart, lte: periodEnd } },
-        include: { item: { select: { name: true, sku: true } }, user: { select: { name: true } } },
-        orderBy: { timestamp: 'desc' },
-      }),
-    ]);
-
-    const lowStockItems = lowStockItemsRaw.filter(item => {
-      const qty = item.stockLevel?.quantityOnHand ?? 0;
-      return qty <= item.warningLevel;
-    });
-
-    const compiledData = {
-      inventorySummary,
-      lowStockItems,
-      expiringBatches,
-      inboundLogs,
-      outboundLogs,
-      discardLogs,
-      adjustmentLogs,
-      requisitions,
-      returnLogs,
-    };
-
-    const report = await prisma.monthlyReport.create({
-      data: {
-        periodStart,
-        periodEnd,
-        generatedById: req.user.id,
-        reportData: JSON.stringify(compiledData),
-      },
-    });
-
-    // Notify Top Admin
-    await prisma.notification.create({
-      data: {
-        userId: req.user.id,
-        eventType: 'MONTHLY_REPORT_GENERATED',
-        message: `Monthly report generated for ${periodStart.toLocaleDateString()} – ${periodEnd.toLocaleDateString()}`,
-        link: `/reports`,
-      },
-    });
-
-    res.status(201).json({
-      ...report,
-      sections: {
-        inventoryCount: inventorySummary.length,
-        expiringBatchCount: expiringBatches.length,
-        inboundCount: inboundLogs.length,
-        outboundCount: outboundLogs.length,
-        discardCount: discardLogs.length,
-        adjustmentCount: adjustmentLogs.length,
-        requisitionCount: requisitions.length,
-        returnCount: returnLogs.length,
-      },
-    });
+    const reportData = await createReportInternal(req.user.id);
+    res.status(201).json(reportData);
   } catch (err) { next(err); }
 };
 
@@ -293,4 +287,4 @@ const getOne = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-module.exports = { list, generate, getSchedule, updateSchedule, getOne };
+module.exports = { list, generate, getSchedule, updateSchedule, getOne, createReportInternal };

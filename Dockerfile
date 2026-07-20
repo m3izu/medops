@@ -31,5 +31,5 @@ ENV NODE_ENV=production
 ENV PORT=8080
 EXPOSE 8080
 
-# Command to generate Prisma client and run seed/start script on boot
-CMD ["sh", "-c", "npx prisma db push --accept-data-loss && npm run seed && node index.js"]
+# Command to run database check/boot script and start server
+CMD ["node", "boot.js"]
