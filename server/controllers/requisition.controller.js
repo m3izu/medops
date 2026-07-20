@@ -123,12 +123,18 @@ const cancel = async (req, res, next) => {
     if (!canCancel) return res.status(403).json({ error: 'You cannot cancel this requisition' });
 
     await prisma.$transaction(async (tx) => {
-      const reqDb = await tx.requisition.findUnique({ where: { id: req.params.id } });
+      const reqDb = await tx.requisition.findUnique({
+        where: { id: req.params.id },
+        include: { lines: true }
+      });
       if (!reqDb) {
         throw new Error('Requisition not found');
       }
       if (reqDb.status !== 'PENDING') {
         throw new Error('Only pending requisitions can be cancelled');
+      }
+      if (reqDb.lines.some(l => l.status === 'APPROVED')) {
+        throw new Error('Cannot cancel a requisition that has already had line items approved.');
       }
 
       await tx.requisition.update({
@@ -147,7 +153,10 @@ const cancel = async (req, res, next) => {
     if (err.message === 'Requisition not found') {
       return res.status(404).json({ error: err.message });
     }
-    if (err.message === 'Only pending requisitions can be cancelled') {
+    if (
+      err.message === 'Only pending requisitions can be cancelled' ||
+      err.message === 'Cannot cancel a requisition that has already had line items approved.'
+    ) {
       return res.status(400).json({ error: err.message });
     }
     next(err);
@@ -158,8 +167,8 @@ const approveLine = async (req, res, next) => {
   try {
     const { qtyApproved } = req.body;
     
-    if (qtyApproved !== undefined && (typeof qtyApproved !== 'number' || qtyApproved <= 0)) {
-      return res.status(400).json({ error: 'Approved quantity must be a positive number' });
+    if (qtyApproved !== undefined && (typeof qtyApproved !== 'number' || qtyApproved <= 0 || !Number.isInteger(qtyApproved))) {
+      return res.status(400).json({ error: 'Approved quantity must be a positive whole number' });
     }
 
     const line = await prisma.requisitionLine.findUnique({ where: { id: req.params.lineId } });
@@ -411,13 +420,19 @@ const coVerifyLine = async (req, res, next) => {
   try {
     const line = await prisma.requisitionLine.findUnique({
       where: { id: req.params.lineId },
-      include: { item: true }
+      include: {
+        item: true,
+        requisition: { select: { submittedById: true } }
+      }
     });
 
     if (!line) return res.status(404).json({ error: 'Line item not found' });
     if (line.status !== 'PENDING') return res.status(400).json({ error: 'Only pending items can be co-verified' });
     if (line.item.itemType !== 'MEDICATION') return res.status(400).json({ error: 'Co-verification is only allowed for Medications' });
     if (line.coVerifiedById) return res.status(400).json({ error: 'This item has already been co-verified' });
+    if (line.requisition.submittedById === req.user.id) {
+      return res.status(400).json({ error: 'Nurses cannot co-verify their own requisition line items.' });
+    }
 
     const updatedLine = await prisma.requisitionLine.update({
       where: { id: line.id },

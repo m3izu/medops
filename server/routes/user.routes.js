@@ -4,6 +4,7 @@ const { authenticate } = require('../middleware/authenticate');
 const { requireTopAdmin, requirePermission } = require('../middleware/rbac');
 const c = require('../controllers/user.controller');
 
+router.get('/co-verifiers', authenticate, c.listCoVerifiers);
 router.get('/', authenticate, requirePermission('view_inventory_logs'), c.listUsers);
 router.post('/', authenticate, requireTopAdmin, c.createUser);
 router.get('/:id', authenticate, c.getUser);

@@ -27,8 +27,11 @@ const reportRoutes = require('./routes/report.routes');
 const dashboardRoutes = require('./routes/dashboard.routes');
 const mgmtRoutes = require('./routes/mgmt.routes');
 const importRoutes = require('./routes/import.routes');
+const dispenseRoutes = require('./routes/dispense.routes');
+const returnRoutes = require('./routes/return.routes');
 
 const app = express();
+
 
 app.set('trust proxy', 1);
 
@@ -77,6 +80,9 @@ app.use('/api/reports', reportRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/mgmt', mgmtRoutes);
 app.use('/api/import', importRoutes);
+app.use('/api/dispense', dispenseRoutes);
+app.use('/api/returns', returnRoutes);
+
 
 // Serve static frontend files in production
 if (process.env.NODE_ENV === 'production') {

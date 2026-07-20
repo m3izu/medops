@@ -13,6 +13,12 @@ const ITEM_TYPES = [
 
 const CONDITIONS = ['GOOD', 'FAIR', 'DAMAGED', 'DECOMMISSIONED'];
 
+const DISPENSE_MODES = [
+  { value: 'REQUISITION_ONLY', label: '🔒 Requisition Only — Requires formal approval' },
+  { value: 'DIRECT_DISPENSE', label: '⚡ Direct Dispense — Default to direct patient dispense' },
+  { value: 'FLEXIBLE', label: '🔄 Flexible — Nurse chooses each time' },
+];
+
 const HighlightText = ({ text, search }) => {
   if (!search || !text) return <span>{text}</span>;
   const regex = new RegExp(`(${search.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&')})`, 'gi');
@@ -138,6 +144,7 @@ const Items = () => {
   
   const [formError, setFormError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [dispenseMode, setDispenseMode] = useState('REQUISITION_ONLY');
 
   // Batches Modal State
   const [batchesModalOpen, setBatchesModalOpen] = useState(false);
@@ -232,6 +239,7 @@ const Items = () => {
     setSerialNumber('');
     setAcquisitionDate('');
     setCondition('GOOD');
+    setDispenseMode('REQUISITION_ONLY');
     setFormError('');
     setIsModalOpen(true);
   };
@@ -250,6 +258,7 @@ const Items = () => {
     setSupplierId(item.supplierId || '');
     setSerialNumber(item.serialNumber || '');
     setCondition(item.condition || 'GOOD');
+    setDispenseMode(item.dispenseMode || 'REQUISITION_ONLY');
     
     // Format date to YYYY-MM-DD for input
     if (item.acquisitionDate) {
@@ -280,6 +289,7 @@ const Items = () => {
       warningLevel: Number(warningLevel),
       criticalLevel: Number(criticalLevel),
       supplierId: supplierId || null,
+      dispenseMode,
     };
 
     if (itemType === 'MEDICAL_EQUIPMENT') {
@@ -302,6 +312,7 @@ const Items = () => {
           criticalLevel: Number(criticalLevel),
           supplierId: supplierId || null,
           condition: itemType === 'MEDICAL_EQUIPMENT' ? condition : undefined,
+          dispenseMode,
         });
       }
       setIsModalOpen(false);
@@ -718,6 +729,23 @@ const Items = () => {
                     </div>
                   </div>
                 )}
+
+                {/* Dispense Mode */}
+                <div className="form-group" style={{ marginTop: '16px' }}>
+                  <label className="form-label">Dispense Pathway</label>
+                  <select
+                    className="form-control"
+                    value={dispenseMode}
+                    onChange={(e) => setDispenseMode(e.target.value)}
+                  >
+                    {DISPENSE_MODES.map(m => (
+                      <option key={m.value} value={m.value}>{m.label}</option>
+                    ))}
+                  </select>
+                  <p style={{ fontSize: '11px', color: 'var(--theme-text-muted)', marginTop: '6px', lineHeight: '1.5' }}>
+                    Controls whether nurses must submit a requisition or can directly dispense this item to patients for immediate billing.
+                  </p>
+                </div>
               </div>
               
               <div className="modal-footer">

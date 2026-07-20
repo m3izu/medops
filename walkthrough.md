@@ -157,5 +157,56 @@ This walkthrough outlines the implementations to address the 11 Critical, High, 
 
 ---
 
+### 16. Return Item Concurrency & Safety Fixes (Critical/Medium)
+* **Status**: ✅ Fixed
+* **Files Modified**:
+  * [return.controller.js](file:///z:/MedOPS/App/server/controllers/return.controller.js)
+  * [requisition.controller.js](file:///z:/MedOPS/App/server/controllers/requisition.controller.js)
+  * [ReturnItem.jsx](file:///z:/MedOPS/App/client/src/pages/ReturnItem.jsx)
+* **Changes**:
+  * **Concurrency Lock**: Added dummy updates at the start of return transactions to acquire exclusive write locks in SQLite, preventing race conditions on concurrent return requests.
+  * **Expired Batch Validation**: Added check to prevent returning stock to expired batches, eliminating phantom inventory.
+  * **Multi-batch Requisition Returns**: Requisition line returns now properly distribute the returned quantity across the multiple batches from which the items were originally outbound, LIFO-style.
+  * **Archived Item Block**: Blocked returns of archived items in both dispense and requisition pathways.
+  * **Ownership Scoping**: Added role and ownership verification checks to `getReturnedQty` to protect user privacy.
+  * **Requisition Improvements**: Added integer checks to line approvals and blocked nurses from co-verifying their own requisition line items.
+  * **Frontend Upgrades**: Filtered out fully-returned logs from dropdowns and rounded quantity inputs to integers.
+
+---
+
+### 17. Return & Requisition Logic Fixes — Part 2 (High/Medium)
+* **Status**: ✅ Fixed
+* **Files Modified**:
+  * [return.controller.js](file:///z:/MedOPS/App/server/controllers/return.controller.js)
+  * [requisition.controller.js](file:///z:/MedOPS/App/server/controllers/requisition.controller.js)
+  * [dispense.controller.js](file:///z:/MedOPS/App/server/controllers/dispense.controller.js)
+  * [Dispense.jsx](file:///z:/MedOPS/App/client/src/pages/Dispense.jsx)
+  * [user.controller.js](file:///z:/MedOPS/App/server/controllers/user.controller.js)
+  * [user.routes.js](file:///z:/MedOPS/App/server/routes/user.routes.js)
+* **Changes**:
+  * **Auto-discard Expired Returns**: Modified the return controller to automatically log a discard event (and net-zero stock adjustment) when expired items are returned, solving the physical waste deadlock.
+  * **Bedside Co-Verification for Direct Medication Dispense**: Enforced bedside co-verification for direct dispense of medications. Added a secure endpoint `/api/users/co-verifiers` for co-verifier listings, updated the frontend direct dispense form to conditionally require a second clinical staff selection, and logged co-verifier names in the notes field.
+  * **Requisition Cancellation Guard**: Blocked requisition cancellations if any of the line items are already approved.
+  * **Deleted Batch Protection**: Handled deleted batch anomalies gracefully by routing deletion checks to a clean 400 bad request error.
+
+---
+
+### 17. Return & Requisition Workflow Safeguards (Medium/High)
+* **Status**: ✅ Fixed
+* **Files Modified**:
+  * [return.controller.js](file:///z:/MedOPS/App/server/controllers/return.controller.js)
+  * [requisition.controller.js](file:///z:/MedOPS/App/server/controllers/requisition.controller.js)
+* **Changes**:
+  * **Expired Return Auto-Discard**: If a clinical return is made against an expired batch, the system now automatically accepts the return for audit integrity, but instantly marks the items as discarded (`EXPIRED` reason) in the same transaction. This prevents stock-level deadlocks and orphan physical waste logging.
+  * **Deleted Batch Graceful Handling**: Added check to prevent server crashes if the batch has been deleted from the database.
+  * **Requisition Cancellation Guard**: Implemented check in the cancellation process to block users from cancelling requisitions that have already had line items approved, eliminating race condition inconsistencies.
+
+---
+
 ## Verification & Testing
-The backend database has been successfully re-seeded (`npm run seed`), applying the new permission configurations. The dev server is active and verified to run without compiling errors. UI components and layout rendering have been fully verified inside the browser.
+The fixes have been successfully validated using a programmatic test harness [verify_fixes.js](file:///C:/Users/rfsga/.gemini/antigravity-ide/brain/4b955bd3-3195-4931-8ee6-577331a9b9ef/scratch/verify_fixes.js).
+
+Verification results:
+- **Requisition Cancellation**: Blocked from cancelling requisitions with approved lines.
+- **Auto-Discard of Expired Returns**: Verified that returning an expired medication logs both the return transaction and an immediate auto-discard transaction, preserving net stock at zero and correctly registering physical waste.
+- **Deleted Batch Return**: Succeeded without crashing when batch is missing.

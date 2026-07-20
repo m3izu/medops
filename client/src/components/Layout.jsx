@@ -124,6 +124,9 @@ const Layout = ({ children }) => {
     if (path.startsWith('/stocktake')) return 'Stocktake & Reconciliation';
     if (path.startsWith('/reports')) return 'Monthly Report Archive';
     if (path.startsWith('/import')) return 'CSV Bulk Import';
+    if (path.startsWith('/dispense')) return 'Direct Item Dispensing';
+    if (path.startsWith('/returns')) return 'Item Returns';
+    if (path.startsWith('/cashier')) return 'Direct Dispense Billing Logs';
     return 'MedOPS Portal';
   };
 
@@ -223,6 +226,36 @@ const Layout = ({ children }) => {
                 <span className="sidebar-icon" style={{ display: 'inline-flex', alignItems: 'center' }}>
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
                 </span> Requisitions
+              </NavLink>
+            </li>
+          )}
+
+          {hasPermission('dispense_item') && (
+            <li className="sidebar-item">
+              <NavLink to="/dispense" className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}>
+                <span className="sidebar-icon" style={{ display: 'inline-flex', alignItems: 'center' }}>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m10.5 20.5 10-10a4.95 4.95 0 1 0-7-7l-10 10a4.95 4.95 0 1 0 7 7Z"></path><path d="m8.5 8.5 7 7"></path></svg>
+                </span> Direct Dispense
+              </NavLink>
+            </li>
+          )}
+
+          {hasPermission('return_item') && (
+            <li className="sidebar-item">
+              <NavLink to="/returns" className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}>
+                <span className="sidebar-icon" style={{ display: 'inline-flex', alignItems: 'center' }}>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+                </span> Return Item
+              </NavLink>
+            </li>
+          )}
+
+          {hasPermission('record_billing') && (
+            <li className="sidebar-item">
+              <NavLink to="/cashier" className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}>
+                <span className="sidebar-icon" style={{ display: 'inline-flex', alignItems: 'center' }}>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1-2-1Z"></path><path d="M16 8H8"></path><path d="M16 12H8"></path><path d="M13 16H8"></path></svg>
+                </span> Cashier Log
               </NavLink>
             </li>
           )}

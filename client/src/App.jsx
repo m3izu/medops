@@ -17,6 +17,9 @@ import MgmtAudit from './pages/MgmtAudit';
 import Stocktake from './pages/Stocktake';
 import Reports from './pages/Reports';
 import Import from './pages/Import';
+import Dispense from './pages/Dispense';
+import CashierLog from './pages/CashierLog';
+import ReturnItem from './pages/ReturnItem';
 
 // Route guard for authenticated users
 const PrivateRoute = ({ children, requiredPermission }) => {
@@ -165,6 +168,30 @@ function App() {
             element={
               <PrivateRoute requiredPermission="bulk_import">
                 <Import />
+              </PrivateRoute>
+            }
+          />
+          <Route
+            path="/dispense"
+            element={
+              <PrivateRoute requiredPermission="dispense_item">
+                <Dispense />
+              </PrivateRoute>
+            }
+          />
+          <Route
+            path="/returns"
+            element={
+              <PrivateRoute requiredPermission="return_item">
+                <ReturnItem />
+              </PrivateRoute>
+            }
+          />
+          <Route
+            path="/cashier"
+            element={
+              <PrivateRoute requiredPermission="record_billing">
+                <CashierLog />
               </PrivateRoute>
             }
           />

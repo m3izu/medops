@@ -70,7 +70,7 @@ const Users = () => {
     'INVENTORY_MANAGER',
     'NURSE',
     'SUPPLY_OFFICER',
-    'VIEWER_AUDITOR',
+    'CASHIER',
     'MANAGEMENT_OFFICE',
   ];
 

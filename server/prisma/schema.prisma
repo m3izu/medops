@@ -18,7 +18,7 @@ model User {
   name         String
   username     String   @unique
   passwordHash String   @map("password_hash")
-  role         String   // TOP_ADMIN | INVENTORY_MANAGER | NURSE | SUPPLY_OFFICER | VIEWER_AUDITOR | MANAGEMENT_OFFICE
+  role         String   // TOP_ADMIN | INVENTORY_MANAGER | NURSE | SUPPLY_OFFICER | CASHIER | MANAGEMENT_OFFICE
   isActive     Boolean  @default(true) @map("is_active")
   isDeleted    Boolean  @default(false) @map("is_deleted")
   deletedAt    DateTime? @map("deleted_at")
@@ -44,6 +44,8 @@ model User {
   suppliersCreated    Supplier[]
   categoriesCreated   Category[]
   patientsManaged     Patient[]
+  dispensesLogged     DispenseLog[] @relation("DispensedBy")
+  dispensesRecorded   DispenseLog[] @relation("RecordedBy")
 
   @@map("users")
 }
@@ -146,6 +148,8 @@ model Item {
   criticalLevel Int         @default(5) @map("critical_level")
   supplierId   String?      @map("supplier_id")
   isArchived   Boolean      @default(false) @map("is_archived")
+  // Dispense mode controls whether this item bypasses formal requisition
+  dispenseMode  String       @default("REQUISITION_ONLY") @map("dispense_mode") // REQUISITION_ONLY | DIRECT_DISPENSE | FLEXIBLE
   // Equipment-specific
   serialNumber  String?     @map("serial_number")
   acquisitionDate DateTime? @map("acquisition_date")
@@ -163,6 +167,7 @@ model Item {
   discardLogs  DiscardLog[]
   stocktakeLines StocktakeLine[]
   requisitionLines RequisitionLine[]
+  dispenseLogs DispenseLog[]
 
   @@map("items")
 }
@@ -180,6 +185,7 @@ model ItemBatch {
   supplier     Supplier?      @relation(fields: [supplierId], references: [id])
   transactions TransactionLog[]
   discardLogs  DiscardLog[]
+  dispenseLogs DispenseLog[]
 
   @@map("item_batches")
 }
@@ -211,6 +217,7 @@ model Patient {
 
   managedBy    User?         @relation(fields: [managedById], references: [id])
   requisitions Requisition[]
+  dispenseLogs DispenseLog[]
 
   @@map("patients")
 }
@@ -264,10 +271,11 @@ model TransactionLog {
   id               String          @id @default(cuid())
   itemId           String          @map("item_id")
   batchId          String?         @map("batch_id")
-  type             String          // INBOUND | OUTBOUND | DISCARD | ADJUSTMENT | CANCEL
+  type             String          // INBOUND | OUTBOUND | DISCARD | ADJUSTMENT | CANCEL | DISPENSE | RETURN
   qty              Int
   userId           String          @map("user_id")
   requisitionLineId String?        @map("requisition_line_id")
+  dispenseLogId    String?         @map("dispense_log_id")
   notes            String?
   timestamp        DateTime        @default(now())
 
@@ -275,6 +283,7 @@ model TransactionLog {
   batch           ItemBatch?       @relation(fields: [batchId], references: [id])
   user            User             @relation(fields: [userId], references: [id])
   requisitionLine RequisitionLine? @relation(fields: [requisitionLineId], references: [id])
+  dispenseLog     DispenseLog?     @relation(fields: [dispenseLogId], references: [id])
   mgmtComments    MgmtComment[]
 
   @@map("transaction_logs")
@@ -410,4 +419,31 @@ model ImportLog {
   importedBy User @relation(fields: [importedById], references: [id])
 
   @@map("import_logs")
+}
+
+// ─── Direct Dispense & Cashier Billing ───────────────────────────────────────
+
+model DispenseLog {
+  id            String    @id @default(cuid())
+  patientId     String    @map("patient_id")
+  itemId        String    @map("item_id")
+  batchId       String?   @map("batch_id")        // populated if item is batch-controlled (FIFO auto-selected)
+  qty           Int
+  dispensedById String    @map("dispensed_by_id") // the nurse
+  notes         String?
+  dispensedAt   DateTime  @default(now()) @map("dispensed_at")
+
+  // Cashier acknowledgment — no veto power, one-way record
+  billingStatus String    @default("PENDING") @map("billing_status") // PENDING | RECORDED
+  recordedById  String?   @map("recorded_by_id")  // the cashier who marked it
+  recordedAt    DateTime? @map("recorded_at")
+
+  patient     Patient    @relation(fields: [patientId], references: [id])
+  item        Item       @relation(fields: [itemId], references: [id])
+  batch       ItemBatch? @relation(fields: [batchId], references: [id])
+  dispensedBy User       @relation("DispensedBy", fields: [dispensedById], references: [id])
+  recordedBy  User?      @relation("RecordedBy", fields: [recordedById], references: [id])
+  transactions TransactionLog[]
+
+  @@map("dispense_logs")
 }

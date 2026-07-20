@@ -18,7 +18,6 @@ const generate = async (req, res, next) => {
     const periodEnd   = new Date();
     const in90        = new Date(); in90.setDate(in90.getDate() + 90);
 
-    // Compile all 8 sections in parallel
     const [
       inventorySummary,
       lowStockItemsRaw,
@@ -28,6 +27,7 @@ const generate = async (req, res, next) => {
       discardLogs,
       adjustmentLogs,
       requisitions,
+      returnLogs,
     ] = await Promise.all([
       // 1. Full inventory snapshot
       prisma.item.findMany({
@@ -54,7 +54,7 @@ const generate = async (req, res, next) => {
       }),
       // 5. Outbound (dispensing) in period
       prisma.transactionLog.findMany({
-        where: { type: 'OUTBOUND', timestamp: { gte: periodStart, lte: periodEnd } },
+        where: { type: { in: ['OUTBOUND', 'DISPENSE'] }, timestamp: { gte: periodStart, lte: periodEnd } },
         include: { item: { select: { name: true, sku: true } }, user: { select: { name: true } } },
         orderBy: { timestamp: 'desc' },
       }),
@@ -84,6 +84,12 @@ const generate = async (req, res, next) => {
           },
         },
         orderBy: { createdAt: 'desc' },
+      }),
+      // 9. Return transactions in period
+      prisma.transactionLog.findMany({
+        where: { type: 'RETURN', timestamp: { gte: periodStart, lte: periodEnd } },
+        include: { item: { select: { name: true, sku: true } }, user: { select: { name: true } } },
+        orderBy: { timestamp: 'desc' },
       }),
     ]);
 
@@ -120,6 +126,7 @@ const generate = async (req, res, next) => {
         discardCount: discardLogs.length,
         adjustmentCount: adjustmentLogs.length,
         requisitionCount: requisitions.length,
+        returnCount: returnLogs.length,
       },
     });
   } catch (err) { next(err); }
@@ -163,7 +170,7 @@ const getOne = async (req, res, next) => {
     const periodEnd = report.periodEnd;
     const in90 = new Date(report.generatedAt); in90.setDate(in90.getDate() + 90);
 
-    // Compile all 8 sections in parallel for this period
+    // Compile all 9 sections in parallel for this period
     const [
       inventorySummary,
       lowStockItemsRaw,
@@ -173,6 +180,7 @@ const getOne = async (req, res, next) => {
       discardLogs,
       adjustmentLogs,
       requisitions,
+      returnLogs,
     ] = await Promise.all([
       // 1. Full inventory snapshot
       prisma.item.findMany({
@@ -199,7 +207,7 @@ const getOne = async (req, res, next) => {
       }),
       // 5. Outbound (dispensing) in period
       prisma.transactionLog.findMany({
-        where: { type: 'OUTBOUND', timestamp: { gte: periodStart, lte: periodEnd } },
+        where: { type: { in: ['OUTBOUND', 'DISPENSE'] }, timestamp: { gte: periodStart, lte: periodEnd } },
         include: { item: { select: { name: true, sku: true } }, user: { select: { name: true } } },
         orderBy: { timestamp: 'desc' },
       }),
@@ -230,6 +238,12 @@ const getOne = async (req, res, next) => {
         },
         orderBy: { createdAt: 'desc' },
       }),
+      // 9. Return transactions in period
+      prisma.transactionLog.findMany({
+        where: { type: 'RETURN', timestamp: { gte: periodStart, lte: periodEnd } },
+        include: { item: { select: { name: true, sku: true } }, user: { select: { name: true } } },
+        orderBy: { timestamp: 'desc' },
+      }),
     ]);
 
     const lowStockItems = lowStockItemsRaw.filter(item => {
@@ -248,6 +262,7 @@ const getOne = async (req, res, next) => {
         discardLogs,
         adjustmentLogs,
         requisitions,
+        returnLogs,
       }
     });
   } catch (err) { next(err); }

@@ -8,6 +8,7 @@ const Dashboard = () => {
   const [summary, setSummary] = useState(null);
   const [alerts, setAlerts] = useState({ stockAlerts: [], expiringBatches: [] });
   const [prefs, setPrefs] = useState([]);
+  const [pendingDispenseCount, setPendingDispenseCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
 
@@ -71,6 +72,16 @@ const Dashboard = () => {
       color: '#10b981',
       bgColor: 'rgba(16,185,129,0.08)',
       shadowColor: 'rgba(16,185,129,0.15)'
+    },
+    { 
+      label: 'Dispense Item', 
+      desc: 'Dispense items directly to patient charts',
+      path: '/dispense', 
+      icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m10.5 20.5 10-10a4.95 4.95 0 1 0-7-7l-10 10a4.95 4.95 0 1 0 7 7Z"></path><path d="m8.5 8.5 7 7"></path></svg>, 
+      permission: 'dispense_item', 
+      color: '#06b6d4',
+      bgColor: 'rgba(6,182,212,0.08)',
+      shadowColor: 'rgba(6,182,212,0.15)'
     }
   ].filter(action => hasPermission(action.permission));
 
@@ -78,21 +89,30 @@ const Dashboard = () => {
   const WIDGETS = {
     pending_reqs: { label: 'Pending Requisitions', roles: ['TOP_ADMIN', 'INVENTORY_MANAGER'] },
     stock_alerts: { label: 'Low & Critical Stock', roles: ['TOP_ADMIN', 'INVENTORY_MANAGER', 'SUPPLY_OFFICER', 'MANAGEMENT_OFFICE'] },
-    expiring_meds: { label: 'Expiring Medications (90d)', roles: ['TOP_ADMIN', 'INVENTORY_MANAGER', 'VIEWER_AUDITOR', 'MANAGEMENT_OFFICE'] },
-    recent_transactions: { label: 'Recent Transactions', roles: ['TOP_ADMIN', 'INVENTORY_MANAGER', 'SUPPLY_OFFICER', 'VIEWER_AUDITOR', 'MANAGEMENT_OFFICE'] },
+    expiring_meds: { label: 'Expiring Medications (90d)', roles: ['TOP_ADMIN', 'INVENTORY_MANAGER', 'CASHIER', 'MANAGEMENT_OFFICE'] },
+    recent_transactions: { label: 'Recent Transactions', roles: ['TOP_ADMIN', 'INVENTORY_MANAGER', 'SUPPLY_OFFICER', 'CASHIER', 'MANAGEMENT_OFFICE'] },
+    cashier_pending: { label: 'Pending Billing Records', roles: ['TOP_ADMIN', 'CASHIER'] },
     nurse_my_forms: { label: 'My Requisitions History', roles: ['NURSE'] },
   };
 
   const fetchDashboardData = async () => {
     try {
-      const [summaryRes, alertsRes, prefsRes] = await Promise.all([
+      const promises = [
         api.get('/dashboard/summary'),
         api.get('/stock/alerts'),
         api.get('/dashboard/prefs')
-      ]);
-      setSummary(summaryRes.data);
-      setAlerts(alertsRes.data);
-      setPrefs(prefsRes.data);
+      ];
+      if (hasPermission('record_billing')) {
+        promises.push(api.get('/dispense/pending-count'));
+      }
+
+      const results = await Promise.all(promises);
+      setSummary(results[0].data);
+      setAlerts(results[1].data);
+      setPrefs(results[2].data);
+      if (hasPermission('record_billing') && results[3]) {
+        setPendingDispenseCount(results[3].data.count ?? 0);
+      }
     } catch (err) {
       console.error('Error fetching dashboard summary', err);
     } finally {
@@ -528,6 +548,44 @@ const Dashboard = () => {
                       No transaction log activities have been recorded yet.
                     </p>
                   )}
+                </div>
+              </div>
+            );
+          }
+
+          if (key === 'cashier_pending') {
+            return (
+              <div className="widget-card" key={key}>
+                <div className="widget-header">
+                  <div style={{ display: 'flex', alignItems: 'center' }}>
+                    {reorderControls}
+                    <span className="widget-title">Pending Billing Records Queue</span>
+                  </div>
+                  <Link to="/cashier" className="btn btn-secondary btn-sm">Open Cashier Log</Link>
+                </div>
+                <div className="widget-body">
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                    <div style={{
+                      fontSize: '36px',
+                      fontWeight: '800',
+                      color: 'var(--color-warning)',
+                      fontFamily: 'var(--font-mono)',
+                      background: 'rgba(245,158,11,0.06)',
+                      padding: '10px 20px',
+                      borderRadius: 'var(--border-radius-lg)',
+                      border: '1px solid rgba(245,158,11,0.15)'
+                    }}>
+                      {pendingDispenseCount}
+                    </div>
+                    <div>
+                      <h4 style={{ margin: 0, fontSize: '14px', fontWeight: '700', color: 'var(--theme-text-bold)' }}>
+                        Billing Logs Awaiting Action
+                      </h4>
+                      <p style={{ margin: '4px 0 0', fontSize: '13px', color: 'var(--theme-text-muted)' }}>
+                        Nurses have dispensed items directly to patients. Record them on statement lists to update accounts.
+                      </p>
+                    </div>
+                  </div>
                 </div>
               </div>
             );

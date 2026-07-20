@@ -153,4 +153,19 @@ const toggleActive = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-module.exports = { listUsers, getUser, createUser, updateUser, resetPassword, deleteUser, toggleActive };
+const listCoVerifiers = async (req, res, next) => {
+  try {
+    const users = await prisma.user.findMany({
+      where: {
+        isDeleted: false,
+        isActive: true,
+        role: { in: ['NURSE', 'SUPPLY_OFFICER', 'INVENTORY_MANAGER', 'TOP_ADMIN'] }
+      },
+      select: { id: true, name: true, username: true, role: true },
+      orderBy: { name: 'asc' },
+    });
+    res.json(users);
+  } catch (err) { next(err); }
+};
+
+module.exports = { listUsers, getUser, createUser, updateUser, resetPassword, deleteUser, toggleActive, listCoVerifiers };

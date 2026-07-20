@@ -48,7 +48,7 @@ const list = async (req, res, next) => {
 const create = async (req, res, next) => {
   try {
     const { name, sku, categoryId, itemType, unit, warningLevel, criticalLevel,
-      supplierId, serialNumber, acquisitionDate, condition } = req.body;
+      supplierId, serialNumber, acquisitionDate, condition, dispenseMode } = req.body;
 
     if (!name || !sku || !itemType || !unit) {
       return res.status(400).json({ error: 'name, sku, itemType, and unit are required' });
@@ -59,6 +59,11 @@ const create = async (req, res, next) => {
     }
     if (criticalLevel !== undefined && (typeof criticalLevel !== 'number' || criticalLevel < 0)) {
       return res.status(400).json({ error: 'Critical level must be a non-negative number' });
+    }
+
+    const validModes = ['REQUISITION_ONLY', 'DIRECT_DISPENSE', 'FLEXIBLE'];
+    if (dispenseMode && !validModes.includes(dispenseMode)) {
+      return res.status(400).json({ error: 'Invalid dispenseMode. Must be REQUISITION_ONLY, DIRECT_DISPENSE, or FLEXIBLE.' });
     }
 
     const existing = await prisma.item.findUnique({ where: { sku: sku.trim() } });
@@ -72,6 +77,7 @@ const create = async (req, res, next) => {
         warningLevel: warningLevel ?? 10,
         criticalLevel: criticalLevel ?? 5,
         supplierId, serialNumber, condition,
+        dispenseMode: dispenseMode ?? 'REQUISITION_ONLY',
         acquisitionDate: acquisitionDate ? new Date(acquisitionDate) : null,
         createdById: req.user.id,
         stockLevel: { create: { quantityOnHand: 0 } },
@@ -99,7 +105,7 @@ const getOne = async (req, res, next) => {
 
 const update = async (req, res, next) => {
   try {
-    const { name, categoryId, unit, warningLevel, criticalLevel, supplierId, condition } = req.body;
+    const { name, categoryId, unit, warningLevel, criticalLevel, supplierId, condition, dispenseMode } = req.body;
     
     if (warningLevel !== undefined && (typeof warningLevel !== 'number' || warningLevel < 0)) {
       return res.status(400).json({ error: 'Warning level must be a non-negative number' });
@@ -108,9 +114,14 @@ const update = async (req, res, next) => {
       return res.status(400).json({ error: 'Critical level must be a non-negative number' });
     }
 
+    const validModes = ['REQUISITION_ONLY', 'DIRECT_DISPENSE', 'FLEXIBLE'];
+    if (dispenseMode && !validModes.includes(dispenseMode)) {
+      return res.status(400).json({ error: 'Invalid dispenseMode.' });
+    }
+
     const item = await prisma.item.update({
       where: { id: req.params.id },
-      data: { name, categoryId, unit, warningLevel, criticalLevel, supplierId, condition },
+      data: { name, categoryId, unit, warningLevel, criticalLevel, supplierId, condition, dispenseMode },
     });
     res.json(item);
   } catch (err) { next(err); }
