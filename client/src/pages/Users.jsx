@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import EmptyState from '../components/EmptyState';
+import BackupManager from '../components/BackupManager';
 
 const HighlightText = ({ text, search }) => {
   if (!search || !text) return <span>{text}</span>;
@@ -264,6 +265,14 @@ const Users = () => {
         >
           📜 Permission Changes Audit Log
         </button>
+        {currentUser?.role === 'TOP_ADMIN' && (
+          <button 
+            className={`btn ${activeTab === 'backups' ? 'btn-primary' : 'btn-secondary'}`}
+            onClick={() => { setActiveTab('backups'); setSelectedUser(null); }}
+          >
+            💾 System Backups & Checkpoints
+          </button>
+        )}
       </div>
 
       {activeTab === 'list' && (
@@ -551,6 +560,10 @@ const Users = () => {
             )}
           </div>
         </div>
+      )}
+
+      {activeTab === 'backups' && currentUser?.role === 'TOP_ADMIN' && (
+        <BackupManager />
       )}
 
       {/* Modal: Create User */}
