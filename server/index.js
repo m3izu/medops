@@ -29,6 +29,7 @@ const mgmtRoutes = require('./routes/mgmt.routes');
 const importRoutes = require('./routes/import.routes');
 const dispenseRoutes = require('./routes/dispense.routes');
 const returnRoutes = require('./routes/return.routes');
+const backupRoutes = require('./routes/backup.routes');
 
 const app = express();
 
@@ -94,6 +95,7 @@ app.use('/api/mgmt', mgmtRoutes);
 app.use('/api/import', importRoutes);
 app.use('/api/dispense', dispenseRoutes);
 app.use('/api/returns', returnRoutes);
+app.use('/api/backup', backupRoutes);
 
 
 // Serve static frontend files in production

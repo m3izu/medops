@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
+import BackupManager from '../components/BackupManager';
 
 const DAYS = Array.from({ length: 28 }, (_, i) => i + 1);
 
@@ -377,6 +378,9 @@ const Reports = () => {
           </div>
         )}
       </div>
+
+      {/* Database Backup & Rollback Manager (Top Admin Only) */}
+      {isTopAdmin && <BackupManager />}
 
       {/* Selected report details modal */}
       {selectedReport && (

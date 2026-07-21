@@ -46,6 +46,7 @@ model User {
   patientsManaged     Patient[]
   dispensesLogged     DispenseLog[] @relation("DispensedBy")
   dispensesRecorded   DispenseLog[] @relation("RecordedBy")
+  databaseBackups     DatabaseBackup[]
 
   @@map("users")
 }
@@ -447,4 +448,20 @@ model DispenseLog {
   transactions TransactionLog[]
 
   @@map("dispense_logs")
+}
+
+// ─── Database Backups & Checkpoints ──────────────────────────────────────────
+
+model DatabaseBackup {
+  id           String   @id @default(cuid())
+  filename     String   @unique
+  label        String
+  type         String   // MANUAL | AUTOMATED | EMERGENCY_PRE_ROLLBACK
+  sizeBytes    BigInt   @map("size_bytes")
+  createdById  String?  @map("created_by_id")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  createdBy User? @relation(fields: [createdById], references: [id])
+
+  @@map("database_backups")
 }
