@@ -40,14 +40,8 @@ const PERMISSIONS = {
   MANAGE_PERMISSIONS: 'manage_permissions',
 };
 
-// These permissions can NEVER be delegated away from TOP_ADMIN
-const LOCKED_PERMISSIONS = [
-  PERMISSIONS.CREATE_USERS,
-  PERMISSIONS.CONFIGURE_SESSION,
-  PERMISSIONS.CONFIGURE_REPORT_SCHEDULE,
-  PERMISSIONS.BULK_IMPORT,
-  PERMISSIONS.MANAGE_PERMISSIONS,
-];
+// All permissions can now be delegated and configured across roles and user overrides
+const LOCKED_PERMISSIONS = [];
 
 // Default permission sets per role
 const DEFAULT_ROLE_PERMISSIONS = {

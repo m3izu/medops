@@ -1,22 +1,22 @@
 const express = require('express');
 const router = express.Router();
 const { authenticate } = require('../middleware/authenticate');
-const { requireTopAdmin } = require('../middleware/rbac');
+const { requirePermission } = require('../middleware/rbac');
 const c = require('../controllers/permission.controller');
 
 // Get all role permissions (for the permissions management UI)
-router.get('/roles', authenticate, requireTopAdmin, c.getRolePermissions);
+router.get('/roles', authenticate, requirePermission('manage_permissions'), c.getRolePermissions);
 // Update a role's permission
-router.put('/roles/:role/:permissionKey', authenticate, requireTopAdmin, c.setRolePermission);
+router.put('/roles/:role/:permissionKey', authenticate, requirePermission('manage_permissions'), c.setRolePermission);
 // Get a specific user's permission overrides
-router.get('/users/:userId', authenticate, requireTopAdmin, c.getUserPermissions);
+router.get('/users/:userId', authenticate, requirePermission('manage_permissions'), c.getUserPermissions);
 // Set a user-specific permission override
-router.put('/users/:userId/:permissionKey', authenticate, requireTopAdmin, c.setUserPermission);
+router.put('/users/:userId/:permissionKey', authenticate, requirePermission('manage_permissions'), c.setUserPermission);
 // Get permission audit log
-router.get('/audit', authenticate, requireTopAdmin, c.getAuditLog);
+router.get('/audit', authenticate, requirePermission('manage_permissions'), c.getAuditLog);
 // Get session config
-router.get('/session', authenticate, requireTopAdmin, c.getSessionConfig);
+router.get('/session', authenticate, requirePermission('configure_session'), c.getSessionConfig);
 // Update session config
-router.put('/session', authenticate, requireTopAdmin, c.updateSessionConfig);
+router.put('/session', authenticate, requirePermission('configure_session'), c.updateSessionConfig);
 
 module.exports = router;

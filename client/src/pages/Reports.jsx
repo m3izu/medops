@@ -380,10 +380,10 @@ const Reports = () => {
 
       {/* Selected report details modal */}
       {selectedReport && (
-        <div className="modal-backdrop" onClick={() => setSelectedReport(null)}>
-          <div className="modal" style={{ maxWidth: '800px', width: '90%' }} onClick={e => e.stopPropagation()}>
+        <div className="modal-overlay" onClick={() => setSelectedReport(null)}>
+          <div className="modal-content" style={{ maxWidth: '800px', width: '90%' }} onClick={e => e.stopPropagation()}>
             <div className="modal-header">
-              <h3>Monthly Report Overview</h3>
+              <span className="modal-title">Monthly Report Overview</span>
               <button className="modal-close" onClick={() => setSelectedReport(null)}>✕</button>
             </div>
             

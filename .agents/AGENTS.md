@@ -2,6 +2,7 @@
 
 ## Code Modifications & Changes Policy
 - **ASK FOR PERMISSION FIRST**: Always present planned changes and obtain user approval before executing any file modifications, code changes, tool installations, or system-level actions.
+- **CAREFUL IMPLEMENTATION & BUG PREVENTION**: Execute all code changes with extreme care and precision to avoid introducing new bugs, side-effects, or regressions. Always perform comprehensive validation before declaring completion.
 
 ## Deployment & Branch Pipeline Architecture
 Maintain strict separation across the 3-stage environment pipeline:

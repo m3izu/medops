@@ -386,10 +386,10 @@ const Import = () => {
 
       {/* Details modal for errors */}
       {detailsLog && (
-        <div className="modal-backdrop" onClick={() => setDetailsLog(null)}>
-          <div className="modal" style={{ maxWidth: '600px' }} onClick={e => e.stopPropagation()}>
+        <div className="modal-overlay" onClick={() => setDetailsLog(null)}>
+          <div className="modal-content" style={{ maxWidth: '600px' }} onClick={e => e.stopPropagation()}>
             <div className="modal-header">
-              <h3>Bulk Ingestion Error Details</h3>
+              <span className="modal-title">Bulk Ingestion Error Details</span>
               <button className="modal-close" onClick={() => setDetailsLog(null)}>✕</button>
             </div>
             <div className="modal-body" style={{ maxHeight: '300px', overflowY: 'auto' }}>

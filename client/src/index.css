@@ -836,35 +836,49 @@ code, .font-mono {
   color: var(--theme-text-muted);
 }
 
-/* --- Modal Overlays --- */
-.modal-overlay {
+/* --- Modal Overlays & Centered Floating Dialogs --- */
+.modal-overlay,
+.modal-backdrop {
   position: fixed;
   top: 0;
   left: 0;
   right: 0;
   bottom: 0;
-  background-color: rgba(0,0,0,0.4);
-  backdrop-filter: blur(2px);
+  background-color: rgba(15, 23, 42, 0.65);
+  backdrop-filter: blur(6px) saturate(120%);
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 1000;
+  z-index: 10000;
+  padding: 20px;
+  overflow-y: auto;
+  animation: backdropFadeIn 0.2s ease-out;
 }
 
-.modal-content {
+@keyframes backdropFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.modal-content,
+.modal {
   background-color: var(--theme-card-bg);
-  border: 1px solid var(--theme-border);
+  border: 1px solid var(--theme-card-border);
   border-radius: var(--border-radius-lg);
   width: 100%;
-  max-width: 560px;
-  box-shadow: var(--shadow-lg);
+  max-width: 580px;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: var(--shadow-lg), 0 20px 40px -15px rgba(0,0,0,0.3);
   overflow: hidden;
-  animation: modalEnter 0.2s ease-out;
+  animation: modalEnter 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  margin: auto;
 }
 
 @keyframes modalEnter {
-  from { opacity: 0; transform: scale(0.95); }
-  to { opacity: 1; transform: scale(1); }
+  from { opacity: 0; transform: scale(0.96) translateY(10px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
 }
 
 .modal-header {
@@ -873,11 +887,13 @@ code, .font-mono {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  background-color: rgba(0,0,0,0.02);
 }
 
 .modal-title {
   font-size: 18px;
   font-weight: 600;
+  color: var(--theme-text-bold);
 }
 
 .modal-close {
@@ -886,10 +902,17 @@ code, .font-mono {
   font-size: 20px;
   cursor: pointer;
   color: var(--theme-text-muted);
+  transition: color var(--transition-fast);
+}
+
+.modal-close:hover {
+  color: var(--theme-text-bold);
 }
 
 .modal-body {
   padding: 24px;
+  overflow-y: auto;
+  max-height: 70vh;
 }
 
 .modal-footer {

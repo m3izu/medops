@@ -17,20 +17,33 @@ const HighlightText = ({ text, search }) => {
 };
 
 const PERMISSION_DESCS = {
-  view_items: "Permits searching and viewing the inventory catalog and stock levels.",
   manage_items: "Allows creating, editing, and archiving catalog items.",
-  view_archived_items: "Grants access to toggle and view archived catalog items.",
+  manage_categories: "Allows managing item categories and classification tags.",
+  manage_suppliers: "Allows adding and updating supplier directory details.",
   receive_stock: "Allows recording inbound deliveries and allocating batch numbers.",
   submit_requisition: "Allows clinics to request consumable stock items.",
+  cancel_own_requisition: "Allows cancelling requisition forms created by oneself.",
+  cancel_any_requisition: "Allows cancelling requisition forms submitted by any staff member.",
   approve_requisition: "Allows managers to authorize/partially approve requisitions.",
-  dispatch_requisition: "Allows inventory officers to dispatch authorized supplies.",
-  deliver_requisition: "Allows clinic staff to receive and log inbound requisitions.",
   log_discard: "Allows logging expired, damaged, or recalled stock as discard.",
   initiate_stocktake: "Allows creating stock count reconciliation sheets.",
-  submit_stocktake: "Allows completing and syncing physical counts into inventory.",
+  enter_stocktake_count: "Allows entering physical inventory counts during stocktake.",
+  view_inventory_logs: "Allows viewing audit logs and inventory movement histories.",
+  view_own_forms: "Allows viewing personal requisition submission history.",
+  comment_on_logs: "Allows adding management comments on inventory audit logs.",
+  manage_patients: "Allows registering and updating patient records.",
   generate_reports: "Permits building and printing consumption analysis reports.",
-  create_users: "Allows creating and managing staff account logins.",
-  manage_rbac: "Allows changing roles and overriding system permission matrices."
+  trigger_monthly_report: "Allows manually triggering monthly inventory summary reports.",
+  view_archived_items: "Grants access to toggle and view archived catalog items.",
+  dispense_item: "Allows dispensing supplies directly to patient records.",
+  record_billing: "Allows recording financial billing items for patient dispenses.",
+  view_dispense_logs: "Allows viewing dispense logs and patient usage records.",
+  return_item: "Allows processing returned items back into active inventory.",
+  create_users: "Allows creating, editing, resetting, and deactivating staff logins.",
+  configure_session: "Allows configuring system idle session timeout limits.",
+  configure_report_schedule: "Allows configuring automated monthly report email schedules.",
+  bulk_import: "Allows bulk importing catalog items via CSV files.",
+  manage_permissions: "Allows modifying role permission defaults and user overrides.",
 };
 
 const Users = () => {

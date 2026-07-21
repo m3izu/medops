@@ -588,10 +588,10 @@ const Requisitions = () => {
 
       {/* ── Create Requisition Modal ── */}
       {isCreateOpen && (
-        <div className="modal-backdrop" onClick={() => setIsCreateOpen(false)}>
+        <div className="modal-overlay" onClick={() => setIsCreateOpen(false)}>
           <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: '680px', maxHeight: '85vh', overflowY: 'auto' }}>
             <div className="modal-header">
-              <h3>New Item Acquisition Form</h3>
+              <span className="modal-title">New Item Acquisition Form</span>
               <button className="modal-close" onClick={() => setIsCreateOpen(false)}>✕</button>
             </div>
             <form onSubmit={handleCreate}>
@@ -705,10 +705,10 @@ const Requisitions = () => {
 
       {/* ── Approve Qty Modal ── */}
       {approveLine && (
-        <div className="modal-backdrop" onClick={() => setApproveLine(null)}>
+        <div className="modal-overlay" onClick={() => setApproveLine(null)}>
           <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: '400px' }}>
             <div className="modal-header">
-              <h3>Approve: {approveLine.item?.name}</h3>
+              <span className="modal-title">Approve: {approveLine.item?.name}</span>
               <button className="modal-close" onClick={() => setApproveLine(null)}>✕</button>
             </div>
             <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
@@ -743,10 +743,10 @@ const Requisitions = () => {
 
       {/* ── Reject Reason Modal ── */}
       {rejectLine && (
-        <div className="modal-backdrop" onClick={() => setRejectLine(null)}>
+        <div className="modal-overlay" onClick={() => setRejectLine(null)}>
           <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: '420px' }}>
             <div className="modal-header">
-              <h3>Reject: {rejectLine.item?.name}</h3>
+              <span className="modal-title">Reject: {rejectLine.item?.name}</span>
               <button className="modal-close" onClick={() => setRejectLine(null)}>✕</button>
             </div>
             <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
@@ -775,10 +775,10 @@ const Requisitions = () => {
 
       {/* ── Resubmit Modal ── */}
       {resubmitLine && (
-        <div className="modal-backdrop" onClick={() => setResubmitLine(null)}>
+        <div className="modal-overlay" onClick={() => setResubmitLine(null)}>
           <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: '450px' }}>
             <div className="modal-header">
-              <h3>Resubmit: {resubmitLine.item?.name}</h3>
+              <span className="modal-title">Resubmit: {resubmitLine.item?.name}</span>
               <button className="modal-close" onClick={() => setResubmitLine(null)}>✕</button>
             </div>
             <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
