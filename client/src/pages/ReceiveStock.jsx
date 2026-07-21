@@ -254,6 +254,21 @@ const ReceiveStock = () => {
                           onChange={(e) => setExpiryDate(e.target.value)}
                           required
                         />
+                        <div style={{ display: 'flex', gap: '6px', marginTop: '6px', flexWrap: 'wrap', alignItems: 'center' }}>
+                          <span style={{ fontSize: '11px', color: 'var(--theme-text-muted)' }}>Quick set:</span>
+                          <button type="button" className="btn btn-secondary btn-sm" style={{ padding: '2px 8px', fontSize: '11px' }} onClick={() => {
+                            const d = new Date(); d.setMonth(d.getMonth() + 6); setExpiryDate(d.toISOString().split('T')[0]);
+                          }}>+6 Mos</button>
+                          <button type="button" className="btn btn-secondary btn-sm" style={{ padding: '2px 8px', fontSize: '11px' }} onClick={() => {
+                            const d = new Date(); d.setFullYear(d.getFullYear() + 1); setExpiryDate(d.toISOString().split('T')[0]);
+                          }}>+1 Year</button>
+                          <button type="button" className="btn btn-secondary btn-sm" style={{ padding: '2px 8px', fontSize: '11px' }} onClick={() => {
+                            const d = new Date(); d.setFullYear(d.getFullYear() + 2); setExpiryDate(d.toISOString().split('T')[0]);
+                          }}>+2 Years</button>
+                          <button type="button" className="btn btn-secondary btn-sm" style={{ padding: '2px 8px', fontSize: '11px' }} onClick={() => {
+                            const d = new Date(); d.setFullYear(d.getFullYear() + 3); setExpiryDate(d.toISOString().split('T')[0]);
+                          }}>+3 Years</button>
+                        </div>
                       </div>
                     </div>
                   </div>

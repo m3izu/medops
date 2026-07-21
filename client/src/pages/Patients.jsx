@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import EmptyState from '../components/EmptyState';
@@ -326,6 +327,16 @@ const Patients = () => {
                 <div><strong>Contact / Emergency:</strong> {selectedPatient.contact || 'Not provided'}</div>
                 <div><strong>Registered:</strong> {new Date(selectedPatient.createdAt).toLocaleDateString()}</div>
               </div>
+
+              {selectedPatient.status === 'ACTIVE' && (
+                <Link
+                  to={`/dispense?patientId=${selectedPatient.id}`}
+                  className="btn btn-primary btn-sm"
+                  style={{ textDecoration: 'none', justifyContent: 'center', padding: '8px 16px' }}
+                >
+                  💊 Dispense Supplies to {selectedPatient.name}
+                </Link>
+              )}
 
               {/* Recent Requisitions */}
               {selectedPatient.requisitions && selectedPatient.requisitions.length > 0 && (

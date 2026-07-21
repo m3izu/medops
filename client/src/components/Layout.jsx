@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Link, NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import api from '../services/api';
+import ContextualHelp from './ContextualHelp';
 
 import healingHandsLogo from '../assets/healinghands.png';
 import medopsLogo from '../assets/medops.png';
@@ -127,6 +128,7 @@ const Layout = ({ children }) => {
     if (path.startsWith('/dispense')) return 'Direct Item Dispensing';
     if (path.startsWith('/returns')) return 'Item Returns';
     if (path.startsWith('/cashier')) return 'Direct Dispense Billing Logs';
+    if (path.startsWith('/manual')) return 'System End-User Manual';
     return 'MedOPS Portal';
   };
 
@@ -319,6 +321,14 @@ const Layout = ({ children }) => {
               </NavLink>
             </li>
           )}
+
+          <li className="sidebar-item" style={{ marginTop: 'auto' }}>
+            <NavLink to="/manual" className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}>
+              <span className="sidebar-icon" style={{ display: 'inline-flex', alignItems: 'center' }}>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"></path><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"></path></svg>
+              </span> User Manual
+            </NavLink>
+          </li>
         </ul>
 
         <div className="sidebar-footer">
@@ -432,6 +442,9 @@ const Layout = ({ children }) => {
         
         {/* Child Content */}
         {children}
+        
+        {/* Floating Contextual Help Drawer */}
+        <ContextualHelp />
       </div>
     </div>
   );

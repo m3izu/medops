@@ -132,11 +132,19 @@ const Stocktake = () => {
     }
   };
 
+  // Discrepancy filter toggle
+  const [showDiscrepanciesOnly, setShowDiscrepanciesOnly] = useState(false);
+
   // Derived counts
   const countedLines      = (activeStocktake?.lines || []).filter(l => l.physicalQty !== null);
   const totalLines        = (activeStocktake?.lines || []).length;
   const discrepancyLines  = (activeStocktake?.lines || []).filter(l => l.discrepancy !== 0 && l.discrepancy !== null);
   const uncountedLines    = totalLines - countedLines.length;
+
+  const displayedLines    = (activeStocktake?.lines || []).filter(l => {
+    if (!showDiscrepanciesOnly) return true;
+    return l.discrepancy !== 0 && l.discrepancy !== null;
+  });
 
   return (
     <div className="page-container">
@@ -292,12 +300,16 @@ const Stocktake = () => {
                 </span>
               </span>
               <div style={{ display: 'flex', gap: '12px', alignItems: 'center', fontSize: '13px', color: 'var(--theme-text-muted)' }}>
-                <span>✅ {countedLines.length}/{totalLines} counted</span>
                 {discrepancyLines.length > 0 && (
-                  <span style={{ color: 'var(--color-warning)', fontWeight: '600' }}>
-                    ⚠️ {discrepancyLines.length} discrepancies
-                  </span>
+                  <button
+                    className={`btn btn-sm ${showDiscrepanciesOnly ? 'btn-primary' : 'btn-secondary'}`}
+                    onClick={() => setShowDiscrepanciesOnly(!showDiscrepanciesOnly)}
+                    style={{ fontSize: '11px', padding: '3px 10px' }}
+                  >
+                    ⚠️ {showDiscrepanciesOnly ? 'Showing Discrepancies Only' : `Filter ${discrepancyLines.length} Discrepancies`}
+                  </button>
                 )}
+                <span>✅ {countedLines.length}/{totalLines} counted</span>
               </div>
             </div>
 
@@ -318,7 +330,7 @@ const Stocktake = () => {
                     </tr>
                   </thead>
                   <tbody>
-                    {(activeStocktake.lines || []).map(line => {
+                    {displayedLines.map(line => {
                       const isSaved     = line.physicalQty !== null;
                       const discrepancy = line.discrepancy;
                       const isChanged   = counts[line.id] !== '' && String(line.physicalQty) !== counts[line.id];

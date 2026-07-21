@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import EmptyState from '../components/EmptyState';
@@ -16,11 +16,13 @@ const BILLING_STATUS_BADGE = {
 
 const Dispense = () => {
   const { user } = useAuth();
+  const [searchParams] = useSearchParams();
+  const initialPatientId = searchParams.get('patientId') || '';
 
   // Dispense form state
   const [patients, setPatients] = useState([]);
   const [dispensableItems, setDispensableItems] = useState([]);
-  const [patientId, setPatientId] = useState('');
+  const [patientId, setPatientId] = useState(initialPatientId);
   const [itemId, setItemId] = useState('');
   const [qty, setQty] = useState(1);
   const [notes, setNotes] = useState('');

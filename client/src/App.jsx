@@ -20,6 +20,7 @@ import Import from './pages/Import';
 import Dispense from './pages/Dispense';
 import CashierLog from './pages/CashierLog';
 import ReturnItem from './pages/ReturnItem';
+import Manual from './pages/Manual';
 
 // Route guard for authenticated users
 const PrivateRoute = ({ children, requiredPermission }) => {
@@ -192,6 +193,14 @@ function App() {
             element={
               <PrivateRoute requiredPermission="record_billing">
                 <CashierLog />
+              </PrivateRoute>
+            }
+          />
+          <Route
+            path="/manual"
+            element={
+              <PrivateRoute>
+                <Manual />
               </PrivateRoute>
             }
           />

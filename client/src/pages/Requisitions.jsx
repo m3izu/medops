@@ -220,6 +220,49 @@ const Requisitions = () => {
     }
   };
 
+  const [isApprovingAll, setIsApprovingAll] = useState(false);
+
+  const handleApproveAllLines = async () => {
+    if (!selectedReq?.lines) return;
+    const pendingLines = selectedReq.lines.filter(l => l.status === 'PENDING');
+    if (pendingLines.length === 0) return;
+
+    if (!window.confirm(`Are you sure you want to approve all ${pendingLines.length} pending line item(s)?`)) return;
+
+    try {
+      setIsApprovingAll(true);
+      let approvedCount = 0;
+      let errors = [];
+
+      for (const line of pendingLines) {
+        if (line.item?.itemType === 'MEDICATION' && !line.coVerifiedById) {
+          errors.push(`"${line.item.name}" skipped (requires medication co-verification)`);
+          continue;
+        }
+        try {
+          await api.patch(`/requisitions/${selectedReq.id}/lines/${line.id}/approve`, {
+            qtyApproved: line.qtyRequested,
+          });
+          approvedCount++;
+        } catch (err) {
+          errors.push(`"${line.item?.name || 'item'}": ${err.response?.data?.error || err.message}`);
+        }
+      }
+
+      fetchDetail(selectedReq.id);
+      fetchRequisitions();
+
+      if (errors.length > 0) {
+        alert(`Approved ${approvedCount} line(s).\n\nNotes:\n- ` + errors.join('\n- '));
+      }
+    } catch (err) {
+      console.error('Approve all lines failed:', err);
+      alert('An unexpected error occurred while approving lines.');
+    } finally {
+      setIsApprovingAll(false);
+    }
+  };
+
   const canUserCancel = (req) => {
     if (req.status !== 'PENDING' && req.status !== 'PARTIALLY_APPROVED') return false;
     if (canCancelAny) return true;
@@ -463,9 +506,21 @@ const Requisitions = () => {
 
                 {/* Line Items */}
                 <div style={{ borderTop: '1px solid var(--theme-border)', paddingTop: '16px' }}>
-                  <strong style={{ display: 'block', marginBottom: '12px', fontSize: '14px' }}>
-                    Line Items ({selectedReq.lines?.length || 0})
-                  </strong>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                    <strong style={{ fontSize: '14px' }}>
+                      Line Items ({selectedReq.lines?.length || 0})
+                    </strong>
+                    {canApprove && selectedReq.lines?.some(l => l.status === 'PENDING') && (
+                      <button
+                        className="btn btn-success btn-sm"
+                        onClick={handleApproveAllLines}
+                        disabled={isApprovingAll}
+                        style={{ fontSize: '12px', padding: '4px 10px' }}
+                      >
+                        {isApprovingAll ? 'Approving...' : '✅ Approve All Pending Lines'}
+                      </button>
+                    )}
+                  </div>
 
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                     {selectedReq.lines?.map(line => {
