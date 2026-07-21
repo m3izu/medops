@@ -234,6 +234,10 @@ const Users = () => {
     );
   });
 
+  const selectableRoles = currentUser?.role === 'TOP_ADMIN'
+    ? ROLES
+    : ROLES.filter(r => r !== 'MANAGEMENT_OFFICE' && r !== 'TOP_ADMIN');
+
   return (
     <div className="page-container">
       {/* Messages */}
@@ -587,7 +591,7 @@ const Users = () => {
                 <div className="form-group">
                   <label className="form-label">Primary Role</label>
                   <select className="form-control" value={role} onChange={(e) => setRole(e.target.value)}>
-                    {ROLES.map(r => (
+                    {selectableRoles.map(r => (
                       <option key={r} value={r}>{r.replace('_', ' ')}</option>
                     ))}
                   </select>

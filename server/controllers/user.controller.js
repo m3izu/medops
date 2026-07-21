@@ -35,6 +35,9 @@ const createUser = async (req, res, next) => {
     if (!VALID_ROLES.includes(role)) {
       return res.status(400).json({ error: `Invalid role. Valid roles: ${VALID_ROLES.join(', ')}` });
     }
+    if (req.user.role !== 'TOP_ADMIN' && (role === 'MANAGEMENT_OFFICE' || role === 'TOP_ADMIN')) {
+      return res.status(403).json({ error: 'Only Top Admin users can create accounts with Management Office or Top Admin roles' });
+    }
     if (password.length < 6) {
       return res.status(400).json({ error: 'Password must be at least 6 characters' });
     }
@@ -70,6 +73,9 @@ const updateUser = async (req, res, next) => {
     const { name, role } = req.body;
     if (role && !VALID_ROLES.includes(role)) {
       return res.status(400).json({ error: `Invalid role. Valid roles: ${VALID_ROLES.join(', ')}` });
+    }
+    if (role && req.user.role !== 'TOP_ADMIN' && (role === 'MANAGEMENT_OFFICE' || role === 'TOP_ADMIN')) {
+      return res.status(403).json({ error: 'Only Top Admin users can assign Management Office or Top Admin roles' });
     }
     // Prevent changing own role (could lock self out of admin)
     if (role && req.params.id === req.user.id) {
