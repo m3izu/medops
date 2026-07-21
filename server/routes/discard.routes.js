@@ -5,6 +5,7 @@ const { requirePermission } = require('../middleware/rbac');
 const c = require('../controllers/discard.controller');
 
 router.post('/', authenticate, requirePermission('log_discard'), c.logDiscard);
-router.get('/', authenticate, requirePermission('view_inventory_logs'), c.list);
+// List discard history (accessible if user has log_discard or view_inventory_logs permission)
+router.get('/', authenticate, requirePermission(['log_discard', 'view_inventory_logs']), c.list);
 
 module.exports = router;
