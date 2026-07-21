@@ -55,17 +55,19 @@ const requirePermission = (permissionKey) => {
   return async (req, res, next) => {
     try {
       const { id: userId, role } = req.user;
+      const keys = Array.isArray(permissionKey) ? permissionKey : [permissionKey];
 
       // TOP_ADMIN always passes for locked permissions
-      if (role === 'TOP_ADMIN' && LOCKED_PERMISSIONS.includes(permissionKey)) {
+      if (role === 'TOP_ADMIN' && keys.some(k => LOCKED_PERMISSIONS.includes(k))) {
         return next();
       }
 
       const perms = await getEffectivePermissions(userId, role);
-      
-      console.log(`[RBAC] User: ${req.user.username}, Role: ${role}, Checking: ${permissionKey}, HasPerm: ${!!perms[permissionKey]}`);
+      const isAllowed = keys.some(k => !!perms[k]);
 
-      if (perms[permissionKey]) {
+      console.log(`[RBAC] User: ${req.user.username}, Role: ${role}, Checking: ${keys.join('/')}, Allowed: ${isAllowed}`);
+
+      if (isAllowed) {
         return next();
       }
 

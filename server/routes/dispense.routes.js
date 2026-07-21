@@ -13,8 +13,8 @@ router.patch('/bulk-record', authenticate, requirePermission('record_billing'), 
 // Create a direct dispense entry
 router.post('/', authenticate, requirePermission('dispense_item'), c.create);
 
-// List dispense logs
-router.get('/', authenticate, requirePermission('view_dispense_logs'), c.list);
+// List dispense logs (accessible if user has view_dispense_logs, dispense_item, or return_item permission)
+router.get('/', authenticate, requirePermission(['view_dispense_logs', 'dispense_item', 'return_item']), c.list);
 
 // Cashier marks a single entry as recorded
 router.patch('/:id/record', authenticate, requirePermission('record_billing'), c.recordOne);
