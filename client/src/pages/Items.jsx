@@ -122,6 +122,10 @@ const Items = () => {
   const [filterStockStatus, setFilterStockStatus] = useState('');
   const [filterArchived, setFilterArchived] = useState(false);
 
+  // Sorting State
+  const [sortBy, setSortBy] = useState('name'); // 'name' | 'sku' | 'qty' | 'category' | 'type'
+  const [sortOrder, setSortOrder] = useState('asc'); // 'asc' | 'desc'
+
   // Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [modalMode, setModalMode] = useState('add'); // 'add' | 'edit'
@@ -447,6 +451,28 @@ const Items = () => {
             <option value="OUT_OF_STOCK">Out of Stock</option>
           </select>
         </div>
+
+        <div className="filter-item" style={{ minWidth: '160px' }}>
+          <label>Sort Catalog By</label>
+          <select 
+            className="form-control" 
+            value={`${sortBy}-${sortOrder}`}
+            onChange={(e) => {
+              const [field, order] = e.target.value.split('-');
+              setSortBy(field);
+              setSortOrder(order);
+            }}
+          >
+            <option value="name-asc">Item Name (A–Z)</option>
+            <option value="name-desc">Item Name (Z–A)</option>
+            <option value="qty-asc">In Stock Qty (Lowest First)</option>
+            <option value="qty-desc">In Stock Qty (Highest First)</option>
+            <option value="sku-asc">SKU Code (A–Z)</option>
+            <option value="sku-desc">SKU Code (Z–A)</option>
+            <option value="category-asc">Category (A–Z)</option>
+            <option value="type-asc">Type (A–Z)</option>
+          </select>
+        </div>
       </div>
 
       {/* Catalog Table */}
@@ -454,7 +480,7 @@ const Items = () => {
         <div className="widget-body" style={{ padding: 0 }}>
           {loading ? (
             <p style={{ padding: '24px', color: 'var(--theme-text-muted)' }}>Loading inventory catalog...</p>
-          ) : items.length === 0 ? (
+          ) : sortedItems.length === 0 ? (
             <EmptyState
               icon="📦"
               title="No Items Found"
@@ -464,11 +490,21 @@ const Items = () => {
             <table className="table">
               <thead>
                 <tr>
-                  <th>Item Name</th>
-                  <th>SKU</th>
-                  <th>Type</th>
-                  <th>Category</th>
-                  <th>In Stock Qty</th>
+                  <th onClick={() => handleHeaderSort('name')} style={{ cursor: 'pointer', userSelect: 'none' }}>
+                    Item Name {renderSortIndicator('name')}
+                  </th>
+                  <th onClick={() => handleHeaderSort('sku')} style={{ cursor: 'pointer', userSelect: 'none' }}>
+                    SKU {renderSortIndicator('sku')}
+                  </th>
+                  <th onClick={() => handleHeaderSort('type')} style={{ cursor: 'pointer', userSelect: 'none' }}>
+                    Type {renderSortIndicator('type')}
+                  </th>
+                  <th onClick={() => handleHeaderSort('category')} style={{ cursor: 'pointer', userSelect: 'none' }}>
+                    Category {renderSortIndicator('category')}
+                  </th>
+                  <th onClick={() => handleHeaderSort('qty')} style={{ cursor: 'pointer', userSelect: 'none' }}>
+                    In Stock Qty {renderSortIndicator('qty')}
+                  </th>
                   <th>
                     <span className="tooltip-container" style={{ borderBottom: '1px dotted var(--theme-text-muted)' }}>
                       Thresholds (Warn/Crit)
@@ -486,7 +522,7 @@ const Items = () => {
                 </tr>
               </thead>
               <tbody>
-                {items.map(item => (
+                {sortedItems.map(item => (
                   <tr key={item.id}>
                     <td>
                       <div>

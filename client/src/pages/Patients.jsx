@@ -28,6 +28,10 @@ const Patients = () => {
   const [filterStatus, setFilterStatus] = useState('');
   const [filterSearch, setFilterSearch] = useState('');
 
+  // Sorting
+  const [sortBy, setSortBy] = useState('name'); // 'name' | 'chartNumber' | 'schedule' | 'status'
+  const [sortOrder, setSortOrder] = useState('asc'); // 'asc' | 'desc'
+
   // Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [modalMode, setModalMode] = useState('add'); // 'add' | 'edit'
@@ -162,6 +166,45 @@ const Patients = () => {
   const activeCount = patients.filter(p => p.status === 'ACTIVE').length;
   const inactiveCount = patients.filter(p => p.status === 'INACTIVE').length;
 
+  // Apply Sorting
+  const sortedPatients = [...patients].sort((a, b) => {
+    let aVal, bVal;
+    if (sortBy === 'name') {
+      aVal = (a.name || '').toLowerCase();
+      bVal = (b.name || '').toLowerCase();
+    } else if (sortBy === 'chartNumber') {
+      aVal = (a.chartNumber || '').toLowerCase();
+      bVal = (b.chartNumber || '').toLowerCase();
+    } else if (sortBy === 'schedule') {
+      aVal = (a.schedule || '').toLowerCase();
+      bVal = (b.schedule || '').toLowerCase();
+    } else if (sortBy === 'status') {
+      aVal = a.status === 'ACTIVE' ? 0 : 1;
+      bVal = b.status === 'ACTIVE' ? 0 : 1;
+    } else {
+      aVal = (a.name || '').toLowerCase();
+      bVal = (b.name || '').toLowerCase();
+    }
+
+    if (aVal < bVal) return sortOrder === 'asc' ? -1 : 1;
+    if (aVal > bVal) return sortOrder === 'asc' ? 1 : -1;
+    return 0;
+  });
+
+  const handleHeaderSort = (field) => {
+    if (sortBy === field) {
+      setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortBy(field);
+      setSortOrder('asc');
+    }
+  };
+
+  const renderSortIndicator = (field) => {
+    if (sortBy !== field) return <span style={{ opacity: 0.3, marginLeft: '4px', fontSize: '10px' }}>⇅</span>;
+    return <span style={{ marginLeft: '4px', fontSize: '11px', color: 'var(--theme-primary)' }}>{sortOrder === 'asc' ? '▲' : '▼'}</span>;
+  };
+
   return (
     <div className="page-container">
       <div className="page-header">
@@ -214,6 +257,25 @@ const Patients = () => {
             <option value="INACTIVE">Inactive / Discharged</option>
           </select>
         </div>
+        <div className="filter-item" style={{ minWidth: '160px' }}>
+          <label>Sort By</label>
+          <select 
+            className="form-control" 
+            value={`${sortBy}-${sortOrder}`}
+            onChange={(e) => {
+              const [field, order] = e.target.value.split('-');
+              setSortBy(field);
+              setSortOrder(order);
+            }}
+          >
+            <option value="name-asc">Patient Name (A–Z)</option>
+            <option value="name-desc">Patient Name (Z–A)</option>
+            <option value="chartNumber-asc">Chart # (Asc)</option>
+            <option value="chartNumber-desc">Chart # (Desc)</option>
+            <option value="schedule-asc">Schedule (A–Z)</option>
+            <option value="status-asc">Status (Active First)</option>
+          </select>
+        </div>
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: selectedPatient ? '1.5fr 1fr' : '1fr', gap: '24px', transition: 'grid-template-columns 0.3s ease' }}>
@@ -226,7 +288,7 @@ const Patients = () => {
           <div className="widget-body" style={{ padding: 0 }}>
             {loading ? (
               <p style={{ padding: '24px', color: 'var(--theme-text-muted)' }}>Loading patient records...</p>
-            ) : patients.length === 0 ? (
+            ) : sortedPatients.length === 0 ? (
               <EmptyState
                 icon="🧑‍⚕️"
                 title="No Patients Registered"
@@ -238,16 +300,24 @@ const Patients = () => {
               <table className="table">
                 <thead>
                   <tr>
-                    <th>Patient Name</th>
-                    <th>Chart #</th>
+                    <th onClick={() => handleHeaderSort('name')} style={{ cursor: 'pointer', userSelect: 'none' }}>
+                      Patient Name {renderSortIndicator('name')}
+                    </th>
+                    <th onClick={() => handleHeaderSort('chartNumber')} style={{ cursor: 'pointer', userSelect: 'none' }}>
+                      Chart # {renderSortIndicator('chartNumber')}
+                    </th>
                     <th>Diagnosis</th>
-                    <th>Schedule</th>
-                    <th>Status</th>
+                    <th onClick={() => handleHeaderSort('schedule')} style={{ cursor: 'pointer', userSelect: 'none' }}>
+                      Schedule {renderSortIndicator('schedule')}
+                    </th>
+                    <th onClick={() => handleHeaderSort('status')} style={{ cursor: 'pointer', userSelect: 'none' }}>
+                      Status {renderSortIndicator('status')}
+                    </th>
                     {canManage && <th style={{ width: '130px' }}>Actions</th>}
                   </tr>
                 </thead>
                 <tbody>
-                  {patients.map(patient => (
+                  {sortedPatients.map(patient => (
                     <tr
                       key={patient.id}
                       onClick={() => handleRowClick(patient.id)}
