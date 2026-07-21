@@ -85,6 +85,10 @@ const updateUser = async (req, res, next) => {
     const existing = await prisma.user.findUnique({ where: { id: req.params.id } });
     if (!existing || existing.isDeleted) return res.status(404).json({ error: 'User not found' });
 
+    if (existing.role === 'TOP_ADMIN' && req.user.role !== 'TOP_ADMIN') {
+      return res.status(403).json({ error: 'Only Top Admin users can modify Top Admin accounts' });
+    }
+
     const user = await prisma.user.update({
       where: { id: req.params.id },
       data: { name, role },
@@ -117,6 +121,10 @@ const resetPassword = async (req, res, next) => {
     const existing = await prisma.user.findUnique({ where: { id: req.params.id } });
     if (!existing || existing.isDeleted) return res.status(404).json({ error: 'User not found' });
 
+    if (existing.role === 'TOP_ADMIN' && req.user.role !== 'TOP_ADMIN') {
+      return res.status(403).json({ error: 'Only Top Admin users can reset Top Admin passwords' });
+    }
+
     const passwordHash = await bcrypt.hash(temporaryPassword, 12);
     await prisma.user.update({
       where: { id: req.params.id },
@@ -135,6 +143,10 @@ const deleteUser = async (req, res, next) => {
     const existing = await prisma.user.findUnique({ where: { id: req.params.id } });
     if (!existing || existing.isDeleted) return res.status(404).json({ error: 'User not found' });
 
+    if (existing.role === 'TOP_ADMIN' && req.user.role !== 'TOP_ADMIN') {
+      return res.status(403).json({ error: 'Only Top Admin users can delete Top Admin accounts' });
+    }
+
     // Soft delete — preserve all history
     await prisma.user.update({
       where: { id: req.params.id },
@@ -151,6 +163,11 @@ const toggleActive = async (req, res, next) => {
     }
     const user = await prisma.user.findUnique({ where: { id: req.params.id } });
     if (!user) return res.status(404).json({ error: 'User not found' });
+
+    if (user.role === 'TOP_ADMIN' && req.user.role !== 'TOP_ADMIN') {
+      return res.status(403).json({ error: 'Only Top Admin users can modify Top Admin account status' });
+    }
+
     const updated = await prisma.user.update({
       where: { id: req.params.id },
       data: { isActive: !user.isActive },

@@ -328,38 +328,42 @@ const Users = () => {
                         </span>
                       </td>
                       <td>
-                        <div style={{ display: 'flex', gap: '6px' }}>
-                          {u.role !== 'TOP_ADMIN' && (
+                        {u.role === 'TOP_ADMIN' && currentUser?.role !== 'TOP_ADMIN' ? (
+                          <span className="badge badge-neutral" style={{ fontSize: '10px' }}>Protected Top Admin</span>
+                        ) : (
+                          <div style={{ display: 'flex', gap: '6px' }}>
+                            {u.role !== 'TOP_ADMIN' && (
+                              <button 
+                                className="btn btn-secondary btn-sm"
+                                onClick={() => handleSelectUserForPermissions(u)}
+                              >
+                                Permissions
+                              </button>
+                            )}
                             <button 
                               className="btn btn-secondary btn-sm"
-                              onClick={() => handleSelectUserForPermissions(u)}
+                              onClick={() => setPasswordModal(u)}
                             >
-                              Permissions
+                              Reset
                             </button>
-                          )}
-                          <button 
-                            className="btn btn-secondary btn-sm"
-                            onClick={() => setPasswordModal(u)}
-                          >
-                            Reset
-                          </button>
-                          {u.id !== currentUser?.id && (
-                            <>
-                              <button 
-                                className={`btn btn-secondary btn-sm`}
-                                onClick={() => handleToggleActive(u.id)}
-                              >
-                                {u.isActive ? 'Deactivate' : 'Activate'}
-                              </button>
-                              <button 
-                                className="btn btn-danger btn-sm"
-                                onClick={() => handleDeleteUser(u.id)}
-                              >
-                                Delete
-                              </button>
-                            </>
-                          )}
-                        </div>
+                            {u.id !== currentUser?.id && (
+                              <>
+                                <button 
+                                  className={`btn btn-secondary btn-sm`}
+                                  onClick={() => handleToggleActive(u.id)}
+                                >
+                                  {u.isActive ? 'Deactivate' : 'Activate'}
+                                </button>
+                                <button 
+                                  className="btn btn-danger btn-sm"
+                                  onClick={() => handleDeleteUser(u.id)}
+                                >
+                                  Delete
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        )}
                       </td>
                     </tr>
                   ))}
@@ -463,11 +467,12 @@ const Users = () => {
                       <td><strong>{key.replace(/_/g, ' ')}</strong></td>
                       {ROLES.map(r => {
                         const isEnabled = rolePermissions[r]?.[key] ?? false;
+                        const isProtectedRole = r === 'TOP_ADMIN' && currentUser?.role !== 'TOP_ADMIN';
                         return (
                           <td key={r} style={{ textAlign: 'center' }}>
-                            {isLocked ? (
+                            {isLocked || isProtectedRole ? (
                               <span className="badge badge-neutral" style={{ fontSize: '9px' }}>
-                                {r === 'TOP_ADMIN' ? 'Locked ON' : 'Locked OFF'}
+                                {isEnabled ? 'Protected ON' : 'Protected OFF'}
                               </span>
                             ) : (
                               <button

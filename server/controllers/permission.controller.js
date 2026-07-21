@@ -30,6 +30,10 @@ const setRolePermission = async (req, res, next) => {
       return res.status(400).json({ error: `Invalid role "${role}". Valid roles: ${validRoles.join(', ')}` });
     }
 
+    if (role === 'TOP_ADMIN' && req.user.role !== 'TOP_ADMIN') {
+      return res.status(403).json({ error: 'Only Top Admin users can modify Top Admin role permissions' });
+    }
+
     if (LOCKED_PERMISSIONS.includes(permissionKey)) {
       return res.status(403).json({ error: 'This permission is locked and cannot be modified' });
     }
@@ -83,6 +87,10 @@ const setUserPermission = async (req, res, next) => {
     const user = await prisma.user.findUnique({ where: { id: userId } });
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
+    }
+
+    if (user.role === 'TOP_ADMIN' && req.user.role !== 'TOP_ADMIN') {
+      return res.status(403).json({ error: 'Only Top Admin users can modify Top Admin user permission overrides' });
     }
 
     const { getEffectivePermissions } = require('../middleware/rbac');
