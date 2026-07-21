@@ -1,111 +1,121 @@
-import React, { useState, useEffect } from 'react';
-import { useLocation, Link } from 'react-router-dom';
+import React, { useState, useEffect, useRef } from 'react';
+import { Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { MANUAL_SECTIONS } from '../data/manualContent';
+import { getSectionsForRoute } from '../data/manualContent';
 
 const ContextualHelp = () => {
+  const [isOpen, setIsOpen] = useState(false);
   const { hasPermission } = useAuth();
   const location = useLocation();
-  const [isOpen, setIsOpen] = useState(false);
+  const drawerRef = useRef(null);
 
-  // Close drawer on page navigation
+  // Close drawer on route change
   useEffect(() => {
     setIsOpen(false);
   }, [location.pathname]);
 
-  // Filter sections that the user has permission to see AND match the current route
-  const currentPath = location.pathname;
+  // Close drawer on click outside
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (isOpen && drawerRef.current && !drawerRef.current.contains(e.target)) {
+        // Don't close if clicking the FAB button itself
+        if (e.target.closest('.help-fab')) return;
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [isOpen]);
 
-  const userPermittedSections = MANUAL_SECTIONS.filter(section => 
-    section.permission === null || hasPermission(section.permission)
-  );
+  // Close on Escape key
+  useEffect(() => {
+    const handleEsc = (e) => {
+      if (e.key === 'Escape') setIsOpen(false);
+    };
+    document.addEventListener('keydown', handleEsc);
+    return () => document.removeEventListener('keydown', handleEsc);
+  }, []);
 
-  const currentPageSections = userPermittedSections.filter(section => {
-    if (Array.isArray(section.route)) {
-      return section.route.includes(currentPath);
-    }
-    return section.route === currentPath;
-  });
+  // Get sections for the current page
+  const currentRoute = location.pathname;
+  const sections = getSectionsForRoute(currentRoute, hasPermission);
 
-  // Fallback to overview if current page has no specific section
-  const displaySections = currentPageSections.length > 0 
-    ? currentPageSections 
-    : userPermittedSections.filter(s => s.id === 'overview');
+  // Don't render FAB on the manual page itself
+  if (currentRoute === '/manual') return null;
 
   return (
     <>
-      {/* Floating Action Button (FAB) */}
+      {/* FAB Button */}
       <button
         className="help-fab"
         onClick={() => setIsOpen(!isOpen)}
-        title="Page Quick Help & Manual"
-        aria-label="Toggle Quick Help"
+        title="Quick Help"
+        aria-label="Toggle contextual help"
       >
-        <span style={{ fontSize: '18px', fontWeight: 'bold' }}>❓</span>
+        {isOpen ? '✕' : '?'}
       </button>
 
-      {/* Slide-out Help Drawer Overlay */}
-      {isOpen && (
-        <div className="help-drawer-overlay" onClick={() => setIsOpen(false)}>
-          <div 
-            className="help-drawer" 
-            onClick={(e) => e.stopPropagation()}
+      {/* Backdrop */}
+      {isOpen && <div className="help-drawer-backdrop" onClick={() => setIsOpen(false)} />}
+
+      {/* Slide-out Drawer */}
+      <div
+        ref={drawerRef}
+        className={`help-drawer ${isOpen ? 'open' : ''}`}
+      >
+        <div className="help-drawer-header">
+          <h3 style={{ margin: 0, fontSize: '15px', fontWeight: '700', color: 'var(--theme-text-bold)' }}>
+            Quick Help
+          </h3>
+          <button
+            className="help-drawer-close"
+            onClick={() => setIsOpen(false)}
+            aria-label="Close help"
           >
-            {/* Drawer Header */}
-            <div className="help-drawer-header">
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <span style={{ fontSize: '20px' }}>💡</span>
-                <div>
-                  <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '700', color: 'var(--theme-text-bold)' }}>
-                    Quick Help & Tips
-                  </h3>
-                  <p style={{ margin: '2px 0 0', fontSize: '11px', color: 'var(--theme-text-muted)' }}>
-                    Concise operational guidance for this page
-                  </p>
-                </div>
-              </div>
-              <button 
-                className="help-drawer-close"
-                onClick={() => setIsOpen(false)}
-                title="Close Help"
-              >
-                ✕
-              </button>
-            </div>
-
-            {/* Drawer Body */}
-            <div className="help-drawer-body">
-              {displaySections.map(section => (
-                <div key={section.id} className="help-section-card">
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
-                    <span style={{ fontSize: '18px' }}>{section.icon}</span>
-                    <strong style={{ fontSize: '14px', color: 'var(--theme-text-bold)' }}>
-                      {section.title}
-                    </strong>
-                  </div>
-                  <ul style={{ margin: 0, paddingLeft: '20px', fontSize: '12px', color: 'var(--theme-text-muted)', lineHeight: '1.6' }}>
-                    {section.quickHelp.map((tip, idx) => (
-                      <li key={idx} style={{ marginBottom: '4px' }}>{tip}</li>
-                    ))}
-                  </ul>
-                </div>
-              ))}
-            </div>
-
-            {/* Drawer Footer Link to Full Manual */}
-            <div className="help-drawer-footer">
-              <Link 
-                to="/manual" 
-                className="btn btn-primary btn-sm"
-                onClick={() => setIsOpen(false)}
-                style={{ width: '100%', justifyContent: 'center', textDecoration: 'none', padding: '8px 12px' }}
-              >
-                📖 Open Full Interactive Manual
-              </Link>
-            </div>
-          </div>
+            ✕
+          </button>
         </div>
-      )}
+
+        <div className="help-drawer-body">
+          {sections.length === 0 ? (
+            <div style={{ padding: '20px 0', textAlign: 'center', color: 'var(--theme-text-muted)', fontSize: '13px' }}>
+              <div style={{ fontSize: '28px', marginBottom: '8px' }}>📖</div>
+              No help topics available for this page.
+            </div>
+          ) : (
+            sections.map(section => (
+              <div key={section.id} className="help-drawer-section">
+                <div className="help-drawer-section-title">
+                  <span style={{ marginRight: '6px' }}>{section.icon}</span>
+                  {section.title}
+                </div>
+                <ul className="help-drawer-tips">
+                  {section.quickHelp.map((tip, idx) => (
+                    <li key={idx}>{tip}</li>
+                  ))}
+                </ul>
+              </div>
+            ))
+          )}
+        </div>
+
+        <div className="help-drawer-footer">
+          <Link
+            to="/manual"
+            className="btn btn-primary btn-sm"
+            style={{
+              width: '100%',
+              justifyContent: 'center',
+              textDecoration: 'none',
+              padding: '8px 16px',
+              fontSize: '13px',
+            }}
+            onClick={() => setIsOpen(false)}
+          >
+            📖 View Full System Manual
+          </Link>
+        </div>
+      </div>
     </>
   );
 };
