@@ -360,6 +360,48 @@ const Items = () => {
 
   const canManage = hasPermission('manage_items');
 
+  // Apply Sorting to Items List
+  const sortedItems = [...items].sort((a, b) => {
+    let aVal, bVal;
+    if (sortBy === 'name') {
+      aVal = (a.name || '').toLowerCase();
+      bVal = (b.name || '').toLowerCase();
+    } else if (sortBy === 'sku') {
+      aVal = (a.sku || '').toLowerCase();
+      bVal = (b.sku || '').toLowerCase();
+    } else if (sortBy === 'qty') {
+      aVal = a.stockLevel?.quantityOnHand ?? 0;
+      bVal = b.stockLevel?.quantityOnHand ?? 0;
+    } else if (sortBy === 'category') {
+      aVal = (a.category?.name || '').toLowerCase();
+      bVal = (b.category?.name || '').toLowerCase();
+    } else if (sortBy === 'type') {
+      aVal = (a.itemType || '').toLowerCase();
+      bVal = (b.itemType || '').toLowerCase();
+    } else {
+      aVal = (a.name || '').toLowerCase();
+      bVal = (b.name || '').toLowerCase();
+    }
+
+    if (aVal < bVal) return sortOrder === 'asc' ? -1 : 1;
+    if (aVal > bVal) return sortOrder === 'asc' ? 1 : -1;
+    return 0;
+  });
+
+  const handleHeaderSort = (field) => {
+    if (sortBy === field) {
+      setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortBy(field);
+      setSortOrder('asc');
+    }
+  };
+
+  const renderSortIndicator = (field) => {
+    if (sortBy !== field) return <span style={{ opacity: 0.3, marginLeft: '4px', fontSize: '10px' }}>⇅</span>;
+    return <span style={{ marginLeft: '4px', fontSize: '11px', color: 'var(--theme-primary)' }}>{sortOrder === 'asc' ? '▲' : '▼'}</span>;
+  };
+
   return (
     <div className="page-container">
       <div className="page-header">
