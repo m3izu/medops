@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import healingHandsLogo from '../assets/healinghands.png';
 
 const Login = () => {
   const [username, setUsername] = useState('');
@@ -35,52 +36,75 @@ const Login = () => {
   };
 
   return (
-    <div className="login-container">
-      <div className="login-card">
-        <div className="login-brand">
-          <h1>HEALING HANDS CENTER</h1>
-          <p>MedOPS Inventory Management Network</p>
+    <div className="login-wrapper">
+      <div className="login-card-container">
+        <div className="login-header-logo">
+          <img 
+            src={healingHandsLogo} 
+            alt="Healing Hands Center" 
+            className="login-brand-img"
+          />
+          <p className="login-brand-subtitle">MedOPS Dialysis Inventory & Patient Operations</p>
         </div>
-        <div className="login-body">
-          {error && <div className="login-error">{error}</div>}
+
+        <div className="login-card-body">
+          {error && <div className="login-error-banner">{error}</div>}
           
-          <form onSubmit={handleSubmit}>
-            <div className="form-group">
+          <form onSubmit={handleSubmit} className="login-form">
+            <div className="form-group" style={{ marginBottom: '16px' }}>
               <label className="form-label" htmlFor="username">Username</label>
-              <input
-                id="username"
-                className="form-control"
-                type="text"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                placeholder="Enter username"
-                disabled={submitting}
-                autoFocus
-              />
+              <div className="login-input-icon-wrapper">
+                <input
+                  id="username"
+                  className="form-control login-input"
+                  type="text"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  placeholder="Enter system username"
+                  disabled={submitting}
+                  autoFocus
+                />
+              </div>
             </div>
             
-            <div className="form-group">
+            <div className="form-group" style={{ marginBottom: '24px' }}>
               <label className="form-label" htmlFor="password">Password</label>
-              <input
-                id="password"
-                className="form-control"
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="Enter password"
-                disabled={submitting}
-              />
+              <div className="login-input-icon-wrapper">
+                <input
+                  id="password"
+                  className="form-control login-input"
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="Enter security password"
+                  disabled={submitting}
+                />
+              </div>
             </div>
             
             <button 
               type="submit" 
-              className="btn btn-primary" 
-              style={{ width: '100%', marginTop: '8px' }}
+              className="btn btn-primary login-submit-btn"
               disabled={submitting}
             >
-              {submitting ? 'Authenticating...' : 'Access System'}
+              {submitting ? 'Authenticating...' : 'Sign In to Portal'}
             </button>
           </form>
+        </div>
+
+        <div className="login-footer-credits">
+          <span>Made by <strong>Ronald Franco Galendez</strong></span>
+          <a 
+            href="https://www.linkedin.com/in/franco-galendez-923242402" 
+            target="_blank" 
+            rel="noopener noreferrer"
+            className="linkedin-credit-link"
+            title="Connect on LinkedIn"
+          >
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M19 3a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h14m-.5 15.5v-5.3a3.26 3.26 0 0 0-3.26-3.26c-.85 0-1.84.52-2.28 1.3v-1.11h-2.79v8.37h2.79v-4.93c0-.77.62-1.4 1.39-1.4a1.4 1.4 0 0 1 1.4 1.4v4.93h2.75M6.88 8.56a1.68 1.68 0 0 0 1.68-1.68c0-.93-.75-1.69-1.68-1.69a1.69 1.69 0 0 0-1.69 1.69c0 .93.76 1.68 1.69 1.68m1.39 9.94v-8.37H5.5v8.37h2.77z"/>
+            </svg>
+          </a>
         </div>
       </div>
     </div>
@@ -88,3 +112,4 @@ const Login = () => {
 };
 
 export default Login;
+
