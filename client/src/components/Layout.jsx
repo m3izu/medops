@@ -167,6 +167,21 @@ const LayoutInner = ({ children }) => {
 
   return (
     <div className="app-container">
+      {/* Mobile Drawer Backdrop Overlay */}
+      {sidebarOpen && (
+        <div
+          className="sidebar-backdrop"
+          onClick={() => setSidebarOpen(false)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(15, 23, 42, 0.5)',
+            backdropFilter: 'blur(4px)',
+            zIndex: 999,
+          }}
+        />
+      )}
+
       {/* Sidebar Navigation */}
       <aside className={`sidebar ${sidebarOpen ? 'open' : ''} ${isCollapsed ? 'collapsed' : ''}`}>
         <div className="sidebar-brand" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '16px 12px', position: 'relative' }}>

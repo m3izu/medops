@@ -36,12 +36,6 @@ const Login = () => {
     }
   };
 
-  const fillDemoAdmin = () => {
-    setUsername('admin');
-    setPassword('shepkira123');
-    setError('');
-  };
-
   return (
     <div className="login-wrapper">
       <div className="login-card-container">
@@ -96,17 +90,6 @@ const Login = () => {
                   {showPassword ? '🙈' : '👁️'}
                 </button>
               </div>
-            </div>
-
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', fontSize: '12px' }}>
-              <button
-                type="button"
-                onClick={fillDemoAdmin}
-                className="btn btn-sm btn-outline"
-                style={{ fontSize: '11px', padding: '2px 8px' }}
-              >
-                ⚡ Quick Fill Admin Credentials
-              </button>
             </div>
             
             <button 

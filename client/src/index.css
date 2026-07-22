@@ -1058,13 +1058,117 @@ code, .font-mono {
   }
   
   /* Stack tables and custom layout grids */
-  .table-container {
-    overflow-x: auto;
+  .table-container,
+  .table-responsive,
+  .widget-body {
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch;
+    width: 100%;
   }
   
   /* Split columns in stocktakes and requisitions */
   div[style*="gridTemplateColumns"] {
     grid-template-columns: 1fr !important;
+  }
+}
+
+/* ─── Mobile Smartphones (max-width: 768px) UI/UX Enhancements ─── */
+@media (max-width: 768px) {
+  /* Touch-friendly Minimum Touch Target Sizes */
+  .btn,
+  .form-control,
+  select,
+  input[type="text"],
+  input[type="number"],
+  input[type="date"],
+  input[type="password"] {
+    min-height: 42px;
+    font-size: 14px !important;
+  }
+
+  .filter-bar {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    padding: 14px 16px !important;
+    gap: 12px !important;
+  }
+
+  .filter-item {
+    width: 100% !important;
+  }
+
+  .filter-item .form-control,
+  .filter-item select {
+    width: 100% !important;
+  }
+
+  /* Compact Navbar for Mobile Header Fit */
+  .navbar-right {
+    gap: 8px !important;
+  }
+
+  .navbar-right .btn span:not(.btn-icon-only) {
+    display: none;
+  }
+
+  .navbar-right .btn {
+    padding: 6px 10px !important;
+  }
+
+  .user-profile div:nth-child(2) {
+    display: none; /* Hide username subtitle on mobile topbar for clean spacing */
+  }
+
+  /* Responsive Centered Floating Modals */
+  .modal-overlay,
+  .modal-backdrop {
+    padding: 12px !important;
+  }
+
+  .modal-content,
+  .modal {
+    max-width: 100% !important;
+    width: 100% !important;
+    max-height: calc(100vh - 24px) !important;
+    margin: 0 auto !important;
+    border-radius: var(--border-radius-md) !important;
+  }
+
+  .modal-header {
+    padding: 14px 16px !important;
+  }
+
+  .modal-body {
+    padding: 16px !important;
+    max-height: calc(75vh - 80px) !important;
+  }
+
+  .modal-footer {
+    padding: 12px 16px !important;
+    flex-wrap: wrap;
+  }
+
+  .modal-footer .btn {
+    flex: 1 1 auto;
+  }
+
+  /* Pagination Bar Mobile Stacking */
+  .pagination-bar {
+    flex-direction: column !important;
+    align-items: center !important;
+    justify-content: center !important;
+    text-align: center;
+    gap: 10px !important;
+    padding: 12px 16px !important;
+  }
+
+  .pagination-controls {
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+
+  .pagination-size-selector {
+    margin-right: 0 !important;
   }
 }
 
