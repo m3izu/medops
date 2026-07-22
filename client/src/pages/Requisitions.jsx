@@ -128,6 +128,66 @@ const Requisitions = () => {
     return map;
   }, [items]);
 
+  // Group past requisitions by sessionDate into Presets
+  const pastSessionPresets = useMemo(() => {
+    const map = {};
+    requisitions.forEach(r => {
+      if (!r.sessionDate) return;
+      const dateKey = new Date(r.sessionDate).toISOString().substring(0, 10);
+      if (!map[dateKey]) {
+        map[dateKey] = {
+          dateKey,
+          displayDate: new Date(r.sessionDate).toLocaleDateString(),
+          patientIds: new Set(),
+          itemIds: new Set(),
+          requisitions: []
+        };
+      }
+      if (r.patientId && r.patientId !== 'ADDITIONAL') {
+        map[dateKey].patientIds.add(r.patientId);
+      }
+      r.lines?.forEach(l => {
+        if (l.itemId) map[dateKey].itemIds.add(l.itemId);
+      });
+      map[dateKey].requisitions.push(r);
+    });
+
+    return Object.values(map).sort((a, b) => new Date(b.dateKey) - new Date(a.dateKey));
+  }, [requisitions]);
+
+  const handleLoadPreset = (dateKey, copyQuantities = true) => {
+    if (!dateKey) return;
+    const preset = pastSessionPresets.find(p => p.dateKey === dateKey);
+    if (!preset) return;
+
+    // 1. Load Patients from preset
+    const newCols = Array.from(preset.patientIds).map(pId => ({
+      patientId: pId,
+      notes: '',
+      isAdditional: false
+    }));
+    newCols.push({ patientId: 'ADDITIONAL', notes: '', isAdditional: true });
+    setGridColumns(newCols);
+
+    // 2. Load Item IDs from preset into sheet
+    const newItemIds = Array.from(preset.itemIds);
+    setSheetItemIds(newItemIds);
+
+    // 3. Optionally load past quantities
+    const newQuants = {};
+    if (copyQuantities) {
+      preset.requisitions.forEach(r => {
+        const pId = r.patientId || 'ADDITIONAL';
+        r.lines?.forEach(l => {
+          if (l.itemId && l.qtyRequested > 0) {
+            newQuants[`${pId}_${l.itemId}`] = l.qtyRequested;
+          }
+        });
+      });
+    }
+    setGridQuantities(newQuants);
+  };
+
   // ── Grid Sheet Controls ──
   // Starts 100% BLANK as requested by user (no pre-populated patients or items)
   const openGridSheet = () => {
@@ -655,15 +715,41 @@ const Requisitions = () => {
 
             {/* Top Toolbar */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', margin: '14px 0', gap: '16px', flexWrap: 'wrap' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                <label style={{ fontSize: '13px', fontWeight: '600' }}>Session Date:</label>
-                <input
-                  type="date"
-                  className="form-control"
-                  value={gridSessionDate}
-                  onChange={e => setGridSessionDate(e.target.value)}
-                  style={{ width: '160px' }}
-                />
+              <div style={{ display: 'flex', alignItems: 'center', gap: '16px', flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <label style={{ fontSize: '13px', fontWeight: '600' }}>Session Date:</label>
+                  <input
+                    type="date"
+                    className="form-control"
+                    value={gridSessionDate}
+                    onChange={e => setGridSessionDate(e.target.value)}
+                    style={{ width: '160px' }}
+                  />
+                </div>
+
+                {/* QoL Preset Copy Selector */}
+                {pastSessionPresets.length > 0 && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <label style={{ fontSize: '13px', fontWeight: '600', color: 'var(--theme-text-muted)' }}>Load Preset:</label>
+                    <select
+                      className="form-control"
+                      onChange={e => {
+                        if (e.target.value) {
+                          handleLoadPreset(e.target.value, true);
+                          e.target.value = '';
+                        }
+                      }}
+                      style={{ width: '270px', fontSize: '12px' }}
+                    >
+                      <option value="">Copy Preset from Past Session...</option>
+                      {pastSessionPresets.map(p => (
+                        <option key={p.dateKey} value={p.dateKey}>
+                          Session: {p.displayDate} ({p.patientIds.size} Patients, {p.itemIds.size} Items)
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
               </div>
 
               {/* Patient Selector from Patients Registry */}
@@ -675,7 +761,7 @@ const Requisitions = () => {
                     setSelectedPatientPicker(e.target.value);
                     if (e.target.value) addPatientFromRegistry(e.target.value);
                   }}
-                  style={{ width: '280px' }}
+                  style={{ width: '260px' }}
                 >
                   <option value="">+ Add Patient from Registry...</option>
                   {patients.map(p => (
