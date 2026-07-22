@@ -43,6 +43,7 @@ const Requisitions = () => {
   const [selectedPatientPicker, setSelectedPatientPicker] = useState('');
   const [gridError, setGridError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [searchQuery, setSearchQuery] = useState({});
 
   // ── Resubmit Modal State ──
   const [resubmitLine, setResubmitLine] = useState(null);
@@ -825,20 +826,92 @@ const Requisitions = () => {
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                               <span>{cls.label} ({clsSheetItemIds.length} added)</span>
 
-                              {/* Dropdown to add item specifically under this classification */}
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                              {/* Quick Search & Picker specifically for this classification */}
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', position: 'relative' }}>
+                                {/* Quick Search Box */}
+                                <input
+                                  type="text"
+                                  className="form-control"
+                                  placeholder={`Quick search ${cls.label.toLowerCase()}...`}
+                                  value={searchQuery[cls.key] || ''}
+                                  onChange={e => setSearchQuery(prev => ({ ...prev, [cls.key]: e.target.value }))}
+                                  style={{ fontSize: '11px', padding: '3px 8px', height: '28px', width: '220px' }}
+                                />
+
+                                {/* Popover Search Results */}
+                                {searchQuery[cls.key]?.trim() && (
+                                  <div
+                                    style={{
+                                      position: 'absolute',
+                                      top: '32px',
+                                      right: 0,
+                                      width: '320px',
+                                      maxHeight: '220px',
+                                      overflowY: 'auto',
+                                      background: 'var(--theme-card-bg)',
+                                      border: '1px solid var(--theme-border)',
+                                      borderRadius: 'var(--border-radius-md)',
+                                      boxShadow: '0 6px 16px rgba(0,0,0,0.18)',
+                                      zIndex: 100,
+                                      padding: '4px',
+                                    }}
+                                  >
+                                    {clsCatalogItems.filter(it =>
+                                      it.name?.toLowerCase().includes(searchQuery[cls.key].toLowerCase()) ||
+                                      it.sku?.toLowerCase().includes(searchQuery[cls.key].toLowerCase())
+                                    ).length === 0 ? (
+                                      <div style={{ padding: '8px', fontSize: '11px', color: 'var(--theme-text-muted)', textAlign: 'center' }}>
+                                        No matching items found.
+                                      </div>
+                                    ) : (
+                                      clsCatalogItems.filter(it =>
+                                        it.name?.toLowerCase().includes(searchQuery[cls.key].toLowerCase()) ||
+                                        it.sku?.toLowerCase().includes(searchQuery[cls.key].toLowerCase())
+                                      ).map(it => (
+                                        <div
+                                          key={it.id}
+                                          onClick={() => {
+                                            addItemToSheet(it.id);
+                                            setSearchQuery(prev => ({ ...prev, [cls.key]: '' }));
+                                          }}
+                                          style={{
+                                            padding: '6px 10px',
+                                            fontSize: '11px',
+                                            cursor: 'pointer',
+                                            borderRadius: '4px',
+                                            display: 'flex',
+                                            justify: 'space-between',
+                                            alignItems: 'center',
+                                            borderBottom: '1px solid var(--theme-border)',
+                                            background: 'var(--theme-card-bg)',
+                                          }}
+                                        >
+                                          <div>
+                                            <strong style={{ display: 'block', color: 'var(--theme-text-bold)' }}>{it.name}</strong>
+                                            <span style={{ fontSize: '10px', color: 'var(--theme-text-muted)' }}>[{it.sku}] • {it.unit}</span>
+                                          </div>
+                                          <span style={{ fontSize: '10px', fontWeight: '700', color: (it.stockLevel?.quantityOnHand ?? 0) < 10 ? 'var(--color-critical)' : 'var(--color-success)' }}>
+                                            Stock: {it.stockLevel?.quantityOnHand ?? 0}
+                                          </span>
+                                        </div>
+                                      ))
+                                    )}
+                                  </div>
+                                )}
+
+                                {/* Fallback Dropdown Selector */}
                                 <select
                                   className="form-control"
                                   onChange={e => {
                                     addItemToSheet(e.target.value);
                                     e.target.value = '';
                                   }}
-                                  style={{ fontSize: '11px', padding: '3px 8px', height: '28px', minWidth: '220px' }}
+                                  style={{ fontSize: '11px', padding: '3px 8px', height: '28px', minWidth: '160px' }}
                                 >
-                                  <option value="">+ Add {cls.label} Item...</option>
+                                  <option value="">Select from list...</option>
                                   {clsCatalogItems.map(it => (
                                     <option key={it.id} value={it.id}>
-                                      {it.name} (Stock: {it.stockLevel?.quantityOnHand ?? 0} {it.unit})
+                                      {it.name} (Stock: {it.stockLevel?.quantityOnHand ?? 0})
                                     </option>
                                   ))}
                                 </select>
