@@ -22,6 +22,7 @@ const requireAnyPermission = (permissionsArray) => {
 
 router.get('/', authenticate, requireAnyPermission(['submit_requisition', 'approve_requisition', 'view_inventory_logs', 'view_own_forms']), c.list);
 router.post('/', authenticate, requirePermission('submit_requisition'), c.create);
+router.post('/batch', authenticate, requirePermission('submit_requisition'), c.createBatch);
 router.get('/:id', authenticate, c.getOne);
 router.patch('/:id/cancel', authenticate, c.cancel);
 router.patch('/:id/lines/:lineId/approve', authenticate, requirePermission('approve_requisition'), c.approveLine);

@@ -73,6 +73,90 @@ const create = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
+const createBatch = async (req, res, next) => {
+  try {
+    const { sessionDate, requisitions } = req.body;
+    if (!sessionDate || !Array.isArray(requisitions) || requisitions.length === 0) {
+      return res.status(400).json({ error: 'sessionDate and requisitions array are required' });
+    }
+
+    const createdRequisitions = [];
+
+    await prisma.$transaction(async (tx) => {
+      for (const itemReq of requisitions) {
+        const { patientId, lines, notes, isAdditional } = itemReq;
+        if (!lines || lines.length === 0) continue;
+
+        let resolvedPatientId = patientId;
+
+        if (isAdditional || patientId === 'ADDITIONAL') {
+          let addPatient = await tx.patient.findFirst({
+            where: { chartNumber: 'ADDITIONAL' }
+          });
+          if (!addPatient) {
+            addPatient = await tx.patient.create({
+              data: {
+                name: 'ADDITIONAL ITEMS',
+                chartNumber: 'ADDITIONAL',
+                diagnosis: 'Station stock and backup items',
+                status: 'ACTIVE'
+              }
+            });
+          }
+          resolvedPatientId = addPatient.id;
+        } else {
+          const patient = await tx.patient.findUnique({ where: { id: resolvedPatientId } });
+          if (!patient) {
+            throw new Error(`Patient not found in registry: ${patientId}`);
+          }
+          if (patient.status !== 'ACTIVE') {
+            throw new Error(`Cannot submit requisition for inactive patient: ${patient.name}`);
+          }
+        }
+
+        const requisition = await tx.requisition.create({
+          data: {
+            patientId: resolvedPatientId,
+            submittedById: req.user.id,
+            sessionDate: new Date(sessionDate),
+            lines: {
+              create: lines.map(l => ({
+                itemId: l.itemId,
+                qtyRequested: l.quantity,
+                reason: notes?.trim() || l.reason?.trim() || 'Grid Requisition sheet entry'
+              }))
+            }
+          },
+          include: { lines: true }
+        });
+        createdRequisitions.push(requisition);
+      }
+    });
+
+    if (createdRequisitions.length > 0) {
+      const managers = await prisma.user.findMany({
+        where: { role: { in: ['TOP_ADMIN', 'INVENTORY_MANAGER'] }, isActive: true, isDeleted: false },
+        select: { id: true }
+      });
+      await prisma.notification.createMany({
+        data: managers.map(m => ({
+          userId: m.id,
+          eventType: 'REQUISITION_SUBMITTED',
+          message: `Batch requisition sheet (${createdRequisitions.length} columns) submitted by ${req.user.name}`,
+          link: `/requisitions`
+        }))
+      });
+    }
+
+    res.status(201).json({ success: true, count: createdRequisitions.length, requisitions: createdRequisitions });
+  } catch (err) {
+    if (err.message && err.message.includes('Patient not found')) {
+      return res.status(404).json({ error: err.message });
+    }
+    res.status(400).json({ error: err.message || 'Failed to submit batch requisitions.' });
+  }
+};
+
 const getOne = async (req, res, next) => {
   try {
     const req_ = await prisma.requisition.findUnique({
@@ -471,4 +555,4 @@ async function updateRequisitionStatus(requisitionId, tx) {
   await client.requisition.update({ where: { id: requisitionId }, data: { status: newStatus } });
 }
 
-module.exports = { list, create, getOne, cancel, approveLine, rejectLine, resubmitLine, coVerifyLine };
+module.exports = { list, create, createBatch, getOne, cancel, approveLine, rejectLine, resubmitLine, coVerifyLine };

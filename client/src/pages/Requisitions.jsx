@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
 
@@ -18,23 +18,26 @@ const Requisitions = () => {
   const [requisitions, setRequisitions] = useState([]);
   const [patients, setPatients] = useState([]);
   const [items, setItems] = useState([]);
+  const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
   // ── View State ──
   const [selectedReq, setSelectedReq] = useState(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [isApprovingAll, setIsApprovingAll] = useState(false);
 
-  // ── Create Modal State ──
-  const [isCreateOpen, setIsCreateOpen] = useState(false);
-  const [newPatientId, setNewPatientId] = useState('');
-  const [newSessionDate, setNewSessionDate] = useState('');
-  const [newLines, setNewLines] = useState([{ itemId: '', quantity: '', reason: '' }]);
-  const [createError, setCreateError] = useState('');
+  // ── Grid Sheet State ──
+  const [isGridOpen, setIsGridOpen] = useState(false);
+  const [gridSessionDate, setGridSessionDate] = useState(new Date().toISOString().substring(0, 10));
+  const [gridColumns, setGridColumns] = useState([]); // [{ patientId, notes, isAdditional }]
+  const [gridQuantities, setGridQuantities] = useState({}); // { [`${patientId}_${itemId}`]: qty }
+  const [selectedPatientPicker, setSelectedPatientPicker] = useState('');
+  const [gridError, setGridError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // ── Resubmit Modal State ──
-  const [resubmitLine, setResubmitLine] = useState(null); // the rejected line being resubmitted
+  const [resubmitLine, setResubmitLine] = useState(null);
   const [resubQuantity, setResubQuantity] = useState('');
   const [resubReason, setResubReason] = useState('');
   const [resubError, setResubError] = useState('');
@@ -83,12 +86,14 @@ const Requisitions = () => {
 
   const fetchLookups = async () => {
     try {
-      const [pRes, iRes] = await Promise.all([
+      const [pRes, iRes, cRes] = await Promise.all([
         api.get('/patients', { params: { status: 'ACTIVE' } }),
         api.get('/items'),
+        api.get('/categories'),
       ]);
       setPatients(pRes.data || []);
       setItems(iRes.data || []);
+      setCategories(cRes.data || []);
     } catch (err) {
       console.error('Error fetching lookups:', err);
     }
@@ -99,52 +104,125 @@ const Requisitions = () => {
     fetchLookups();
   }, []);
 
-  // ── Create Requisition ──
-  const openCreate = () => {
-    setNewPatientId('');
-    setNewSessionDate(new Date().toISOString().substring(0, 10));
-    setNewLines([{ itemId: '', quantity: '', reason: '' }]);
-    setCreateError('');
-    setIsCreateOpen(true);
+  // Group items by category for the Grid Requisition Sheet
+  const groupedItems = useMemo(() => {
+    const map = {};
+    items.forEach(it => {
+      const catName = it.category?.name || (it.itemType ? it.itemType.replace(/_/g, ' ') : 'UNSPECIFIED');
+      if (!map[catName]) map[catName] = [];
+      map[catName].push(it);
+    });
+    return map;
+  }, [items]);
+
+  // ── Grid Sheet Controls ──
+  const openGridSheet = () => {
+    setGridSessionDate(new Date().toISOString().substring(0, 10));
+    // Default columns: first few active patients from registry + ADDITIONAL column
+    const activePats = patients.slice(0, 6);
+    const cols = activePats.map(p => ({ patientId: p.id, notes: '', isAdditional: false }));
+    cols.push({ patientId: 'ADDITIONAL', notes: '', isAdditional: true });
+    setGridColumns(cols);
+    setGridQuantities({});
+    setGridError('');
+    setIsGridOpen(true);
   };
 
-  const addLine = () => setNewLines([...newLines, { itemId: '', quantity: '', reason: '' }]);
-  const removeLine = (idx) => setNewLines(newLines.filter((_, i) => i !== idx));
-
-  const updateLine = (idx, field, value) => {
-    const updated = [...newLines];
-    updated[idx] = { ...updated[idx], [field]: value };
-    setNewLines(updated);
+  const addPatientFromRegistry = (patientId) => {
+    if (!patientId) return;
+    if (gridColumns.some(c => c.patientId === patientId)) {
+      alert('This patient is already in today\'s requisition sheet.');
+      return;
+    }
+    const newCols = [...gridColumns];
+    const addIndex = newCols.findIndex(c => c.isAdditional);
+    const newCol = { patientId, notes: '', isAdditional: false };
+    if (addIndex >= 0) {
+      newCols.splice(addIndex, 0, newCol);
+    } else {
+      newCols.push(newCol);
+    }
+    setGridColumns(newCols);
+    setSelectedPatientPicker('');
   };
 
-  const handleCreate = async (e) => {
+  const removePatientColumn = (idx) => {
+    if (gridColumns[idx]?.isAdditional) return;
+    setGridColumns(gridColumns.filter((_, i) => i !== idx));
+  };
+
+  const handleCellChange = (patientId, itemId, value) => {
+    const qty = parseInt(value, 10);
+    const key = `${patientId}_${itemId}`;
+    setGridQuantities(prev => {
+      const copy = { ...prev };
+      if (isNaN(qty) || qty <= 0) {
+        delete copy[key];
+      } else {
+        copy[key] = qty;
+      }
+      return copy;
+    });
+  };
+
+  const handleNotesChange = (idx, value) => {
+    const updated = [...gridColumns];
+    updated[idx] = { ...updated[idx], notes: value };
+    setGridColumns(updated);
+  };
+
+  const calculateRowTotal = (itemId) => {
+    let total = 0;
+    gridColumns.forEach(col => {
+      const qty = gridQuantities[`${col.patientId}_${itemId}`];
+      if (qty && qty > 0) total += qty;
+    });
+    return total;
+  };
+
+  const handleGridSubmit = async (e) => {
     e.preventDefault();
-    setCreateError('');
+    setGridError('');
 
-    if (!newPatientId) return setCreateError('Please select a patient.');
-    if (!newSessionDate) return setCreateError('Please select a session date.');
+    // Package columns into requisition payloads
+    const reqs = gridColumns.map(col => {
+      const colLines = [];
+      items.forEach(it => {
+        const qty = gridQuantities[`${col.patientId}_${it.id}`];
+        if (qty && qty > 0) {
+          colLines.push({ itemId: it.id, quantity: qty, reason: col.notes || 'Grid Requisition entry' });
+        }
+      });
+      return {
+        patientId: col.patientId,
+        isAdditional: col.isAdditional,
+        notes: col.notes,
+        lines: colLines
+      };
+    }).filter(r => r.lines.length > 0);
 
-    const validLines = newLines.filter(l => l.itemId && l.quantity && l.reason);
-    if (validLines.length === 0) return setCreateError('At least one complete line item is required (item, quantity, and reason).');
+    if (reqs.length === 0) {
+      return setGridError('Please enter at least one quantity in the grid before submitting.');
+    }
 
     try {
       setIsSubmitting(true);
-      await api.post('/requisitions', {
-        patientId: newPatientId,
-        sessionDate: newSessionDate,
-        lines: validLines.map(l => ({ itemId: l.itemId, quantity: Number(l.quantity), reason: l.reason })),
+      await api.post('/requisitions/batch', {
+        sessionDate: gridSessionDate,
+        requisitions: reqs
       });
-      setIsCreateOpen(false);
+      setIsGridOpen(false);
       fetchRequisitions();
+      alert('✓ Requisition Sheet submitted successfully!');
     } catch (err) {
-      console.error('Create failed:', err);
-      setCreateError(err.response?.data?.error || 'Failed to submit requisition.');
+      console.error('Batch requisition submit failed:', err);
+      setGridError(err.response?.data?.error || 'Failed to submit Requisition Sheet.');
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  // ── Cancel ──
+  // ── Single Requisition Actions ──
   const handleCancel = async (reqId) => {
     if (!window.confirm('Are you sure you want to cancel this requisition? All pending line items will be cancelled.')) return;
     try {
@@ -157,7 +235,6 @@ const Requisitions = () => {
     }
   };
 
-  // ── Approve Line ──
   const handleApprove = async () => {
     if (!approveLine) return;
     const qty = Number(approveQty) || approveLine.qtyRequested;
@@ -172,7 +249,28 @@ const Requisitions = () => {
     }
   };
 
-  // ── Reject Line ──
+  const handleApproveAllLines = async () => {
+    if (!selectedReq) return;
+    const pendingLines = selectedReq.lines?.filter(l => l.status === 'PENDING') || [];
+    if (pendingLines.length === 0) return;
+    if (!window.confirm(`Approve all ${pendingLines.length} pending line item(s) for ${selectedReq.patient?.name}?`)) return;
+
+    try {
+      setIsApprovingAll(true);
+      for (const line of pendingLines) {
+        if (line.item?.itemType === 'MEDICATION' && !line.coVerifiedById) continue;
+        await api.patch(`/requisitions/${selectedReq.id}/lines/${line.id}/approve`, { qtyApproved: line.qtyRequested });
+      }
+      fetchDetail(selectedReq.id);
+      fetchRequisitions();
+    } catch (err) {
+      console.error('Approve all lines failed:', err);
+      alert(err.response?.data?.error || 'Error while approving line items.');
+    } finally {
+      setIsApprovingAll(false);
+    }
+  };
+
   const handleReject = async () => {
     if (!rejectLine || !rejectReason.trim()) return alert('Rejection reason is required.');
     try {
@@ -187,7 +285,6 @@ const Requisitions = () => {
     }
   };
 
-  // ── Resubmit Line ──
   const handleResubmit = async () => {
     if (!resubmitLine) return;
     setResubError('');
@@ -208,281 +305,140 @@ const Requisitions = () => {
     }
   };
 
-  const handleCoVerify = async (lineId) => {
-    if (!window.confirm('Are you sure you want to co-verify this medication request?')) return;
-    try {
-      await api.patch(`/requisitions/${selectedReq.id}/lines/${lineId}/co-verify`);
-      fetchDetail(selectedReq.id);
-      fetchRequisitions();
-    } catch (err) {
-      console.error('Co-verification failed:', err);
-      alert(err.response?.data?.error || 'Failed to co-verify medication.');
-    }
-  };
-
-  const [isApprovingAll, setIsApprovingAll] = useState(false);
-
-  const handleApproveAllLines = async () => {
-    if (!selectedReq?.lines) return;
-    const pendingLines = selectedReq.lines.filter(l => l.status === 'PENDING');
-    if (pendingLines.length === 0) return;
-
-    if (!window.confirm(`Are you sure you want to approve all ${pendingLines.length} pending line item(s)?`)) return;
-
-    try {
-      setIsApprovingAll(true);
-      let approvedCount = 0;
-      let errors = [];
-
-      for (const line of pendingLines) {
-        if (line.item?.itemType === 'MEDICATION' && !line.coVerifiedById) {
-          errors.push(`"${line.item.name}" skipped (requires medication co-verification)`);
-          continue;
-        }
-        try {
-          await api.patch(`/requisitions/${selectedReq.id}/lines/${line.id}/approve`, {
-            qtyApproved: line.qtyRequested,
-          });
-          approvedCount++;
-        } catch (err) {
-          errors.push(`"${line.item?.name || 'item'}": ${err.response?.data?.error || err.message}`);
-        }
-      }
-
-      fetchDetail(selectedReq.id);
-      fetchRequisitions();
-
-      if (errors.length > 0) {
-        alert(`Approved ${approvedCount} line(s).\n\nNotes:\n- ` + errors.join('\n- '));
-      }
-    } catch (err) {
-      console.error('Approve all lines failed:', err);
-      alert('An unexpected error occurred while approving lines.');
-    } finally {
-      setIsApprovingAll(false);
-    }
-  };
-
-  const canUserCancel = (req) => {
-    if (req.status !== 'PENDING' && req.status !== 'PARTIALLY_APPROVED') return false;
+  const canUserCancel = (req_) => {
+    if (!req_ || req_.status !== 'PENDING') return false;
+    if (req_.lines?.some(l => l.status === 'APPROVED')) return false;
     if (canCancelAny) return true;
-    if (canCancelOwn && req.submittedBy?.id === user?.id) return true;
+    if (canCancelOwn && req_.submittedById === user?.id) return true;
     return false;
   };
 
-  // Count stats
-  const pendingCount = requisitions.filter(r => r.status === 'PENDING').length;
-  const approvedCount = requisitions.filter(r => r.status === 'FULLY_APPROVED' || r.status === 'PARTIALLY_APPROVED').length;
-
   return (
     <div className="page-container">
-      <div className="page-header">
+      <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
-          <h2>Clinical Requisitions</h2>
-          <p className="page-title-desc">Submit, review, and manage per-patient item acquisition requests with line-by-line approval workflows.</p>
+          <h2>Item Requisition Management</h2>
+          <p className="page-title-desc">
+            Submit multi-patient requisition sheets, approve line items, and audit inventory acquisitions.
+          </p>
         </div>
         {canSubmit && (
-          <button className="btn btn-primary" onClick={openCreate}>
-            + New Requisition
+          <button className="btn btn-primary" onClick={openGridSheet} style={{ fontWeight: '600', padding: '10px 18px' }}>
+            📋 New Requisition Sheet
           </button>
         )}
       </div>
 
-      {error && <div className="login-error" style={{ margin: 0 }}>{error}</div>}
+      {error && <div className="login-error">{error}</div>}
 
-      {/* Summary Cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '16px', marginBottom: '20px' }}>
-        <div className="widget-card" style={{ padding: '16px 20px' }}>
-          <div style={{ fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--theme-text-muted)', marginBottom: '4px' }}>Total Forms</div>
-          <div style={{ fontSize: '28px', fontWeight: '700', color: 'var(--theme-primary)' }}>{requisitions.length}</div>
-        </div>
-        <div className="widget-card" style={{ padding: '16px 20px' }}>
-          <div style={{ fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--theme-text-muted)', marginBottom: '4px' }}>Pending Approval</div>
-          <div style={{ fontSize: '28px', fontWeight: '700', color: 'var(--color-warning)' }}>{pendingCount}</div>
-        </div>
-        <div className="widget-card" style={{ padding: '16px 20px' }}>
-          <div style={{ fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--theme-text-muted)', marginBottom: '4px' }}>Processed</div>
-          <div style={{ fontSize: '28px', fontWeight: '700', color: 'var(--color-success)' }}>{approvedCount}</div>
-        </div>
-      </div>
-
-      {/* Main Grid: List + Detail */}
-      <div style={{ display: 'grid', gridTemplateColumns: selectedReq ? '1fr 1.2fr' : '1fr', gap: '24px', transition: 'grid-template-columns 0.3s ease' }}>
-
-        {/* Left: Requisitions List */}
+      <div style={{ display: 'grid', gridTemplateColumns: selectedReq ? '1fr 1.2fr' : '1fr', gap: '24px' }}>
+        {/* ── Left Side: Requisition List ── */}
         <div className="widget-card">
           <div className="widget-header">
-            <span className="widget-title">Requisition Queue</span>
-            <span style={{ fontSize: '13px', color: 'var(--theme-text-muted)' }}>{requisitions.length} forms</span>
+            <span className="widget-title">Requisitions Log ({requisitions.length})</span>
           </div>
-          <div className="widget-body" style={{ padding: 0 }}>
-            {loading ? (
-              <p style={{ padding: '24px', color: 'var(--theme-text-muted)' }}>Loading requisitions...</p>
-            ) : requisitions.length === 0 ? (
-              <p style={{ padding: '24px', color: 'var(--theme-text-muted)', textAlign: 'center' }}>
-                No requisitions found. {canSubmit ? 'Click "+ New Requisition" to submit one.' : ''}
-              </p>
-            ) : (
-              <table className="table">
+
+          {loading ? (
+            <div style={{ padding: '24px', textAlign: 'center', color: 'var(--theme-text-muted)' }}>
+              Loading requisitions...
+            </div>
+          ) : requisitions.length === 0 ? (
+            <div style={{ padding: '24px', textAlign: 'center', color: 'var(--theme-text-muted)' }}>
+              No requisitions found. Click "New Requisition Sheet" to get started.
+            </div>
+          ) : (
+            <div style={{ overflowX: 'auto' }}>
+              <table className="data-table">
                 <thead>
                   <tr>
-                    <th>Patient</th>
-                    <th>Session</th>
-                    <th>Items</th>
+                    <th>Patient / Subject</th>
+                    <th>Session Date</th>
                     <th>Submitted By</th>
                     <th>Status</th>
+                    <th>Items</th>
+                    <th>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {requisitions.map(req => (
-                    <tr
-                      key={req.id}
-                      onClick={() => fetchDetail(req.id)}
-                      style={{
-                        cursor: 'pointer',
-                        backgroundColor: selectedReq?.id === req.id ? 'var(--theme-primary-bg)' : 'transparent',
-                      }}
-                    >
-                      <td>
-                        <strong>{req.patient?.name}</strong>
-                        <div style={{ fontSize: '11px', color: 'var(--theme-text-muted)' }}>{req.patient?.chartNumber}</div>
-                      </td>
-                      <td style={{ fontSize: '13px' }}>{new Date(req.sessionDate).toLocaleDateString()}</td>
-                      <td style={{ fontSize: '13px' }}>{req.lines?.length} line{req.lines?.length !== 1 ? 's' : ''}</td>
-                      <td style={{ fontSize: '13px' }}>
-                        {req.submittedBy?.name}
-                        <div style={{ fontSize: '11px', color: 'var(--theme-text-muted)' }}>{req.submittedBy?.role?.replace(/_/g, ' ')}</div>
-                      </td>
-                      <td>
-                        <span className={`badge ${STATUS_COLORS[req.status] || 'badge-neutral'}`}>
-                          {req.status.replace(/_/g, ' ')}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
+                  {requisitions.map(r => {
+                    const isSelected = selectedReq?.id === r.id;
+                    const pendingCount = r.lines?.filter(l => l.status === 'PENDING').length || 0;
+                    return (
+                      <tr
+                        key={r.id}
+                        onClick={() => fetchDetail(r.id)}
+                        style={{
+                          cursor: 'pointer',
+                          backgroundColor: isSelected ? 'var(--theme-card-bg-hover)' : undefined,
+                        }}
+                      >
+                        <td>
+                          <strong>{r.patient?.name}</strong>
+                          <div style={{ fontSize: '11px', color: 'var(--theme-text-muted)' }}>
+                            Chart #{r.patient?.chartNumber}
+                          </div>
+                        </td>
+                        <td>{new Date(r.sessionDate).toLocaleDateString()}</td>
+                        <td>{r.submittedBy?.name}</td>
+                        <td>
+                          <span className={`badge ${STATUS_COLORS[r.status] || 'badge-neutral'}`}>
+                            {r.status.replace(/_/g, ' ')}
+                          </span>
+                        </td>
+                        <td>
+                          {r.lines?.length || 0} line(s)
+                          {pendingCount > 0 && (
+                            <span style={{ fontSize: '11px', marginLeft: '6px', color: 'var(--color-warning)', fontWeight: '600' }}>
+                              ({pendingCount} pending)
+                            </span>
+                          )}
+                        </td>
+                        <td>
+                          <button
+                            className="btn btn-sm"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              fetchDetail(r.id);
+                            }}
+                          >
+                            View
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
-            )}
-          </div>
+            </div>
+          )}
         </div>
 
-        {/* Right: Detail Panel */}
+        {/* ── Right Side: Requisition Details ── */}
         {selectedReq && (
-          <div className="widget-card" style={{ alignSelf: 'start' }}>
-            <div className="widget-header">
-              <span className="widget-title">📋 Requisition Detail</span>
-              <button
-                onClick={() => setSelectedReq(null)}
-                style={{ fontSize: '14px', cursor: 'pointer', background: 'none', border: 'none', color: 'var(--theme-text-muted)' }}
-              >
-                Close ✕
-              </button>
+          <div className="widget-card">
+            <div className="widget-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span className="widget-title">
+                Requisition #{selectedReq.id.slice(-6).toUpperCase()}
+              </span>
+              <button className="modal-close" onClick={() => setSelectedReq(null)}>✕</button>
             </div>
 
             {detailLoading ? (
-              <div className="widget-body"><p style={{ color: 'var(--theme-text-muted)' }}>Loading details...</p></div>
+              <div style={{ padding: '24px', textAlign: 'center', color: 'var(--theme-text-muted)' }}>
+                Loading details...
+              </div>
             ) : (
-              <div className="widget-body" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                {/* Header Info */}
-                <div>
-                  <span className={`badge ${STATUS_COLORS[selectedReq.status] || 'badge-neutral'}`} style={{ marginBottom: '8px' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div>
+                    <h3 style={{ margin: 0, fontSize: '16px' }}>{selectedReq.patient?.name}</h3>
+                    <span style={{ fontSize: '12px', color: 'var(--theme-text-muted)' }}>
+                      Chart #{selectedReq.patient?.chartNumber} • Session Date: {new Date(selectedReq.sessionDate).toLocaleDateString()}
+                    </span>
+                  </div>
+                  <span className={`badge ${STATUS_COLORS[selectedReq.status] || 'badge-neutral'}`}>
                     {selectedReq.status.replace(/_/g, ' ')}
                   </span>
-                  <h3 style={{ fontSize: '18px', fontWeight: 'bold' }}>
-                    {selectedReq.patient?.name}
-                  </h3>
-                  <span style={{ fontSize: '12px', color: 'var(--theme-text-muted)' }}>
-                    Chart # <code>{selectedReq.patient?.chartNumber}</code> • Session: {new Date(selectedReq.sessionDate).toLocaleDateString()}
-                  </span>
-                </div>
-
-                {/* Visual Stepper */}
-                <div style={{ 
-                  display: 'flex', 
-                  justifyContent: 'space-between', 
-                  alignItems: 'center', 
-                  padding: '16px 20px', 
-                  background: 'var(--theme-card-bg)', 
-                  border: '1px solid var(--theme-border)',
-                  borderRadius: 'var(--border-radius-lg)', 
-                  margin: '8px 0',
-                  boxShadow: 'var(--shadow-sm)',
-                  position: 'relative'
-                }}>
-                  {/* Progress Line */}
-                  <div style={{ 
-                    position: 'absolute', 
-                    top: '50%', 
-                    left: '12%', 
-                    right: '12%', 
-                    height: '2px', 
-                    backgroundColor: 'var(--theme-border)', 
-                    zIndex: 1, 
-                    transform: 'translateY(-50%)' 
-                  }} />
-                  
-                  {/* Steps */}
-                  {[
-                    { label: 'Submitted', active: true, done: true, color: 'var(--theme-primary)' },
-                    { 
-                      label: 'Co-Verified', 
-                      active: selectedReq.lines?.some(l => l.item?.itemType === 'MEDICATION'),
-                      done: selectedReq.lines?.some(l => l.item?.itemType === 'MEDICATION') && selectedReq.lines?.filter(l => l.item?.itemType === 'MEDICATION').every(l => l.coVerifiedById),
-                      color: 'var(--color-warning)'
-                    },
-                    { 
-                      label: 'Approved', 
-                      active: true, 
-                      done: selectedReq.status === 'FULLY_APPROVED' || selectedReq.status === 'PARTIALLY_APPROVED',
-                      color: 'var(--theme-primary)' 
-                    },
-                    { 
-                      label: selectedReq.status === 'CANCELLED' ? 'Cancelled' : selectedReq.status === 'REJECTED' ? 'Rejected' : 'Completed', 
-                      active: true, 
-                      done: selectedReq.status === 'FULLY_APPROVED' || selectedReq.status === 'CANCELLED' || selectedReq.status === 'REJECTED',
-                      color: selectedReq.status === 'REJECTED' || selectedReq.status === 'CANCELLED' ? 'var(--color-critical)' : 'var(--color-success)'
-                    }
-                  ].map((step, idx) => {
-                    const isPassed = step.done;
-                    return (
-                      <div key={idx} style={{ 
-                        display: 'flex', 
-                        flexDirection: 'column', 
-                        alignItems: 'center', 
-                        zIndex: 2, 
-                        position: 'relative', 
-                        width: '24%',
-                        opacity: step.active || isPassed ? 1 : 0.4 
-                      }}>
-                        <div style={{ 
-                          width: '32px', 
-                          height: '32px', 
-                          borderRadius: '50%', 
-                          backgroundColor: isPassed ? step.color : 'var(--theme-card-bg)', 
-                          border: `2px solid ${isPassed ? step.color : 'var(--theme-border)'}`,
-                          color: isPassed ? '#fff' : 'var(--theme-text-muted)',
-                          display: 'flex', 
-                          alignItems: 'center', 
-                          justifyContent: 'center', 
-                          fontWeight: 'bold',
-                          fontSize: '12px',
-                          boxShadow: isPassed ? `0 0 10px ${step.color}` : 'none',
-                          transition: 'all 0.3s ease'
-                        }}>
-                          {isPassed ? '✓' : idx + 1}
-                        </div>
-                        <span style={{ 
-                          fontSize: '11px', 
-                          fontWeight: '500', 
-                          marginTop: '6px', 
-                          color: isPassed ? 'var(--theme-text-bold)' : 'var(--theme-text-muted)',
-                          textAlign: 'center'
-                        }}>
-                          {step.label}
-                        </span>
-                      </div>
-                    );
-                  })}
                 </div>
 
                 <div style={{ background: 'var(--theme-bg)', padding: '12px 16px', borderRadius: 'var(--border-radius-md)', fontSize: '13px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
@@ -548,48 +504,45 @@ const Requisitions = () => {
                               <strong>{line.item?.name}</strong>
                               {isResubmission && (
                                 <span style={{ marginLeft: '8px', fontSize: '10px', padding: '2px 6px', background: 'var(--color-warning)', color: '#fff', borderRadius: '4px' }}>
-                                  RESUBMISSION
+                                  RESUBMITTED
                                 </span>
                               )}
-                              {line.item?.itemType === 'MEDICATION' && (
-                                <span className={`badge ${line.coVerifiedById ? 'badge-success' : 'badge-warning'}`} style={{ marginLeft: '8px', fontSize: '10px', padding: '2px 6px' }}>
-                                  {line.coVerifiedById ? '✓ Co-Verified' : 'Pending Co-Verification'}
-                                </span>
-                              )}
-                              <div style={{ fontSize: '12px', color: 'var(--theme-text-muted)', marginTop: '2px' }}>
-                                Requested: <strong>{line.qtyRequested}</strong> {line.item?.unit}
-                                {line.qtyApproved != null && <> • Approved: <strong>{line.qtyApproved}</strong></>}
-                                {stockInfo && <> • In Stock: {availableStock}</>}
-                              </div>
                             </div>
-                            <span className={`badge ${STATUS_COLORS[line.status] || 'badge-neutral'}`}>
+                            <span className={`badge ${STATUS_COLORS[line.status] || 'badge-neutral'}`} style={{ fontSize: '10px' }}>
                               {line.status}
                             </span>
                           </div>
 
-                          <div style={{ fontSize: '12px', color: 'var(--theme-text-muted)' }}>
-                            <strong>Reason:</strong> {line.reason}
+                          <div style={{ fontSize: '12px', color: 'var(--theme-text-muted)', marginBottom: '8px' }}>
+                            <div>Requested: <strong>{line.qtyRequested}</strong> {line.item?.unit} | Available Stock: <strong>{availableStock}</strong></div>
+                            <div>Notes/Reason: <em>"{line.reason}"</em></div>
+                            {line.qtyApproved && (
+                              <div style={{ color: 'var(--color-success)', fontWeight: '600' }}>Approved: {line.qtyApproved} {line.item?.unit}</div>
+                            )}
+                            {line.rejectionReason && (
+                              <div style={{ color: 'var(--color-critical)', fontWeight: '600' }}>Rejected: {line.rejectionReason}</div>
+                            )}
                           </div>
 
-                          {line.rejectionReason && (
-                            <div style={{ fontSize: '12px', color: 'var(--color-critical)', marginTop: '4px' }}>
-                              <strong>Rejection Reason:</strong> {line.rejectionReason}
-                            </div>
-                          )}
-
-                          {/* Action buttons */}
-                          <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
-                            {/* Co-Verify button for supply officers */}
-                            {canCoVerify && line.status === 'PENDING' && line.item?.itemType === 'MEDICATION' && !line.coVerifiedById && (
+                          {/* Line Action Buttons */}
+                          <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', borderTop: '1px solid var(--theme-border)', paddingTop: '8px' }}>
+                            {canCoVerify && line.item?.itemType === 'MEDICATION' && line.status === 'PENDING' && !line.coVerifiedById && (
                               <button
-                                className="btn btn-secondary btn-sm"
-                                onClick={() => handleCoVerify(line.id)}
+                                className="btn btn-sm btn-outline-info"
+                                onClick={async () => {
+                                  try {
+                                    await api.patch(`/requisitions/${selectedReq.id}/lines/${line.id}/co-verify`);
+                                    fetchDetail(selectedReq.id);
+                                    fetchRequisitions();
+                                  } catch (err) {
+                                    alert(err.response?.data?.error || 'Co-verify failed');
+                                  }
+                                }}
                               >
-                                🛡️ Co-Verify Medication
+                                🩺 Co-Verify
                               </button>
                             )}
 
-                            {/* Approve/Reject buttons for managers */}
                             {canApprove && line.status === 'PENDING' && (
                               <>
                                 <button
@@ -615,7 +568,6 @@ const Requisitions = () => {
                               </>
                             )}
 
-                            {/* Resubmit button for the submitter on rejected lines */}
                             {line.status === 'REJECTED' && canSubmit && selectedReq.submittedBy?.id === user?.id && (
                               <button
                                 className="btn btn-primary btn-sm"
@@ -641,119 +593,233 @@ const Requisitions = () => {
         )}
       </div>
 
-      {/* ── Create Requisition Modal ── */}
-      {isCreateOpen && (
-        <div className="modal-overlay" onClick={() => setIsCreateOpen(false)}>
-          <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: '680px', maxHeight: '85vh', overflowY: 'auto' }}>
-            <div className="modal-header">
-              <span className="modal-title">New Item Acquisition Form</span>
-              <button className="modal-close" onClick={() => setIsCreateOpen(false)}>✕</button>
+      {/* ── REVAMPED MULTI-PATIENT SPREADSHEET GRID MODAL ── */}
+      {isGridOpen && (
+        <div className="modal-overlay" onClick={() => setIsGridOpen(false)}>
+          <div
+            className="modal-content"
+            onClick={e => e.stopPropagation()}
+            style={{
+              maxWidth: '95vw',
+              width: '1300px',
+              maxHeight: '92vh',
+              display: 'flex',
+              flexDirection: 'column',
+              padding: '24px',
+            }}
+          >
+            <div className="modal-header" style={{ borderBottom: '2px solid var(--theme-border)', pb: '12px' }}>
+              <div>
+                <h2 style={{ margin: 0, fontSize: '20px', fontWeight: '700', color: 'var(--theme-text-bold)' }}>
+                  REQUISITION FORM
+                </h2>
+                <span style={{ fontSize: '12px', color: 'var(--theme-text-muted)' }}>
+                  Multi-patient session inventory acquisition sheet
+                </span>
+              </div>
+              <button className="modal-close" onClick={() => setIsGridOpen(false)}>✕</button>
             </div>
-            <form onSubmit={handleCreate}>
-              <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                {createError && <div className="login-error">{createError}</div>}
 
-                <div className="form-row">
-                  <div className="form-group">
-                    <label className="form-label">Patient *</label>
-                    <select className="form-control" value={newPatientId} onChange={e => setNewPatientId(e.target.value)} required>
-                      <option value="">Select patient...</option>
-                      {patients.map(p => (
-                        <option key={p.id} value={p.id}>[{p.chartNumber}] {p.name}</option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">Session Date *</label>
-                    <input type="date" className="form-control" value={newSessionDate} onChange={e => setNewSessionDate(e.target.value)} required />
-                  </div>
-                </div>
+            {/* Top Toolbar */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', margin: '16px 0', gap: '16px', flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <label style={{ fontSize: '13px', fontWeight: '600' }}>Session Date:</label>
+                <input
+                  type="date"
+                  className="form-control"
+                  value={gridSessionDate}
+                  onChange={e => setGridSessionDate(e.target.value)}
+                  style={{ width: '170px' }}
+                />
+              </div>
 
-                {/* Dynamic Line Items */}
-                <div style={{ borderTop: '1px solid var(--theme-border)', paddingTop: '16px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                    <strong style={{ fontSize: '14px' }}>Request Items ({newLines.length})</strong>
-                    <button type="button" className="btn btn-sm" onClick={addLine}>+ Add Item</button>
-                  </div>
+              {/* Patient Selector from Patients Registry */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <select
+                  className="form-control"
+                  value={selectedPatientPicker}
+                  onChange={e => {
+                    setSelectedPatientPicker(e.target.value);
+                    if (e.target.value) addPatientFromRegistry(e.target.value);
+                  }}
+                  style={{ width: '260px' }}
+                >
+                  <option value="">+ Add Patient from Registry...</option>
+                  {patients.map(p => (
+                    <option key={p.id} value={p.id}>
+                      [{p.chartNumber}] {p.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
 
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                    {newLines.map((line, idx) => (
-                      <div
-                        key={idx}
-                        style={{
-                          padding: '12px',
-                          background: 'var(--theme-bg)',
-                          borderRadius: 'var(--border-radius-md)',
-                          display: 'flex',
-                          flexDirection: 'column',
-                          gap: '8px',
-                          position: 'relative',
-                        }}
-                      >
-                        {newLines.length > 1 && (
-                          <button
-                            type="button"
-                            onClick={() => removeLine(idx)}
-                            style={{
-                              position: 'absolute', top: '6px', right: '8px',
-                              background: 'none', border: 'none', cursor: 'pointer',
-                              color: 'var(--color-critical)', fontSize: '14px',
-                            }}
-                          >
-                            ✕
-                          </button>
-                        )}
-                        <div style={{ fontSize: '11px', color: 'var(--theme-text-muted)', fontWeight: '600' }}>LINE #{idx + 1}</div>
-                        <div className="form-row">
-                          <div className="form-group" style={{ flex: 2 }}>
-                            <label className="form-label">Item *</label>
-                            <select
-                              className="form-control"
-                              value={line.itemId}
-                              onChange={e => updateLine(idx, 'itemId', e.target.value)}
-                              required
+            {gridError && <div className="login-error" style={{ marginBottom: '12px' }}>{gridError}</div>}
+
+            {/* Scrollable Spreadsheet Table Container */}
+            <div style={{ flex: 1, overflow: 'auto', border: '1px solid var(--theme-border)', borderRadius: 'var(--border-radius-md)' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
+                <thead>
+                  {/* Row 1: Column Headers (Patient Names) */}
+                  <tr style={{ background: 'var(--theme-card-bg)', borderBottom: '1px solid var(--theme-border)' }}>
+                    <th style={{ padding: '12px', textAlign: 'left', minWidth: '220px', position: 'sticky', left: 0, background: 'var(--theme-card-bg)', zIndex: 10 }}>
+                      ITEM DESCRIPTION
+                    </th>
+                    {gridColumns.map((col, idx) => {
+                      if (col.isAdditional) {
+                        return (
+                          <th key="additional" style={{ padding: '10px 8px', textAlign: 'center', minWidth: '110px', background: '#FEF3C7', color: '#92400E', borderLeft: '2px solid #F59E0B' }}>
+                            <div style={{ fontWeight: '700', fontSize: '13px' }}>ADDITIONAL</div>
+                            <div style={{ fontSize: '10px', fontWeight: '400' }}>Station Stock</div>
+                          </th>
+                        );
+                      }
+                      const pat = patients.find(p => p.id === col.patientId);
+                      return (
+                        <th key={col.patientId} style={{ padding: '10px 8px', textAlign: 'center', minWidth: '120px', borderLeft: '1px solid var(--theme-border)' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: '4px' }}>
+                            <span style={{ fontWeight: '700', fontSize: '13px', color: 'var(--theme-text-bold)' }}>
+                              {pat?.name || 'Patient'}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => removePatientColumn(idx)}
+                              style={{ background: 'none', border: 'none', color: 'var(--color-critical)', cursor: 'pointer', fontSize: '12px' }}
+                              title="Remove column"
                             >
-                              <option value="">Select item...</option>
-                              {items.map(it => (
-                                <option key={it.id} value={it.id}>[{it.sku}] {it.name} ({it.unit})</option>
-                              ))}
-                            </select>
+                              ✕
+                            </button>
                           </div>
-                          <div className="form-group" style={{ flex: 0.5 }}>
-                            <label className="form-label">Qty *</label>
-                            <input
-                              type="number"
-                              className="form-control"
-                              min="1"
-                              value={line.quantity}
-                              onChange={e => updateLine(idx, 'quantity', e.target.value)}
-                              required
-                            />
+                          <div style={{ fontSize: '10px', color: 'var(--theme-text-muted)' }}>
+                            Chart #{pat?.chartNumber}
                           </div>
-                        </div>
-                        <div className="form-group" style={{ marginBottom: 0 }}>
-                          <label className="form-label">Reason / Justification *</label>
-                          <input
-                            type="text"
-                            className="form-control"
-                            placeholder="e.g. Routine dialysis session supply"
-                            value={line.reason}
-                            onChange={e => updateLine(idx, 'reason', e.target.value)}
-                            required
-                          />
-                        </div>
-                      </div>
+                          {pat?.diagnosis && (
+                            <div style={{ fontSize: '9px', background: 'var(--theme-bg)', padding: '2px 4px', borderRadius: '3px', marginTop: '4px' }}>
+                              {pat.diagnosis}
+                            </div>
+                          )}
+                        </th>
+                      );
+                    })}
+                    <th style={{ padding: '12px', textAlign: 'center', minWidth: '80px', background: '#E0F2FE', color: '#0369A1', borderLeft: '2px solid #0284C7', position: 'sticky', right: 0, zIndex: 10 }}>
+                      TOTAL
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {Object.keys(groupedItems).length === 0 ? (
+                    <tr>
+                      <td colSpan={gridColumns.length + 2} style={{ padding: '24px', textAlign: 'center', color: 'var(--theme-text-muted)' }}>
+                        No items found in catalog.
+                      </td>
+                    </tr>
+                  ) : (
+                    Object.entries(groupedItems).map(([categoryName, catItems]) => (
+                      <React.Fragment key={categoryName}>
+                        {/* Category Header Row */}
+                        <tr style={{ background: '#1E293B', color: '#F8FAFC' }}>
+                          <td
+                            colSpan={gridColumns.length + 2}
+                            style={{ padding: '8px 12px', fontWeight: '700', fontSize: '11px', letterSpacing: '0.5px', textTransform: 'uppercase' }}
+                          >
+                            {categoryName}
+                          </td>
+                        </tr>
+
+                        {/* Items under Category */}
+                        {catItems.map(it => {
+                          const rowTotal = calculateRowTotal(it.id);
+                          return (
+                            <tr key={it.id} style={{ borderBottom: '1px solid var(--theme-border)' }}>
+                              {/* Left Item Description */}
+                              <td style={{ padding: '8px 12px', position: 'sticky', left: 0, background: 'var(--theme-card-bg)', zIndex: 5, fontWeight: '500' }}>
+                                {it.name}
+                                <span style={{ fontSize: '10px', color: 'var(--theme-text-muted)', marginLeft: '6px' }}>
+                                  ({it.unit})
+                                </span>
+                              </td>
+
+                              {/* Columns for each Patient */}
+                              {gridColumns.map(col => {
+                                const val = gridQuantities[`${col.patientId}_${it.id}`] || '';
+                                return (
+                                  <td
+                                    key={col.patientId}
+                                    style={{
+                                      padding: '4px',
+                                      textAlign: 'center',
+                                      borderLeft: col.isAdditional ? '2px solid #F59E0B' : '1px solid var(--theme-border)',
+                                      background: col.isAdditional ? '#FFFBEB' : undefined,
+                                    }}
+                                  >
+                                    <input
+                                      type="number"
+                                      min="0"
+                                      className="form-control"
+                                      value={val}
+                                      onChange={e => handleCellChange(col.patientId, it.id, e.target.value)}
+                                      style={{
+                                        width: '100%',
+                                        textAlign: 'center',
+                                        padding: '4px',
+                                        fontWeight: val ? '700' : 'normal',
+                                        backgroundColor: val ? '#FEF08A' : undefined,
+                                      }}
+                                    />
+                                  </td>
+                                );
+                              })}
+
+                              {/* Rightmost Total Column */}
+                              <td
+                                style={{
+                                  padding: '8px',
+                                  textAlign: 'center',
+                                  fontWeight: '700',
+                                  background: '#F0F9FF',
+                                  color: rowTotal > 0 ? '#0369A1' : 'var(--theme-text-muted)',
+                                  borderLeft: '2px solid #0284C7',
+                                  position: 'sticky', right: 0, zIndex: 5,
+                                }}
+                              >
+                                {rowTotal || 0}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </React.Fragment>
+                    ))
+                  )}
+
+                  {/* Bottom Patient Notes / Remarks Row */}
+                  <tr style={{ background: 'var(--theme-card-bg)', borderTop: '2px solid var(--theme-border)' }}>
+                    <td style={{ padding: '12px', fontWeight: '700', position: 'sticky', left: 0, background: 'var(--theme-card-bg)', zIndex: 5 }}>
+                      PATIENT SESSION NOTES / REMARKS
+                    </td>
+                    {gridColumns.map((col, idx) => (
+                      <td key={col.patientId} style={{ padding: '6px', borderLeft: col.isAdditional ? '2px solid #F59E0B' : '1px solid var(--theme-border)' }}>
+                        <textarea
+                          className="form-control"
+                          placeholder={col.isAdditional ? "Station notes..." : "Session notes..."}
+                          rows="2"
+                          value={col.notes || ''}
+                          onChange={e => handleNotesChange(idx, e.target.value)}
+                          style={{ fontSize: '11px', resize: 'vertical' }}
+                        />
+                      </td>
                     ))}
-                  </div>
-                </div>
-              </div>
-              <div className="modal-footer">
-                <button type="button" className="btn" onClick={() => setIsCreateOpen(false)}>Cancel</button>
-                <button type="submit" className="btn btn-primary" disabled={isSubmitting}>
-                  {isSubmitting ? 'Submitting...' : 'Submit Requisition'}
-                </button>
-              </div>
-            </form>
+                    <td style={{ position: 'sticky', right: 0, background: '#F0F9FF', borderLeft: '2px solid #0284C7' }}></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div className="modal-footer" style={{ marginTop: '16px', borderTop: '1px solid var(--theme-border)', paddingTop: '16px' }}>
+              <button type="button" className="btn" onClick={() => setIsGridOpen(false)}>Cancel</button>
+              <button type="button" className="btn btn-primary" onClick={handleGridSubmit} disabled={isSubmitting} style={{ fontWeight: '700', padding: '10px 24px' }}>
+                {isSubmitting ? 'Submitting Requisition Sheet...' : 'Submit Requisition Sheet'}
+              </button>
+            </div>
           </div>
         </div>
       )}
