@@ -1,31 +1,190 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import EmptyState from '../components/EmptyState';
-
-const DISPENSE_MODE_BADGE = {
-  DIRECT_DISPENSE: { label: 'Direct Dispense', color: '#10b981', bg: 'rgba(16,185,129,0.12)' },
-  FLEXIBLE: { label: 'Flexible', color: '#f59e0b', bg: 'rgba(245,158,11,0.12)' },
-};
 
 const BILLING_STATUS_BADGE = {
   PENDING: { label: 'Pending Billing', color: '#f59e0b', bg: 'rgba(245,158,11,0.12)' },
   RECORDED: { label: 'Recorded', color: '#10b981', bg: 'rgba(16,185,129,0.12)' },
 };
 
+/**
+ * Custom Searchable Combobox for quick item search
+ */
+const SearchableItemSelect = ({ items, value, onChange, placeholder = "Type item name or SKU..." }) => {
+  const [query, setQuery] = useState('');
+  const [isOpen, setIsOpen] = useState(false);
+  const containerRef = useRef(null);
+
+  const selectedItem = items.find(i => i.id === value);
+
+  // Synchronize search text with selected item name
+  useEffect(() => {
+    if (selectedItem) {
+      setQuery(selectedItem.name);
+    } else if (!isOpen) {
+      setQuery('');
+    }
+  }, [selectedItem, isOpen]);
+
+  // Click outside to close dropdown
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (containerRef.current && !containerRef.current.contains(e.target)) {
+        setIsOpen(false);
+        if (selectedItem) {
+          setQuery(selectedItem.name);
+        } else {
+          setQuery('');
+        }
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [selectedItem]);
+
+  const filteredItems = items.filter(item => {
+    if (!query || selectedItem?.name === query) return true;
+    const search = query.toLowerCase();
+    const nameMatch = item.name?.toLowerCase().includes(search);
+    const skuMatch = item.sku?.toLowerCase().includes(search);
+    return nameMatch || skuMatch;
+  });
+
+  return (
+    <div className="searchable-select-container" ref={containerRef} style={{ position: 'relative', width: '100%' }}>
+      <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+        <input
+          type="text"
+          className="form-control"
+          placeholder={placeholder}
+          value={query}
+          onFocus={() => setIsOpen(true)}
+          onChange={(e) => {
+            setQuery(e.target.value);
+            setIsOpen(true);
+            if (value) onChange(''); // Clear selection if typing
+          }}
+          style={{ paddingRight: value ? '32px' : '12px' }}
+        />
+        {value && (
+          <button
+            type="button"
+            onClick={() => {
+              onChange('');
+              setQuery('');
+              setIsOpen(true);
+            }}
+            title="Clear item selection"
+            style={{
+              position: 'absolute',
+              right: '8px',
+              background: 'none',
+              border: 'none',
+              color: 'var(--theme-text-muted)',
+              cursor: 'pointer',
+              fontSize: '14px',
+              padding: '2px 4px',
+            }}
+          >
+            ✕
+          </button>
+        )}
+      </div>
+
+      {/* Dropdown Options */}
+      {isOpen && (
+        <div
+          style={{
+            position: 'absolute',
+            top: '100%',
+            left: 0,
+            right: 0,
+            marginTop: '4px',
+            background: 'var(--theme-card-bg)',
+            border: '1px solid var(--theme-border)',
+            borderRadius: 'var(--border-radius-md)',
+            boxShadow: 'var(--shadow-lg)',
+            maxHeight: '260px',
+            overflowY: 'auto',
+            zIndex: 9999,
+          }}
+        >
+          {filteredItems.length === 0 ? (
+            <div style={{ padding: '12px 16px', fontSize: '13px', color: 'var(--theme-text-muted)', textAlign: 'center' }}>
+              No matching items found
+            </div>
+          ) : (
+            filteredItems.map((item) => {
+              const stock = item.stockLevel?.quantityOnHand ?? 0;
+              const isSelected = item.id === value;
+              return (
+                <div
+                  key={item.id}
+                  onClick={() => {
+                    onChange(item.id);
+                    setQuery(item.name);
+                    setIsOpen(false);
+                  }}
+                  style={{
+                    padding: '10px 14px',
+                    cursor: 'pointer',
+                    background: isSelected ? 'var(--theme-primary-bg)' : 'transparent',
+                    borderBottom: '1px solid var(--theme-border)',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    transition: 'background-color 0.15s ease',
+                  }}
+                  onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--theme-primary-bg)')}
+                  onMouseLeave={(e) => (e.currentTarget.style.background = isSelected ? 'var(--theme-primary-bg)' : 'transparent')}
+                >
+                  <div>
+                    <div style={{ fontWeight: '600', fontSize: '13px', color: 'var(--theme-text-bold)' }}>
+                      {item.name}
+                    </div>
+                    <div style={{ fontSize: '11px', color: 'var(--theme-text-muted)' }}>
+                      SKU: {item.sku || 'N/A'}
+                    </div>
+                  </div>
+                  <span
+                    style={{
+                      fontSize: '11px',
+                      fontWeight: '600',
+                      padding: '2px 8px',
+                      borderRadius: '12px',
+                      background: stock > 0 ? 'rgba(16,185,129,0.12)' : 'rgba(239,68,68,0.12)',
+                      color: stock > 0 ? '#10b981' : '#ef4444',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    In Stock: {stock} {item.unit}
+                  </span>
+                </div>
+              );
+            })
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
 const Dispense = () => {
-  const { user } = useAuth();
   const [searchParams] = useSearchParams();
   const initialPatientId = searchParams.get('patientId') || '';
 
-  // Dispense form state
+  // Form state
   const [patients, setPatients] = useState([]);
   const [dispensableItems, setDispensableItems] = useState([]);
   const [patientId, setPatientId] = useState(initialPatientId);
-  const [itemId, setItemId] = useState('');
-  const [qty, setQty] = useState(1);
-  const [notes, setNotes] = useState('');
+
+  // Multi-item rows state
+  const [lines, setLines] = useState([
+    { id: 1, itemId: '', qty: 1, notes: '' },
+  ]);
+
   const [formError, setFormError] = useState('');
   const [formSuccess, setFormSuccess] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -45,9 +204,7 @@ const Dispense = () => {
 
   const fetchDispensableItems = async () => {
     try {
-      // Fetch all non-archived items
       const res = await api.get('/items');
-      // Filter to only items the nurse can directly dispense
       const dispensable = (res.data || []).filter(
         item => item.dispenseMode === 'DIRECT_DISPENSE' || item.dispenseMode === 'FLEXIBLE'
       );
@@ -75,192 +232,297 @@ const Dispense = () => {
     fetchHistory();
   }, []);
 
-  const selectedItem = dispensableItems.find(i => i.id === itemId);
+  // Multi-line handlers
+  const handleAddLine = () => {
+    setLines((prev) => [
+      ...prev,
+      { id: Date.now() + Math.random(), itemId: '', qty: 1, notes: '' },
+    ]);
+  };
+
+  const handleRemoveLine = (id) => {
+    if (lines.length <= 1) return;
+    setLines((prev) => prev.filter((l) => l.id !== id));
+  };
+
+  const handleLineChange = (id, field, value) => {
+    setLines((prev) =>
+      prev.map((line) => (line.id === id ? { ...line, [field]: value } : line))
+    );
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setFormError('');
     setFormSuccess('');
 
-    if (!patientId) { setFormError('Please select a patient.'); return; }
-    if (!itemId) { setFormError('Please select an item.'); return; }
-    if (!qty || Number(qty) <= 0) { setFormError('Quantity must be a positive number.'); return; }
+    if (!patientId) {
+      setFormError('Please select a patient.');
+      return;
+    }
+
+    // Validate line items
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      if (!line.itemId) {
+        setFormError(`Row #${i + 1}: Please search and select an item.`);
+        return;
+      }
+      if (!line.qty || Number(line.qty) <= 0) {
+        setFormError(`Row #${i + 1}: Quantity must be a positive number.`);
+        return;
+      }
+      const itemObj = dispensableItems.find((item) => item.id === line.itemId);
+      const avail = itemObj?.stockLevel?.quantityOnHand ?? 0;
+      if (avail < Number(line.qty)) {
+        setFormError(
+          `Row #${i + 1} (${itemObj?.name || 'Item'}): Insufficient stock. Available: ${avail} ${itemObj?.unit || ''}.`
+        );
+        return;
+      }
+    }
 
     try {
       setIsSubmitting(true);
-      await api.post('/dispense', {
+      const payload = {
         patientId,
-        itemId,
-        qty: Number(qty),
-        notes: notes.trim() || undefined,
-      });
-      setFormSuccess('Item dispensed successfully. Cashier has been notified.');
+        items: lines.map((l) => ({
+          itemId: l.itemId,
+          qty: Number(l.qty),
+          notes: l.notes.trim() || undefined,
+        })),
+      };
+
+      const res = await api.post('/dispense', payload);
+      const count = res.data?.count || 1;
+
+      setFormSuccess(
+        `Successfully dispensed ${count} item${count > 1 ? 's' : ''} to patient. Cashier has been notified.`
+      );
+
       // Reset form
       setPatientId('');
-      setItemId('');
-      setQty(1);
-      setNotes('');
+      setLines([{ id: Date.now(), itemId: '', qty: 1, notes: '' }]);
       fetchHistory();
       fetchDispensableItems();
     } catch (err) {
-      setFormError(err.response?.data?.error || 'Failed to dispense item.');
+      setFormError(err.response?.data?.error || 'Failed to dispense items.');
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  const formatDate = (d) => d ? new Date(d).toLocaleString('en-PH', { dateStyle: 'medium', timeStyle: 'short' }) : '—';
+  const formatDate = (d) =>
+    d
+      ? new Date(d).toLocaleString('en-PH', { dateStyle: 'medium', timeStyle: 'short' })
+      : '—';
 
   return (
     <div className="page-container">
-
-      {/* Dispense Form Card */}
+      {/* Multi-Item Dispense Form Card */}
       <div className="widget-card" style={{ marginBottom: '24px' }}>
         <div className="widget-header" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <div style={{
-            width: '40px', height: '40px', borderRadius: '50%',
-            background: 'rgba(16,185,129,0.12)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: '20px', flexShrink: 0
-          }}>💊</div>
+          <div
+            style={{
+              width: '40px',
+              height: '40px',
+              borderRadius: '50%',
+              background: 'rgba(16,185,129,0.12)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontSize: '20px',
+              flexShrink: 0,
+            }}
+          >
+            💊
+          </div>
           <div>
             <h2 style={{ fontSize: '18px', fontWeight: '700', color: 'var(--theme-text-bold)', margin: 0 }}>
               Direct Item Dispense
             </h2>
             <p style={{ fontSize: '13px', color: 'var(--theme-text-muted)', margin: '2px 0 0' }}>
-              Dispense items directly to a patient. Stock is deducted immediately and the cashier will be notified for billing.
+              Dispense one or multiple items directly to a patient. Type in the searchable dropdowns to filter items quickly.
             </p>
           </div>
         </div>
 
         <div className="widget-body">
           {formError && (
-            <div className="alert alert-error" style={{ marginBottom: '16px' }}>{formError}</div>
+            <div className="alert alert-error" style={{ marginBottom: '16px' }}>
+              {formError}
+            </div>
           )}
           {formSuccess && (
-            <div className="alert alert-success" style={{ marginBottom: '16px' }}>✅ {formSuccess}</div>
+            <div className="alert alert-success" style={{ marginBottom: '16px' }}>
+              ✅ {formSuccess}
+            </div>
           )}
 
           <form onSubmit={handleSubmit}>
-            <div className="form-row">
-              {/* Patient Selection */}
-              <div className="form-group">
-                <label className="form-label">Patient *</label>
-                <select
-                  className="form-control"
-                  value={patientId}
-                  onChange={(e) => setPatientId(e.target.value)}
-                  required
-                >
-                  <option value="">Select active patient...</option>
-                  {patients.map(p => (
-                    <option key={p.id} value={p.id}>
-                      {p.name} ({p.chartNumber})
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Item Selection */}
-              <div className="form-group">
-                <label className="form-label">Item to Dispense *</label>
-                <select
-                  className="form-control"
-                  value={itemId}
-                  onChange={(e) => setItemId(e.target.value)}
-                  required
-                >
-                  <option value="">Select item...</option>
-                  {dispensableItems.map(item => (
-                    <option key={item.id} value={item.id}>
-                      {item.name} — {item.stockLevel?.quantityOnHand ?? 0} {item.unit} available
-                    </option>
-                  ))}
-                </select>
-                {dispensableItems.length === 0 && (
-                  <p style={{ fontSize: '11px', color: 'var(--color-warning)', marginTop: '6px' }}>
-                    No items are configured for direct dispensing. An admin must set items to "Direct Dispense" or "Flexible" mode.
-                  </p>
-                )}
-              </div>
+            {/* Patient Selection */}
+            <div className="form-group" style={{ maxWidth: '420px', marginBottom: '24px' }}>
+              <label className="form-label">Patient *</label>
+              <select
+                className="form-control"
+                value={patientId}
+                onChange={(e) => setPatientId(e.target.value)}
+                required
+              >
+                <option value="">Select active patient...</option>
+                {patients.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name} ({p.chartNumber})
+                  </option>
+                ))}
+              </select>
             </div>
 
-            {/* Selected item info */}
-            {selectedItem && (
-              <div style={{
-                background: 'var(--theme-bg)',
-                border: '1px solid var(--theme-border)',
-                borderRadius: 'var(--border-radius-lg)',
-                padding: '12px 16px',
-                marginBottom: '16px',
-                display: 'flex',
-                gap: '20px',
-                flexWrap: 'wrap',
-                fontSize: '13px',
-              }}>
-                <span>
-                  <strong style={{ color: 'var(--theme-text-muted)' }}>Current Stock:</strong>{' '}
-                  <strong style={{ color: 'var(--theme-text-bold)' }}>
-                    {selectedItem.stockLevel?.quantityOnHand ?? 0} {selectedItem.unit}
-                  </strong>
-                </span>
-                {DISPENSE_MODE_BADGE[selectedItem.dispenseMode] && (
-                  <span style={{
-                    padding: '2px 10px',
-                    borderRadius: '20px',
-                    fontSize: '11px',
-                    fontWeight: '600',
-                    color: DISPENSE_MODE_BADGE[selectedItem.dispenseMode].color,
-                    background: DISPENSE_MODE_BADGE[selectedItem.dispenseMode].bg,
-                  }}>
-                    {DISPENSE_MODE_BADGE[selectedItem.dispenseMode].label}
-                  </span>
-                )}
-              </div>
-            )}
-
-
-            <div className="form-row">
-              {/* Quantity */}
-              <div className="form-group" style={{ maxWidth: '160px' }}>
-                <label className="form-label">Quantity *</label>
-                <input
-                  type="number"
-                  className="form-control"
-                  min="1"
-                  step="1"
-                  value={qty}
-                  onChange={(e) => setQty(e.target.value)}
-                  required
-                />
+            {/* Dynamic Items Table */}
+            <div style={{ marginBottom: '20px' }}>
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  marginBottom: '12px',
+                }}
+              >
+                <h3 style={{ fontSize: '15px', fontWeight: '600', color: 'var(--theme-text-bold)', margin: 0 }}>
+                  Items to Dispense
+                </h3>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  onClick={handleAddLine}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                >
+                  ➕ Add Another Item
+                </button>
               </div>
 
-              {/* Notes */}
-              <div className="form-group" style={{ flex: 1 }}>
-                <label className="form-label">Notes <span style={{ color: 'var(--theme-text-muted)' }}>(Optional)</span></label>
-                <input
-                  type="text"
-                  className="form-control"
-                  placeholder="e.g. post-procedure pain management"
-                  value={notes}
-                  onChange={(e) => setNotes(e.target.value)}
-                />
-              </div>
+              {lines.map((line, idx) => {
+                const selectedItemObj = dispensableItems.find((i) => i.id === line.itemId);
+                const availableStock = selectedItemObj?.stockLevel?.quantityOnHand ?? 0;
+
+                return (
+                  <div
+                    key={line.id}
+                    style={{
+                      background: 'var(--theme-bg)',
+                      border: '1px solid var(--theme-border)',
+                      borderRadius: 'var(--border-radius-md)',
+                      padding: '16px',
+                      marginBottom: '12px',
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        marginBottom: '10px',
+                      }}
+                    >
+                      <span style={{ fontSize: '12px', fontWeight: '700', color: 'var(--theme-text-muted)' }}>
+                        ITEM #{idx + 1}
+                      </span>
+                      {lines.length > 1 && (
+                        <button
+                          type="button"
+                          className="btn btn-outline btn-sm"
+                          onClick={() => handleRemoveLine(line.id)}
+                          style={{ color: '#ef4444', borderColor: 'rgba(239,68,68,0.3)', padding: '2px 8px', fontSize: '12px' }}
+                          title="Remove item row"
+                        >
+                          🗑️ Remove
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="form-row" style={{ alignItems: 'flex-start' }}>
+                      {/* Searchable Item Dropdown */}
+                      <div className="form-group" style={{ flex: '2', minWidth: '240px' }}>
+                        <label className="form-label">Search & Select Item *</label>
+                        <SearchableItemSelect
+                          items={dispensableItems}
+                          value={line.itemId}
+                          onChange={(val) => handleLineChange(line.id, 'itemId', val)}
+                          placeholder="Type item name or SKU..."
+                        />
+                        {selectedItemObj && (
+                          <div style={{ marginTop: '6px', fontSize: '12px' }}>
+                            <span style={{ color: 'var(--theme-text-muted)' }}>Available Stock: </span>
+                            <strong
+                              style={{
+                                color: availableStock > 0 ? 'var(--color-success)' : 'var(--color-critical)',
+                              }}
+                            >
+                              {availableStock} {selectedItemObj.unit}
+                            </strong>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Quantity */}
+                      <div className="form-group" style={{ flex: '1', maxWidth: '140px', minWidth: '100px' }}>
+                        <label className="form-label">Quantity *</label>
+                        <input
+                          type="number"
+                          className="form-control"
+                          min="1"
+                          step="1"
+                          value={line.qty}
+                          onChange={(e) => handleLineChange(line.id, 'qty', e.target.value)}
+                          required
+                        />
+                      </div>
+
+                      {/* Line Notes */}
+                      <div className="form-group" style={{ flex: '2', minWidth: '200px' }}>
+                        <label className="form-label">
+                          Row Notes <span style={{ color: 'var(--theme-text-muted)' }}>(Optional)</span>
+                        </label>
+                        <input
+                          type="text"
+                          className="form-control"
+                          placeholder="e.g. 1 vial used during session"
+                          value={line.notes}
+                          onChange={(e) => handleLineChange(line.id, 'notes', e.target.value)}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
 
-            <div style={{ marginTop: '8px' }}>
+            <div style={{ marginTop: '16px' }}>
               <button
                 type="submit"
                 className="btn btn-primary"
                 disabled={isSubmitting}
-                style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '10px 24px', fontSize: '15px' }}
               >
                 {isSubmitting ? (
                   <>
-                    <span className="spinner" style={{ width: '14px', height: '14px', border: '2px solid rgba(255,255,255,0.3)', borderTopColor: '#fff', borderRadius: '50%', display: 'inline-block', animation: 'spin 0.7s linear infinite' }}></span>
-                    Dispensing...
+                    <span
+                      className="spinner"
+                      style={{
+                        width: '16px',
+                        height: '16px',
+                        border: '2px solid rgba(255,255,255,0.3)',
+                        borderTopColor: '#fff',
+                        borderRadius: '50%',
+                        display: 'inline-block',
+                        animation: 'spin 0.7s linear infinite',
+                      }}
+                    ></span>
+                    Dispensing Items...
                   </>
-                ) : '💊 Log Dispense'}
+                ) : (
+                  `💊 Dispense All Items (${lines.length})`
+                )}
               </button>
             </div>
           </form>
@@ -298,8 +560,9 @@ const Dispense = () => {
                 </tr>
               </thead>
               <tbody>
-                {history.map(log => {
-                  const badge = BILLING_STATUS_BADGE[log.billingStatus] || BILLING_STATUS_BADGE.PENDING;
+                {history.map((log) => {
+                  const badge =
+                    BILLING_STATUS_BADGE[log.billingStatus] || BILLING_STATUS_BADGE.PENDING;
                   return (
                     <tr key={log.id}>
                       <td style={{ fontSize: '12px', color: 'var(--theme-text-muted)' }}>
@@ -323,17 +586,41 @@ const Dispense = () => {
                       </td>
                       <td style={{ fontFamily: 'var(--font-mono)' }}>
                         {(() => {
-                          const returnedQty = (log.transactions || []).reduce((sum, tx) => sum + tx.qty, 0);
+                          const returnedQty = (log.transactions || []).reduce(
+                            (sum, tx) => sum + tx.qty,
+                            0
+                          );
                           const netQty = log.qty - returnedQty;
                           if (returnedQty > 0) {
                             return (
                               <div>
-                                <span style={{ textDecoration: 'line-through', color: 'var(--theme-text-muted)', marginRight: '6px' }}>
+                                <span
+                                  style={{
+                                    textDecoration: 'line-through',
+                                    color: 'var(--theme-text-muted)',
+                                    marginRight: '6px',
+                                  }}
+                                >
                                   {log.qty}
                                 </span>
                                 <strong style={{ color: 'var(--theme-text-bold)' }}>{netQty}</strong>{' '}
-                                <span style={{ fontSize: '11px', fontWeight: 'normal', color: 'var(--theme-text-muted)' }}>{log.item?.unit}</span>
-                                <div style={{ fontSize: '10px', color: '#3b82f6', fontWeight: '600', marginTop: '2px' }}>
+                                <span
+                                  style={{
+                                    fontSize: '11px',
+                                    fontWeight: 'normal',
+                                    color: 'var(--theme-text-muted)',
+                                  }}
+                                >
+                                  {log.item?.unit}
+                                </span>
+                                <div
+                                  style={{
+                                    fontSize: '10px',
+                                    color: '#3b82f6',
+                                    fontWeight: '600',
+                                    marginTop: '2px',
+                                  }}
+                                >
                                   (Returned: {returnedQty})
                                 </div>
                               </div>
@@ -342,41 +629,77 @@ const Dispense = () => {
                           return (
                             <div>
                               <strong style={{ color: 'var(--theme-text-bold)' }}>{log.qty}</strong>{' '}
-                              <span style={{ fontSize: '11px', fontWeight: 'normal', color: 'var(--theme-text-muted)' }}>{log.item?.unit}</span>
+                              <span
+                                style={{
+                                  fontSize: '11px',
+                                  fontWeight: 'normal',
+                                  color: 'var(--theme-text-muted)',
+                                }}
+                              >
+                                {log.item?.unit}
+                              </span>
                             </div>
                           );
                         })()}
                       </td>
-                      <td style={{ fontSize: '12px', color: 'var(--theme-text-muted)', fontStyle: log.notes ? 'normal' : 'italic' }}>
+                      <td
+                        style={{
+                          fontSize: '12px',
+                          color: 'var(--theme-text-muted)',
+                          fontStyle: log.notes ? 'normal' : 'italic',
+                        }}
+                      >
                         {log.notes || 'No notes'}
                       </td>
                       <td>
-                        <span style={{
-                          padding: '3px 10px',
-                          borderRadius: '20px',
-                          fontSize: '11px',
-                          fontWeight: '600',
-                          color: badge.color,
-                          background: badge.bg,
-                        }}>
+                        <span
+                          style={{
+                            padding: '3px 10px',
+                            borderRadius: '20px',
+                            fontSize: '11px',
+                            fontWeight: '600',
+                            color: badge.color,
+                            background: badge.bg,
+                          }}
+                        >
                           {badge.label}
                         </span>
                       </td>
                       <td style={{ textAlign: 'right' }}>
                         {(() => {
-                          const returnedQty = (log.transactions || []).reduce((sum, tx) => sum + tx.qty, 0);
+                          const returnedQty = (log.transactions || []).reduce(
+                            (sum, tx) => sum + tx.qty,
+                            0
+                          );
                           if (returnedQty < log.qty) {
                             return (
                               <Link
                                 to={`/returns?sourceType=DISPENSE&sourceId=${log.id}`}
                                 className="btn btn-secondary btn-sm"
-                                style={{ padding: '2px 8px', fontSize: '11px', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                                style={{
+                                  padding: '2px 8px',
+                                  fontSize: '11px',
+                                  textDecoration: 'none',
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '4px',
+                                }}
                               >
                                 🔄 Return
                               </Link>
                             );
                           }
-                          return <span style={{ fontSize: '11px', color: 'var(--theme-text-muted)', fontStyle: 'italic' }}>Returned</span>;
+                          return (
+                            <span
+                              style={{
+                                fontSize: '11px',
+                                color: 'var(--theme-text-muted)',
+                                fontStyle: 'italic',
+                              }}
+                            >
+                              Returned
+                            </span>
+                          );
                         })()}
                       </td>
                     </tr>
@@ -392,3 +715,4 @@ const Dispense = () => {
 };
 
 export default Dispense;
+

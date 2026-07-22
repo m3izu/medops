@@ -8,16 +8,35 @@ const { checkAndFireAlerts } = require('./stock.controller');
  */
 const create = async (req, res, next) => {
   try {
-    const { patientId, itemId, qty, notes } = req.body;
+    const { patientId, itemId, qty, items: itemsArr, notes } = req.body;
 
-    if (!patientId || !itemId || !qty) {
-      return res.status(400).json({ error: 'patientId, itemId, and qty are required.' });
-    }
-    if (typeof qty !== 'number' || qty <= 0 || !Number.isInteger(qty)) {
-      return res.status(400).json({ error: 'Quantity must be a positive whole number.' });
+    if (!patientId) {
+      return res.status(400).json({ error: 'patientId is required.' });
     }
 
-    let dispenseLog;
+    // Standardize payload into list of items to dispense
+    let dispenseList = [];
+    if (Array.isArray(itemsArr) && itemsArr.length > 0) {
+      dispenseList = itemsArr;
+    } else if (itemId && qty) {
+      dispenseList = [{ itemId, qty, notes }];
+    } else {
+      return res.status(400).json({ error: 'At least one item line with valid quantity is required.' });
+    }
+
+    // Validate quantities
+    for (const d of dispenseList) {
+      if (!d.itemId || !d.qty) {
+        return res.status(400).json({ error: 'Each dispense row must specify an itemId and quantity.' });
+      }
+      const numQty = Number(d.qty);
+      if (isNaN(numQty) || numQty <= 0 || !Number.isInteger(numQty)) {
+        return res.status(400).json({ error: 'Quantity must be a positive whole number for all items.' });
+      }
+    }
+
+    const createdDispenses = [];
+    const itemIdsToAlert = new Set();
 
     await prisma.$transaction(async (tx) => {
       // 1. Verify patient is active
@@ -25,138 +44,156 @@ const create = async (req, res, next) => {
       if (!patient) throw new Error('Patient not found.');
       if (patient.status !== 'ACTIVE') throw new Error('Cannot dispense to an inactive patient.');
 
-      // 2. Verify item exists, is not archived, and allows direct dispense
-      const item = await tx.item.findUnique({
-        where: { id: itemId },
-        include: {
-          stockLevel: true,
-          category: true,
-          batches: {
-            where: {
-              quantityRemaining: { gt: 0 },
-              OR: [
-                { expiryDate: { gte: new Date() } },
-                { expiryDate: null },
-              ],
+      for (const line of dispenseList) {
+        const lineItemId = line.itemId;
+        const lineQty = Number(line.qty);
+        const lineNotes = line.notes?.trim() || notes?.trim() || undefined;
+
+        itemIdsToAlert.add(lineItemId);
+
+        // 2. Verify item exists, is not archived, and allows direct dispense
+        const item = await tx.item.findUnique({
+          where: { id: lineItemId },
+          include: {
+            stockLevel: true,
+            category: true,
+            batches: {
+              where: {
+                quantityRemaining: { gt: 0 },
+                OR: [
+                  { expiryDate: { gte: new Date() } },
+                  { expiryDate: null },
+                ],
+              },
+              orderBy: { expiryDate: 'asc' }, // FIFO: oldest expiry first
             },
-            orderBy: { expiryDate: 'asc' }, // FIFO: oldest expiry first
           },
-        },
-      });
-      if (!item) throw new Error('Item not found.');
-      if (item.isArchived) throw new Error('Cannot dispense an archived item.');
-      if (item.dispenseMode === 'REQUISITION_ONLY') {
-        throw new Error('This item requires a formal requisition and cannot be directly dispensed.');
-      }
+        });
 
-      // 3. Verify sufficient stock
-      const currentStock = item.stockLevel?.quantityOnHand ?? 0;
-      if (currentStock < qty) {
-        throw new Error(`Insufficient stock. Available: ${currentStock} ${item.unit}.`);
-      }
+        if (!item) throw new Error(`Item not found: ${lineItemId}`);
+        if (item.isArchived) throw new Error(`Cannot dispense archived item: ${item.name}`);
+        if (item.dispenseMode === 'REQUISITION_ONLY') {
+          throw new Error(`"${item.name}" requires a formal requisition and cannot be directly dispensed.`);
+        }
 
-      // 4. FIFO batch deduction for batch-controlled items
-      const isBatchControlled = item.itemType === 'MEDICATION' || (item.category?.hasBatchControl ?? false);
-      let primaryBatchId = null; // for non-batch items
-      const txLogsToCreate = [];
+        // 3. Verify sufficient stock
+        const currentStock = item.stockLevel?.quantityOnHand ?? 0;
+        if (currentStock < lineQty) {
+          throw new Error(`Insufficient stock for "${item.name}". Available: ${currentStock} ${item.unit}.`);
+        }
 
-      if (isBatchControlled) {
-        let remaining = qty;
-        for (const batch of item.batches) {
-          if (remaining <= 0) break;
-          const deduct = Math.min(batch.quantityRemaining, remaining);
+        // 4. FIFO batch deduction for batch-controlled items
+        const isBatchControlled = item.itemType === 'MEDICATION' || (item.category?.hasBatchControl ?? false);
+        let primaryBatchId = null;
+        const txLogsToCreate = [];
 
-          const updatedBatch = await tx.itemBatch.updateMany({
-            where: { id: batch.id, quantityRemaining: { gte: deduct } },
-            data: { quantityRemaining: { decrement: deduct } },
-          });
-          if (updatedBatch.count === 0) {
-            throw new Error('Concurrent modification detected: Insufficient batch quantity.');
+        if (isBatchControlled) {
+          let remaining = lineQty;
+          for (const batch of item.batches) {
+            if (remaining <= 0) break;
+            const deduct = Math.min(batch.quantityRemaining, remaining);
+
+            const updatedBatch = await tx.itemBatch.updateMany({
+              where: { id: batch.id, quantityRemaining: { gte: deduct } },
+              data: { quantityRemaining: { decrement: deduct } },
+            });
+            if (updatedBatch.count === 0) {
+              throw new Error(`Concurrent modification detected on batch for "${item.name}".`);
+            }
+
+            txLogsToCreate.push({
+              itemId: lineItemId,
+              batchId: batch.id,
+              type: 'DISPENSE',
+              qty: deduct,
+              userId: req.user.id,
+              notes: `Direct dispense to patient (${patient.name} / ${patient.chartNumber})${lineNotes ? `: ${lineNotes}` : ''}`,
+            });
+
+            if (primaryBatchId === null) primaryBatchId = batch.id;
+            remaining -= deduct;
           }
 
-          // Queue batch deduction for TransactionLog
+          if (remaining > 0) {
+            throw new Error(`Insufficient batch quantities remaining to fulfill "${item.name}".`);
+          }
+        } else {
           txLogsToCreate.push({
-            itemId,
-            batchId: batch.id,
+            itemId: lineItemId,
             type: 'DISPENSE',
-            qty: deduct,
+            qty: lineQty,
             userId: req.user.id,
-            notes: `Direct dispense to patient (${patient.name} / ${patient.chartNumber})${notes ? `: ${notes}` : ''}`,
+            notes: `Direct dispense to patient (${patient.name} / ${patient.chartNumber})${lineNotes ? `: ${lineNotes}` : ''}`,
           });
+        }
 
-          // Use the first batch as the primary batchId on DispenseLog
-          if (primaryBatchId === null) primaryBatchId = batch.id;
-          remaining -= deduct;
-        }
-        if (remaining > 0) {
-          throw new Error('Insufficient batch quantities remaining to fulfill this dispense.');
-        }
-      } else {
-        // Non-batch: queue single transaction log entry
-        txLogsToCreate.push({
-          itemId,
-          type: 'DISPENSE',
-          qty,
-          userId: req.user.id,
-          notes: `Direct dispense to patient (${patient.name} / ${patient.chartNumber})${notes ? `: ${notes}` : ''}`,
+        // 5. Deduct total from StockLevel
+        const updatedStock = await tx.stockLevel.updateMany({
+          where: { itemId: lineItemId, quantityOnHand: { gte: lineQty } },
+          data: { quantityOnHand: { decrement: lineQty }, lastUpdated: new Date() },
         });
-      }
+        if (updatedStock.count === 0) {
+          throw new Error(`Concurrent modification detected: Insufficient stock level for "${item.name}".`);
+        }
 
-      // 5. Deduct total from StockLevel
-      const updatedStock = await tx.stockLevel.updateMany({
-        where: { itemId, quantityOnHand: { gte: qty } },
-        data: { quantityOnHand: { decrement: qty }, lastUpdated: new Date() },
-      });
-      if (updatedStock.count === 0) {
-        throw new Error('Concurrent modification detected: Insufficient stock level.');
-      }
-
-      // 6. Create DispenseLog
-      dispenseLog = await tx.dispenseLog.create({
-        data: {
-          patientId,
-          itemId,
-          batchId: isBatchControlled ? primaryBatchId : null,
-          qty,
-          dispensedById: req.user.id,
-          notes,
-          billingStatus: 'PENDING',
-        },
-      });
-
-      // 7. Create all queued transaction logs with dispenseLogId
-      for (const txLog of txLogsToCreate) {
-        await tx.transactionLog.create({
+        // 6. Create DispenseLog
+        const dispenseLog = await tx.dispenseLog.create({
           data: {
-            ...txLog,
-            dispenseLogId: dispenseLog.id
-          }
+            patientId,
+            itemId: lineItemId,
+            batchId: isBatchControlled ? primaryBatchId : null,
+            qty: lineQty,
+            dispensedById: req.user.id,
+            notes: lineNotes,
+            billingStatus: 'PENDING',
+          },
         });
+
+        // 7. Create transaction logs
+        for (const txLog of txLogsToCreate) {
+          await tx.transactionLog.create({
+            data: {
+              ...txLog,
+              dispenseLogId: dispenseLog.id,
+            },
+          });
+        }
+
+        createdDispenses.push(dispenseLog);
       }
     });
 
-    // 7. Fire stock alerts (outside transaction)
-    await checkAndFireAlerts(itemId);
+    // 8. Fire stock alerts (outside transaction)
+    for (const idToAlert of itemIdsToAlert) {
+      await checkAndFireAlerts(idToAlert);
+    }
 
-    // 8. Notify all cashiers of the new pending billing entry
+    // 9. Notify all cashiers
     const cashiers = await prisma.user.findMany({
       where: { role: 'CASHIER', isActive: true, isDeleted: false },
       select: { id: true },
     });
     if (cashiers.length > 0) {
-      const item = await prisma.item.findUnique({ where: { id: itemId }, select: { name: true, unit: true } });
-      const patient = await prisma.patient.findUnique({ where: { id: patientId }, select: { name: true, chartNumber: true } });
+      const patientObj = await prisma.patient.findUnique({ where: { id: patientId }, select: { name: true, chartNumber: true } });
+      const summaryMsg = createdDispenses.length === 1
+        ? `New dispense entry for ${patientObj.name} (${patientObj.chartNumber}) — pending billing`
+        : `New batch dispense (${createdDispenses.length} items) for ${patientObj.name} (${patientObj.chartNumber}) — pending billing`;
+
       await prisma.notification.createMany({
         data: cashiers.map(c => ({
           userId: c.id,
           eventType: 'DISPENSE_PENDING_BILLING',
-          message: `New dispense: ${qty}× ${item.name} → ${patient.name} (${patient.chartNumber}) — pending your billing record`,
+          message: summaryMsg,
           link: '/cashier',
         })),
       });
     }
 
-    res.status(201).json(dispenseLog);
+    if (createdDispenses.length === 1) {
+      res.status(201).json(createdDispenses[0]);
+    } else {
+      res.status(201).json({ success: true, count: createdDispenses.length, dispenses: createdDispenses });
+    }
   } catch (err) {
     const knownErrors = [
       'patientId, itemId, and qty are required.',
