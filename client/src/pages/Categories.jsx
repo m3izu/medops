@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
+import { useToast } from '../context/ToastContext';
 import EmptyState from '../components/EmptyState';
 
 const Categories = () => {
   const { hasPermission } = useAuth();
+  const toast = useToast();
   const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -104,14 +106,18 @@ const Categories = () => {
       setIsSubmitting(true);
       if (modalMode === 'add') {
         await api.post('/categories', { name, parentId: parentId || null, hasBatchControl });
+        toast.success(`Category "${name}" created!`);
       } else {
         await api.put(`/categories/${modalCatId}`, { name, hasBatchControl });
+        toast.success(`Category "${name}" updated!`);
       }
       setIsModalOpen(false);
-      fetchCategories(); // Refresh tree
+      fetchCategories();
     } catch (err) {
       console.error('Submit failed:', err);
-      setFormError(err.response?.data?.error || 'An error occurred while saving the category.');
+      const msg = err.response?.data?.error || 'An error occurred while saving the category.';
+      setFormError(msg);
+      toast.error(msg);
     } finally {
       setIsSubmitting(false);
     }
@@ -126,9 +132,12 @@ const Categories = () => {
     try {
       await api.delete(`/categories/${id}`);
       fetchCategories();
+      toast.success(`Category "${catName}" deleted.`);
     } catch (err) {
       console.error('Delete failed:', err);
-      alert(err.response?.data?.error || 'Failed to delete category. Ensure it does not contain subcategories or items.');
+      const msg = err.response?.data?.error || 'Failed to delete category.';
+      alert(msg);
+      toast.error(msg);
     }
   };
 

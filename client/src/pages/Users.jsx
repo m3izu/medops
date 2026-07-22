@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
+import { useToast } from '../context/ToastContext';
 import EmptyState from '../components/EmptyState';
 import BackupManager from '../components/BackupManager';
+import Pagination from '../components/Pagination';
 
 const HighlightText = ({ text, search }) => {
   if (!search || !text) return <span>{text}</span>;
@@ -49,14 +51,24 @@ const PERMISSION_DESCS = {
 
 const Users = () => {
   const { user: currentUser } = useAuth();
+  const toast = useToast();
   const [users, setUsers] = useState([]);
   const [rolePermissions, setRolePermissions] = useState({});
   const [userPermissions, setUserPermissions] = useState({});
   const [selectedUser, setSelectedUser] = useState(null);
   const [permissionAuditLogs, setPermissionAuditLogs] = useState([]);
   
+  // Pagination
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+  
   // Navigation tabs inside Users panel
   const [activeTab, setActiveTab] = useState('list'); // 'list' | 'roles' | 'audit'
+
+  // Reset pagination on search
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [filterSearch]);
 
   // Modals state
   const [addUserModal, setAddUserModal] = useState(false);
@@ -139,9 +151,12 @@ const Users = () => {
       setPassword('');
       setRole('NURSE');
       setAddUserModal(false);
+      toast.success(`Staff account for "${name}" created!`);
       fetchUsers();
     } catch (err) {
-      setError(err.response?.data?.error || 'Failed to create user account');
+      const msg = err.response?.data?.error || 'Failed to create user account';
+      setError(msg);
+      toast.error(msg);
     } finally {
       setIsSubmitting(false);
     }
@@ -150,9 +165,11 @@ const Users = () => {
   const handleToggleActive = async (userId) => {
     try {
       await api.patch(`/users/${userId}/activate`);
+      toast.success('Staff account status toggled.');
       fetchUsers();
     } catch (err) {
       console.error(err);
+      toast.error('Failed to update user status.');
     }
   };
 
@@ -163,11 +180,15 @@ const Users = () => {
     try {
       setIsResetting(true);
       await api.post(`/users/${passwordModal.id}/reset-password`, { temporaryPassword: tempPassword });
-      setSuccess(`Password for ${passwordModal.name} reset successfully.`);
+      const msg = `Password for ${passwordModal.name} reset successfully.`;
+      setSuccess(msg);
+      toast.success(msg);
       setTempPassword('');
       setPasswordModal(null);
     } catch (err) {
-      setError(err.response?.data?.error || 'Failed to reset password');
+      const msg = err.response?.data?.error || 'Failed to reset password';
+      setError(msg);
+      toast.error(msg);
     } finally {
       setIsResetting(false);
     }
@@ -179,9 +200,11 @@ const Users = () => {
     }
     try {
       await api.delete(`/users/${userId}`);
+      toast.success('Staff account deleted.');
       fetchUsers();
     } catch (err) {
-      alert(err.response?.data?.error || 'Failed to delete user');
+      console.error(err);
+      toast.error('Failed to delete user.');
     }
   };
 
@@ -310,74 +333,89 @@ const Users = () => {
                   onAction={() => setAddUserModal(true)}
                 />
               ) : (
-                <table className="table">
-                <thead>
-                  <tr>
-                    <th>Name</th>
-                    <th>Role</th>
-                    <th>Status</th>
-                    <th>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredUsers.map(u => (
-                    <tr key={u.id} style={{ background: selectedUser?.id === u.id ? 'var(--theme-primary-bg)' : 'transparent' }}>
-                      <td>
-                        <strong><HighlightText text={u.name} search={filterSearch} /></strong>
-                        <div style={{ fontSize: '12px', color: 'var(--theme-text-muted)' }}>
-                          @<HighlightText text={u.username} search={filterSearch} />
-                        </div>
-                      </td>
-                      <td>
-                        <span className="badge badge-neutral">{u.role.replace('_', ' ')}</span>
-                      </td>
-                      <td>
-                        <span className={`badge ${u.isActive ? 'badge-success' : 'badge-warning'}`}>
-                          {u.isActive ? 'Active' : 'Inactive'}
-                        </span>
-                      </td>
-                      <td>
-                        {u.role === 'TOP_ADMIN' && currentUser?.role !== 'TOP_ADMIN' ? (
-                          <span className="badge badge-neutral" style={{ fontSize: '10px' }}>Protected Top Admin</span>
-                        ) : (
-                          <div style={{ display: 'flex', gap: '6px' }}>
-                            {u.role !== 'TOP_ADMIN' && (
+                <>
+                  <table className="table">
+                  <thead>
+                    <tr>
+                      <th>Name</th>
+                      <th>Role</th>
+                      <th>Status</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredUsers
+                      .slice((currentPage - 1) * pageSize, currentPage * pageSize)
+                      .map(u => (
+                      <tr key={u.id} style={{ background: selectedUser?.id === u.id ? 'var(--theme-primary-bg)' : 'transparent' }}>
+                        <td>
+                          <strong><HighlightText text={u.name} search={filterSearch} /></strong>
+                          <div style={{ fontSize: '12px', color: 'var(--theme-text-muted)' }}>
+                            @<HighlightText text={u.username} search={filterSearch} />
+                          </div>
+                        </td>
+                        <td>
+                          <span className="badge badge-neutral">{u.role.replace('_', ' ')}</span>
+                        </td>
+                        <td>
+                          <span className={`badge ${u.isActive ? 'badge-success' : 'badge-warning'}`}>
+                            {u.isActive ? 'Active' : 'Inactive'}
+                          </span>
+                        </td>
+                        <td>
+                          {u.role === 'TOP_ADMIN' && currentUser?.role !== 'TOP_ADMIN' ? (
+                            <span className="badge badge-neutral" style={{ fontSize: '10px' }}>Protected Top Admin</span>
+                          ) : (
+                            <div style={{ display: 'flex', gap: '6px' }}>
+                              {u.role !== 'TOP_ADMIN' && (
+                                <button 
+                                  className="btn btn-secondary btn-sm"
+                                  onClick={() => handleSelectUserForPermissions(u)}
+                                >
+                                  Permissions
+                                </button>
+                              )}
                               <button 
                                 className="btn btn-secondary btn-sm"
-                                onClick={() => handleSelectUserForPermissions(u)}
+                                onClick={() => setPasswordModal(u)}
                               >
-                                Permissions
+                                Reset
                               </button>
-                            )}
-                            <button 
-                              className="btn btn-secondary btn-sm"
-                              onClick={() => setPasswordModal(u)}
-                            >
-                              Reset
-                            </button>
-                            {u.id !== currentUser?.id && (
-                              <>
-                                <button 
-                                  className={`btn btn-secondary btn-sm`}
-                                  onClick={() => handleToggleActive(u.id)}
-                                >
-                                  {u.isActive ? 'Deactivate' : 'Activate'}
-                                </button>
-                                <button 
-                                  className="btn btn-danger btn-sm"
-                                  onClick={() => handleDeleteUser(u.id)}
-                                >
-                                  Delete
-                                </button>
-                              </>
-                            )}
-                          </div>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+                              {u.id !== currentUser?.id && (
+                                <>
+                                  <button 
+                                    className={`btn btn-secondary btn-sm`}
+                                    onClick={() => handleToggleActive(u.id)}
+                                  >
+                                    {u.isActive ? 'Deactivate' : 'Activate'}
+                                  </button>
+                                  <button 
+                                    className="btn btn-danger btn-sm"
+                                    onClick={() => handleDeleteUser(u.id)}
+                                  >
+                                    Delete
+                                  </button>
+                                </>
+                              )}
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+
+                <Pagination
+                  currentPage={currentPage}
+                  totalItems={filteredUsers.length}
+                  pageSize={pageSize}
+                  onPageChange={setCurrentPage}
+                  onPageSizeChange={(newSize) => {
+                    setPageSize(newSize);
+                    setCurrentPage(1);
+                  }}
+                />
+              </>
               )}
             </div>
           </div>

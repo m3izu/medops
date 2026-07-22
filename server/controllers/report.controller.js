@@ -108,14 +108,16 @@ const createReportInternal = async (userId) => {
     },
   });
 
-  await prisma.notification.create({
-    data: {
-      userId,
-      eventType: 'MONTHLY_REPORT_GENERATED',
-      message: `Monthly report generated for ${periodStart.toLocaleDateString()} – ${periodEnd.toLocaleDateString()}`,
-      link: `/reports`,
-    },
-  });
+  if (userId) {
+    await prisma.notification.create({
+      data: {
+        userId,
+        eventType: 'MONTHLY_REPORT_GENERATED',
+        message: `Monthly report generated for ${periodStart.toLocaleDateString()} – ${periodEnd.toLocaleDateString()}`,
+        link: `/reports`,
+      },
+    });
+  }
 
   return {
     ...report,

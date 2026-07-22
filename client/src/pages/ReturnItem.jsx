@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
+import { useToast } from '../context/ToastContext';
 import EmptyState from '../components/EmptyState';
 
 const ReturnItem = () => {
   const { user } = useAuth();
+  const toast = useToast();
 
   const queryParams = new URLSearchParams(window.location.search);
   const urlSourceType = queryParams.get('sourceType');
@@ -184,14 +186,18 @@ const ReturnItem = () => {
         qty: parsedQty,
         reason: reason.trim()
       });
-      setFormSuccess('Items returned to inventory successfully.');
+      const msg = 'Items returned to inventory successfully.';
+      setFormSuccess(msg);
+      toast.success(msg);
       setSelectedSourceId('');
       setReason('');
       setQty(1);
       fetchHistory();
       fetchSourceRecords();
     } catch (err) {
-      setFormError(err.response?.data?.error || 'Failed to submit return.');
+      const errMsg = err.response?.data?.error || 'Failed to submit return.';
+      setFormError(errMsg);
+      toast.error(errMsg);
     } finally {
       setIsSubmitting(false);
     }

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
+import { useToast } from '../context/ToastContext';
 import EmptyState from '../components/EmptyState';
 
 const STATUS_BADGE = {
@@ -11,6 +12,7 @@ const STATUS_BADGE = {
 
 const Stocktake = () => {
   const { hasPermission } = useAuth();
+  const toast = useToast();
 
   const [stocktakes,    setStocktakes]    = useState([]);
   const [loading,       setLoading]       = useState(true);
@@ -83,9 +85,10 @@ const Stocktake = () => {
       setConfirmInitiate(false);
       await fetchList();
       await fetchDetail(res.data.id);
+      toast.success('New Stocktake session initiated!');
     } catch (err) {
       console.error(err);
-      alert(err.response?.data?.error || 'Failed to initiate stocktake.');
+      toast.error(err.response?.data?.error || 'Failed to initiate stocktake.');
     } finally {
       setInitiating(false);
     }
@@ -94,13 +97,12 @@ const Stocktake = () => {
   const handleSaveLine = async (lineId) => {
     const qty = parseInt(counts[lineId]);
     if (isNaN(qty) || qty < 0) {
-      alert('Please enter a valid non-negative quantity.');
+      toast.warning('Please enter a valid non-negative quantity.');
       return;
     }
     try {
       setSaving(s => ({ ...s, [lineId]: true }));
       await api.patch(`/stocktakes/${activeStocktake.id}/lines/${lineId}`, { physicalQty: qty });
-      // Update local state
       setActiveStocktake(prev => ({
         ...prev,
         lines: prev.lines.map(l => l.id === lineId
@@ -108,9 +110,10 @@ const Stocktake = () => {
           : l
         ),
       }));
+      toast.success('Physical count saved!');
     } catch (err) {
       console.error(err);
-      alert(err.response?.data?.error || 'Failed to save count.');
+      toast.error(err.response?.data?.error || 'Failed to save count.');
     } finally {
       setSaving(s => ({ ...s, [lineId]: false }));
     }
@@ -122,11 +125,11 @@ const Stocktake = () => {
       await api.patch(`/stocktakes/${activeStocktake.id}/complete`);
       setConfirmComplete(false);
       await fetchList();
-      // Reload detail to reflect new status
       await fetchDetail(activeStocktake.id);
+      toast.success('Stocktake completed & inventory adjustments applied!');
     } catch (err) {
       console.error(err);
-      alert(err.response?.data?.error || 'Failed to complete stocktake.');
+      toast.error(err.response?.data?.error || 'Failed to complete stocktake.');
     } finally {
       setCompleting(false);
     }

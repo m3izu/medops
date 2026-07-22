@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
+import { useToast } from '../context/ToastContext';
 
 const ReceiveStock = () => {
   const { hasPermission } = useAuth();
+  const toast = useToast();
   
   const [items, setItems] = useState([]);
   const [suppliers, setSuppliers] = useState([]);
@@ -111,7 +113,9 @@ const ReceiveStock = () => {
     try {
       setIsSubmitting(true);
       await api.post('/stock/receive', payload);
-      setSubmitSuccess(`Successfully received ${qtyNum} ${selectedItem.unit} of "${selectedItem.name}".`);
+      const msg = `Successfully received ${qtyNum} ${selectedItem.unit} of "${selectedItem.name}".`;
+      setSubmitSuccess(msg);
+      toast.success(msg);
       
       // Reset form
       setSelectedItemId('');
@@ -122,7 +126,9 @@ const ReceiveStock = () => {
       setExpiryDate('');
     } catch (err) {
       console.error('Receive stock submission failed:', err);
-      setSubmitError(err.response?.data?.error || 'An error occurred while logging the delivery.');
+      const errMsg = err.response?.data?.error || 'An error occurred while logging the delivery.';
+      setSubmitError(errMsg);
+      toast.error(errMsg);
     } finally {
       setIsSubmitting(false);
     }

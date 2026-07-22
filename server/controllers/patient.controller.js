@@ -24,10 +24,19 @@ const create = async (req, res, next) => {
       return res.status(400).json({ error: `Chart number "${chartNumber}" is already in use.` });
     }
 
+    let parsedFirstSessionDate = null;
+    if (firstSessionDate) {
+      const d = new Date(firstSessionDate);
+      if (isNaN(d.getTime())) {
+        return res.status(400).json({ error: 'Invalid first session date format.' });
+      }
+      parsedFirstSessionDate = d;
+    }
+
     const patient = await prisma.patient.create({
       data: {
         name, chartNumber: chartNumber.trim(), diagnosis, schedule,
-        firstSessionDate: firstSessionDate ? new Date(firstSessionDate) : null,
+        firstSessionDate: parsedFirstSessionDate,
         contact,
         managedById: req.user.id,
       },

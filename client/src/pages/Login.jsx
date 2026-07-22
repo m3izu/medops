@@ -6,6 +6,7 @@ import healingHandsLogo from '../assets/healinghands.png';
 const Login = () => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const { login } = useAuth();
@@ -35,6 +36,12 @@ const Login = () => {
     }
   };
 
+  const fillDemoAdmin = () => {
+    setUsername('admin');
+    setPassword('shepkira123');
+    setError('');
+  };
+
   return (
     <div className="login-wrapper">
       <div className="login-card-container">
@@ -53,7 +60,7 @@ const Login = () => {
           <form onSubmit={handleSubmit} className="login-form">
             <div className="form-group" style={{ marginBottom: '16px' }}>
               <label className="form-label" htmlFor="username">Username</label>
-              <div className="login-input-icon-wrapper">
+              <div className="search-input-wrapper">
                 <input
                   id="username"
                   className="form-control login-input"
@@ -67,19 +74,39 @@ const Login = () => {
               </div>
             </div>
             
-            <div className="form-group" style={{ marginBottom: '24px' }}>
+            <div className="form-group" style={{ marginBottom: '20px' }}>
               <label className="form-label" htmlFor="password">Password</label>
-              <div className="login-input-icon-wrapper">
+              <div className="search-input-wrapper">
                 <input
                   id="password"
                   className="form-control login-input"
-                  type="password"
+                  type={showPassword ? 'text' : 'password'}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="Enter security password"
                   disabled={submitting}
                 />
+                <button
+                  type="button"
+                  className="search-clear-btn"
+                  onClick={() => setShowPassword(!showPassword)}
+                  title={showPassword ? 'Hide password' : 'Show password'}
+                  style={{ right: '12px', fontSize: '16px' }}
+                >
+                  {showPassword ? '🙈' : '👁️'}
+                </button>
               </div>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', fontSize: '12px' }}>
+              <button
+                type="button"
+                onClick={fillDemoAdmin}
+                className="btn btn-sm btn-outline"
+                style={{ fontSize: '11px', padding: '2px 8px' }}
+              >
+                ⚡ Quick Fill Admin Credentials
+              </button>
             </div>
             
             <button 
@@ -111,4 +138,3 @@ const Login = () => {
 };
 
 export default Login;
-

@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
+import { useToast } from '../context/ToastContext';
 import EmptyState from '../components/EmptyState';
+import Pagination from '../components/Pagination';
 
 const REASONS = [
   { value: 'EXPIRED', label: 'Expired' },
@@ -12,11 +14,16 @@ const REASONS = [
 
 const Discards = () => {
   const { hasPermission } = useAuth();
+  const toast = useToast();
   
   const [items, setItems] = useState([]);
   const [discards, setDiscards] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+
+  // Pagination
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
 
   // Selected item details (for fetching batches)
   const [selectedItemDetails, setSelectedItemDetails] = useState(null);
@@ -61,7 +68,6 @@ const Discards = () => {
     fetchDiscards();
   }, []);
 
-  // Fetch batches when selected item changes
   useEffect(() => {
     const fetchBatches = async () => {
       if (!itemId) {
@@ -99,102 +105,129 @@ const Discards = () => {
 
     const qtyNum = Number(quantity);
     if (isNaN(qtyNum) || qtyNum <= 0) {
-      setFormError('Quantity discarded must be a positive integer.');
+      setFormError('Quantity must be a positive integer.');
       return;
-    }
-
-    // Check if the selected item is batch-controlled, and if so, enforce batch selection
-    const isBatchControlled = selectedItemDetails?.itemType === 'MEDICATION' || (selectedItemDetails?.category?.hasBatchControl ?? false);
-    if (isBatchControlled && !batchId) {
-      setFormError('Please select the specific batch being discarded.');
-      return;
-    }
-
-    // Check quantity limit if details are loaded
-    if (selectedItemDetails?.stockLevel) {
-      const currentStock = selectedItemDetails.stockLevel.quantityOnHand;
-      if (qtyNum > currentStock) {
-        setFormError(`Insufficient stock level. You cannot discard more than the current quantity on hand (${currentStock} ${selectedItemDetails.unit}).`);
-        return;
-      }
-    }
-
-    // Check quantity limit for specific batch
-    if (batchId && selectedItemDetails?.batches) {
-      const selectedBatch = selectedItemDetails.batches.find(b => b.id === batchId);
-      if (selectedBatch && qtyNum > selectedBatch.quantityRemaining) {
-        setFormError(`Insufficient batch quantity. Selected batch has only ${selectedBatch.quantityRemaining} remaining.`);
-        return;
-      }
     }
 
     if (!reason) {
-      setFormError('Please select a reason for the discard.');
+      setFormError('Please select a discard reason.');
+      return;
+    }
+
+    const isBatchControlled = selectedItemDetails?.itemType === 'MEDICATION' || (selectedItemDetails?.category?.hasBatchControl ?? false);
+    if (isBatchControlled && selectedItemDetails?.batches && selectedItemDetails.batches.length > 0 && !batchId) {
+      setFormError('Please select the specific expiring/damaged batch.');
       return;
     }
 
     const payload = {
       itemId,
-      batchId: batchId || null,
       quantity: qtyNum,
       reason,
       notes,
     };
 
+    if (batchId) {
+      payload.batchId = batchId;
+    }
+
     try {
       setIsSubmitting(true);
       await api.post('/discards', payload);
-      setFormSuccess(`Successfully logged discard for ${qtyNum} ${selectedItemDetails?.unit || 'units'} of "${selectedItemDetails?.name || ''}".`);
-      
-      // Reset form
+      setFormSuccess(`Successfully logged discard of ${qtyNum} ${selectedItemDetails.unit} of "${selectedItemDetails.name}".`);
+      toast.success(`Logged discard of ${qtyNum} ${selectedItemDetails.name}`);
+
       setItemId('');
       setBatchId('');
       setQuantity('');
       setReason('');
       setNotes('');
+      setSelectedItemDetails(null);
 
-      // Refresh data
       fetchDiscards();
       fetchItems();
     } catch (err) {
       console.error('Discard submission failed:', err);
-      setFormError(err.response?.data?.error || 'An error occurred while logging the discard.');
+      const msg = err.response?.data?.error || 'Failed to submit discard entry.';
+      setFormError(msg);
+      toast.error(msg);
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  const canLogDiscard = hasPermission('log_discard');
+  const exportDiscardsCSV = () => {
+    if (!discards.length) return;
+    const headers = ['Timestamp', 'Item Name', 'Batch No', 'Quantity', 'Unit', 'Reason', 'Logged By', 'Notes'];
+    const rows = discards.map((log) => [
+      `"${new Date(log.timestamp).toLocaleString()}"`,
+      `"${(log.item?.name || '').replace(/"/g, '""')}"`,
+      `"${(log.batch?.batchNo || '').replace(/"/g, '""')}"`,
+      log.qty,
+      `"${log.item?.unit || ''}"`,
+      `"${log.reason}"`,
+      `"${(log.loggedBy?.name || '').replace(/"/g, '""')}"`,
+      `"${(log.notes || '').replace(/"/g, '""')}"`,
+    ]);
+    const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map((e) => e.join(','))].join('\n');
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement('a');
+    link.setAttribute('href', encodedUri);
+    link.setAttribute('download', `medops_discards_${new Date().toISOString().split('T')[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    toast.success('Discard logs exported to CSV!');
+  };
+
+  const totalExpiredQty = discards.filter(d => d.reason === 'EXPIRED').reduce((sum, d) => sum + d.qty, 0);
+  const totalDamagedQty = discards.filter(d => d.reason === 'DAMAGED' || d.reason === 'RECALLED').reduce((sum, d) => sum + d.qty, 0);
 
   return (
     <div className="page-container">
-      <div className="page-header">
+      <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
-          <h2>Waste & Discard Logs</h2>
-          <p className="page-title-desc">Log damaged, expired, recalled, or missing clinical inventory items to decrement stock counts and maintain audits.</p>
+          <h2>Waste & Discard Logging</h2>
+          <p className="page-title-desc">Report expired, damaged, recalled, or lost clinical inventory and automatically update stock levels.</p>
+        </div>
+        <button className="btn btn-outline" onClick={exportDiscardsCSV} title="Export discard logs to CSV">
+          📥 Export CSV
+        </button>
+      </div>
+
+      {error && <div className="login-error" style={{ margin: 0 }}>{error}</div>}
+
+      {/* Waste Metrics */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '16px', marginBottom: '20px' }}>
+        <div className="widget-card" style={{ padding: '16px 20px' }}>
+          <div style={{ fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--theme-text-muted)', marginBottom: '4px' }}>Total Discard Logs</div>
+          <div style={{ fontSize: '28px', fontWeight: '700', color: 'var(--theme-primary)' }}>{discards.length}</div>
+        </div>
+        <div className="widget-card" style={{ padding: '16px 20px' }}>
+          <div style={{ fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--theme-text-muted)', marginBottom: '4px' }}>Expired Items</div>
+          <div style={{ fontSize: '28px', fontWeight: '700', color: 'var(--color-critical)' }}>{totalExpiredQty}</div>
+        </div>
+        <div className="widget-card" style={{ padding: '16px 20px' }}>
+          <div style={{ fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--theme-text-muted)', marginBottom: '4px' }}>Damaged / Recalled</div>
+          <div style={{ fontSize: '28px', fontWeight: '700', color: 'var(--color-warning)' }}>{totalDamagedQty}</div>
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: canLogDiscard ? '1.2fr 2fr' : '1fr', gap: '24px' }}>
-        
-        {/* Left Side: Discard Logging Form */}
-        {canLogDiscard && (
-          <div className="widget-card" style={{ alignSelf: 'start' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: hasPermission('log_discard') ? '1fr 1.5fr' : '1fr', gap: '24px' }}>
+        {/* Left Side: Discard Form */}
+        {hasPermission('log_discard') && (
+          <div className="widget-card">
             <div className="widget-header">
-              <span className="widget-title">Log Waste/Discard Entry</span>
+              <span className="widget-title">Log Waste Entry</span>
             </div>
-            
+
             <form onSubmit={handleFormSubmit}>
               <div className="widget-body" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                 {formError && <div className="login-error">{formError}</div>}
-                {formSuccess && (
-                  <div style={{ padding: '12px 16px', background: 'var(--color-success-bg)', color: 'var(--color-success)', borderRadius: 'var(--border-radius-md)', fontSize: '13px', fontWeight: '500' }}>
-                    ✓ {formSuccess}
-                  </div>
-                )}
+                {formSuccess && <div className="login-error" style={{ backgroundColor: 'var(--color-success-bg)', color: 'var(--color-success)', borderColor: 'rgba(5,150,105,0.2)' }}>{formSuccess}</div>}
 
                 <div className="form-group">
-                  <label className="form-label">Select Inventory Item *</label>
+                  <label className="form-label">Select Supply Item *</label>
                   <select 
                     className="form-control"
                     value={itemId}
@@ -210,7 +243,6 @@ const Discards = () => {
                   </select>
                 </div>
 
-                {/* Conditional Batch selection for batch-tracked items */}
                 {itemId && !batchesLoading && (selectedItemDetails?.itemType === 'MEDICATION' || (selectedItemDetails?.category?.hasBatchControl ?? false)) && selectedItemDetails?.batches && selectedItemDetails.batches.length > 0 && (
                   <div className="form-group" style={{ background: 'var(--theme-bg)', padding: '12px', borderRadius: 'var(--border-radius-md)', border: '1px solid var(--theme-border)' }}>
                     <label className="form-label">Select Batch & Expiry *</label>
@@ -312,47 +344,62 @@ const Discards = () => {
                 description="No medication discards, damage logs, or chemical disposal records have been registered yet."
               />
             ) : (
-              <table className="table">
-                <thead>
-                  <tr>
-                    <th>Timestamp</th>
-                    <th>Item Name</th>
-                    <th>Qty</th>
-                    <th>Reason</th>
-                    <th>Logged By</th>
-                    <th>Notes</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {discards.map(log => (
-                    <tr key={log.id}>
-                      <td style={{ fontSize: '12px' }}>
-                        {new Date(log.timestamp).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}
-                      </td>
-                      <td>
-                        <strong>{log.item.name}</strong>
-                        {log.batch && (
-                          <div style={{ fontSize: '11px', color: 'var(--theme-text-muted)', marginTop: '2px' }}>
-                            Batch: <code>{log.batch.batchNo}</code>
-                          </div>
-                        )}
-                      </td>
-                      <td>
-                        <strong>-{log.qty}</strong> <span style={{ fontSize: '11px', color: 'var(--theme-text-muted)' }}>{log.item.unit}</span>
-                      </td>
-                      <td>
-                        <span className="badge badge-neutral">{log.reason}</span>
-                      </td>
-                      <td style={{ fontSize: '12px' }}>
-                        {log.loggedBy.name}
-                      </td>
-                      <td style={{ fontSize: '12px', color: 'var(--theme-text-muted)', maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={log.notes}>
-                        {log.notes || '—'}
-                      </td>
+              <>
+                <table className="table">
+                  <thead>
+                    <tr>
+                      <th>Timestamp</th>
+                      <th>Item Name</th>
+                      <th>Qty</th>
+                      <th>Reason</th>
+                      <th>Logged By</th>
+                      <th>Notes</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {discards
+                      .slice((currentPage - 1) * pageSize, currentPage * pageSize)
+                      .map(log => (
+                      <tr key={log.id}>
+                        <td style={{ fontSize: '12px' }}>
+                          {new Date(log.timestamp).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}
+                        </td>
+                        <td>
+                          <strong>{log.item.name}</strong>
+                          {log.batch && (
+                            <div style={{ fontSize: '11px', color: 'var(--theme-text-muted)', marginTop: '2px' }}>
+                              Batch: <code>{log.batch.batchNo}</code>
+                            </div>
+                          )}
+                        </td>
+                        <td>
+                          <strong style={{ color: 'var(--color-critical)' }}>-{log.qty}</strong> <span style={{ fontSize: '11px', color: 'var(--theme-text-muted)' }}>{log.item.unit}</span>
+                        </td>
+                        <td>
+                          <span className="badge badge-neutral">{log.reason}</span>
+                        </td>
+                        <td style={{ fontSize: '12px' }}>
+                          {log.loggedBy.name}
+                        </td>
+                        <td style={{ fontSize: '12px', color: 'var(--theme-text-muted)', maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={log.notes}>
+                          {log.notes || '—'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+
+                <Pagination
+                  currentPage={currentPage}
+                  totalItems={discards.length}
+                  pageSize={pageSize}
+                  onPageChange={setCurrentPage}
+                  onPageSizeChange={(newSize) => {
+                    setPageSize(newSize);
+                    setCurrentPage(1);
+                  }}
+                />
+              </>
             )}
           </div>
         </div>

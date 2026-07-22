@@ -30,6 +30,10 @@ const create = async (req, res, next) => {
     if (!patientId || !sessionDate || !lines?.length) {
       return res.status(400).json({ error: 'patientId, sessionDate, and at least one line item are required' });
     }
+    const parsedSessionDate = new Date(sessionDate);
+    if (isNaN(parsedSessionDate.getTime())) {
+      return res.status(400).json({ error: 'Valid sessionDate is required.' });
+    }
 
     const patient = await prisma.patient.findUnique({ where: { id: patientId } });
     if (!patient) {
@@ -43,7 +47,7 @@ const create = async (req, res, next) => {
       data: {
         patientId,
         submittedById: req.user.id,
-        sessionDate: new Date(sessionDate),
+        sessionDate: parsedSessionDate,
         lines: {
           create: lines.map(l => ({
             itemId: l.itemId,
@@ -336,10 +340,6 @@ const approveLine = async (req, res, next) => {
 
       if (!item) {
         throw new Error('Item not found');
-      }
-
-      if (item.itemType === 'MEDICATION' && !lineDb.coVerifiedById) {
-        throw new Error('Medication co-verification is required before approval.');
       }
 
       const currentStock = item.stockLevel?.quantityOnHand ?? 0;

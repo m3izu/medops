@@ -2,7 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
+import { useToast } from '../context/ToastContext';
 import EmptyState from '../components/EmptyState';
+import Pagination from '../components/Pagination';
 
 const HighlightText = ({ text, search }) => {
   if (!search || !text) return <span>{text}</span>;
@@ -19,14 +21,46 @@ const HighlightText = ({ text, search }) => {
 
 const Patients = () => {
   const { hasPermission } = useAuth();
+  const toast = useToast();
   const [patients, setPatients] = useState([]);
   const [selectedPatient, setSelectedPatient] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
+  // Pagination
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+
   // Filters
   const [filterStatus, setFilterStatus] = useState('');
   const [filterSearch, setFilterSearch] = useState('');
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [filterStatus, filterSearch]);
+
+  const exportPatientsCSV = () => {
+    if (!sortedPatients.length) return;
+    const headers = ['Patient Name', 'Chart Number', 'Diagnosis', 'Schedule', 'Status', 'First Session Date', 'Contact'];
+    const rows = sortedPatients.map((p) => [
+      `"${(p.name || '').replace(/"/g, '""')}"`,
+      `"${(p.chartNumber || '').replace(/"/g, '""')}"`,
+      `"${(p.diagnosis || '').replace(/"/g, '""')}"`,
+      `"${(p.schedule || '').replace(/"/g, '""')}"`,
+      `"${p.status}"`,
+      `"${p.firstSessionDate ? new Date(p.firstSessionDate).toLocaleDateString() : ''}"`,
+      `"${(p.contact || '').replace(/"/g, '""')}"`,
+    ]);
+    const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map((e) => e.join(','))].join('\n');
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement('a');
+    link.setAttribute('href', encodedUri);
+    link.setAttribute('download', `medops_patients_${new Date().toISOString().split('T')[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    toast.success('Patient registry exported to CSV!');
+  };
 
   // Sorting
   const [sortBy, setSortBy] = useState('name'); // 'name' | 'chartNumber' | 'schedule' | 'status'
@@ -75,6 +109,7 @@ const Patients = () => {
   };
 
   useEffect(() => {
+    setCurrentPage(1);
     fetchPatients();
   }, [filterStatus, filterSearch]);
 
@@ -212,11 +247,16 @@ const Patients = () => {
           <h2>Patient Registry</h2>
           <p className="page-title-desc">Manage clinical patient records, dialysis schedules, and chart identification numbers.</p>
         </div>
-        {canManage && (
-          <button className="btn btn-primary" onClick={openAddModal}>
-            + Register Patient
+        <div style={{ display: 'flex', gap: '10px' }}>
+          <button className="btn btn-outline" onClick={exportPatientsCSV} title="Export patients list to CSV">
+            📥 Export to CSV
           </button>
-        )}
+          {canManage && (
+            <button className="btn btn-primary" onClick={openAddModal}>
+              + Register Patient
+            </button>
+          )}
+        </div>
       </div>
 
       {error && <div className="login-error" style={{ margin: 0 }}>{error}</div>}
@@ -237,17 +277,30 @@ const Patients = () => {
         </div>
       </div>
 
+      {/* 1-Click Status Filter Chips */}
+      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '14px', alignItems: 'center' }}>
+        <span style={{ fontSize: '12px', fontWeight: '600', color: 'var(--theme-text-muted)', marginRight: '4px' }}>Quick Status Filter:</span>
+        <button className={`btn btn-sm ${filterStatus === '' ? 'btn-primary' : 'btn-outline'}`} onClick={() => setFilterStatus('')}>All Patients ({patients.length})</button>
+        <button className={`btn btn-sm ${filterStatus === 'ACTIVE' ? 'btn-primary' : 'btn-outline'}`} onClick={() => setFilterStatus('ACTIVE')}>🟢 Active ({activeCount})</button>
+        <button className={`btn btn-sm ${filterStatus === 'INACTIVE' ? 'btn-primary' : 'btn-outline'}`} onClick={() => setFilterStatus('INACTIVE')}>⏸️ Inactive ({inactiveCount})</button>
+      </div>
+
       {/* Filter Bar */}
       <div className="filter-bar">
         <div className="filter-item" style={{ minWidth: '200px', flexGrow: 1 }}>
           <label>Search Name or Chart #</label>
-          <input
-            type="text"
-            className="form-control"
-            placeholder="Search patients..."
-            value={filterSearch}
-            onChange={(e) => setFilterSearch(e.target.value)}
-          />
+          <div className="search-input-wrapper">
+            <input
+              type="text"
+              className="form-control"
+              placeholder="Search patients..."
+              value={filterSearch}
+              onChange={(e) => setFilterSearch(e.target.value)}
+            />
+            {filterSearch && (
+              <button className="search-clear-btn" onClick={() => setFilterSearch('')}>✕</button>
+            )}
+          </div>
         </div>
         <div className="filter-item" style={{ minWidth: '150px' }}>
           <label>Status</label>
@@ -297,53 +350,56 @@ const Patients = () => {
                 onAction={canManage ? openAddModal : undefined}
               />
             ) : (
-              <table className="table">
-                <thead>
-                  <tr>
-                    <th onClick={() => handleHeaderSort('name')} style={{ cursor: 'pointer', userSelect: 'none' }}>
-                      Patient Name {renderSortIndicator('name')}
-                    </th>
-                    <th onClick={() => handleHeaderSort('chartNumber')} style={{ cursor: 'pointer', userSelect: 'none' }}>
-                      Chart # {renderSortIndicator('chartNumber')}
-                    </th>
-                    <th>Diagnosis</th>
-                    <th onClick={() => handleHeaderSort('schedule')} style={{ cursor: 'pointer', userSelect: 'none' }}>
-                      Schedule {renderSortIndicator('schedule')}
-                    </th>
-                    <th onClick={() => handleHeaderSort('status')} style={{ cursor: 'pointer', userSelect: 'none' }}>
-                      Status {renderSortIndicator('status')}
-                    </th>
-                    {canManage && <th style={{ width: '130px' }}>Actions</th>}
-                  </tr>
-                </thead>
-                <tbody>
-                  {sortedPatients.map(patient => (
-                    <tr
-                      key={patient.id}
-                      onClick={() => handleRowClick(patient.id)}
-                      style={{
-                        cursor: 'pointer',
-                        backgroundColor: selectedPatient?.id === patient.id ? 'var(--theme-primary-bg)' : 'transparent',
-                        opacity: patient.status === 'INACTIVE' ? 0.6 : 1,
-                      }}
-                    >
-                      <td>
-                        <strong>
-                          <HighlightText text={patient.name} search={filterSearch} />
-                        </strong>
-                      </td>
-                      <td>
-                        <code>
-                          <HighlightText text={patient.chartNumber} search={filterSearch} />
-                        </code>
-                      </td>
-                      <td style={{ fontSize: '13px' }}>{patient.diagnosis || '—'}</td>
-                      <td style={{ fontSize: '13px' }}>{patient.schedule || '—'}</td>
-                      <td>
-                        <span className={`badge ${patient.status === 'ACTIVE' ? 'badge-success' : 'badge-neutral'}`}>
-                          {patient.status}
-                        </span>
-                      </td>
+              <>
+                <table className="table">
+                  <thead>
+                    <tr>
+                      <th onClick={() => handleHeaderSort('name')} style={{ cursor: 'pointer', userSelect: 'none' }}>
+                        Patient Name {renderSortIndicator('name')}
+                      </th>
+                      <th onClick={() => handleHeaderSort('chartNumber')} style={{ cursor: 'pointer', userSelect: 'none' }}>
+                        Chart # {renderSortIndicator('chartNumber')}
+                      </th>
+                      <th>Diagnosis</th>
+                      <th onClick={() => handleHeaderSort('schedule')} style={{ cursor: 'pointer', userSelect: 'none' }}>
+                        Schedule {renderSortIndicator('schedule')}
+                      </th>
+                      <th onClick={() => handleHeaderSort('status')} style={{ cursor: 'pointer', userSelect: 'none' }}>
+                        Status {renderSortIndicator('status')}
+                      </th>
+                      {canManage && <th style={{ width: '130px' }}>Actions</th>}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {sortedPatients
+                      .slice((currentPage - 1) * pageSize, currentPage * pageSize)
+                      .map(patient => (
+                      <tr
+                        key={patient.id}
+                        onClick={() => handleRowClick(patient.id)}
+                        style={{
+                          cursor: 'pointer',
+                          backgroundColor: selectedPatient?.id === patient.id ? 'var(--theme-primary-bg)' : 'transparent',
+                          opacity: patient.status === 'INACTIVE' ? 0.6 : 1,
+                        }}
+                      >
+                        <td>
+                          <strong>
+                            <HighlightText text={patient.name} search={filterSearch} />
+                          </strong>
+                        </td>
+                        <td>
+                          <code>
+                            <HighlightText text={patient.chartNumber} search={filterSearch} />
+                          </code>
+                        </td>
+                        <td style={{ fontSize: '13px' }}>{patient.diagnosis || '—'}</td>
+                        <td style={{ fontSize: '13px' }}>{patient.schedule || '—'}</td>
+                        <td>
+                          <span className={`badge ${patient.status === 'ACTIVE' ? 'badge-success' : 'badge-neutral'}`}>
+                            {patient.status}
+                          </span>
+                        </td>
                       {canManage && (
                         <td>
                           <div style={{ display: 'flex', gap: '6px' }}>
@@ -362,6 +418,18 @@ const Patients = () => {
                   ))}
                 </tbody>
               </table>
+
+              <Pagination
+                currentPage={currentPage}
+                totalItems={sortedPatients.length}
+                pageSize={pageSize}
+                onPageChange={setCurrentPage}
+                onPageSizeChange={(newSize) => {
+                  setPageSize(newSize);
+                  setCurrentPage(1);
+                }}
+              />
+            </>
             )}
           </div>
         </div>

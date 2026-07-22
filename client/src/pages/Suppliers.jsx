@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
+import { useToast } from '../context/ToastContext';
 import EmptyState from '../components/EmptyState';
 
 const HighlightText = ({ text, search }) => {
@@ -18,6 +19,7 @@ const HighlightText = ({ text, search }) => {
 
 const Suppliers = () => {
   const { hasPermission } = useAuth();
+  const toast = useToast();
   const [suppliers, setSuppliers] = useState([]);
   const [selectedSupplier, setSelectedSupplier] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -110,18 +112,21 @@ const Suppliers = () => {
       if (modalMode === 'add') {
         const res = await api.post('/suppliers', payload);
         setSuppliers([...suppliers, res.data]);
+        toast.success(`Supplier "${name}" registered!`);
       } else {
         const res = await api.put(`/suppliers/${modalSupplierId}`, payload);
         setSuppliers(suppliers.map(s => s.id === modalSupplierId ? res.data : s));
         if (selectedSupplier && selectedSupplier.id === modalSupplierId) {
-          // Refresh details if currently selected
           fetchSupplierDetails(modalSupplierId);
         }
+        toast.success(`Supplier "${name}" updated!`);
       }
       setIsModalOpen(false);
     } catch (err) {
       console.error('Submit failed:', err);
-      setFormError(err.response?.data?.error || 'An error occurred while saving the supplier.');
+      const msg = err.response?.data?.error || 'An error occurred while saving the supplier.';
+      setFormError(msg);
+      toast.error(msg);
     } finally {
       setIsSubmitting(false);
     }
@@ -139,9 +144,12 @@ const Suppliers = () => {
       if (selectedSupplier && selectedSupplier.id === id) {
         setSelectedSupplier(null);
       }
+      toast.success(`Supplier "${name}" deleted.`);
     } catch (err) {
       console.error('Delete failed:', err);
-      alert(err.response?.data?.error || 'Failed to delete supplier.');
+      const msg = err.response?.data?.error || 'Failed to delete supplier.';
+      alert(msg);
+      toast.error(msg);
     }
   };
 

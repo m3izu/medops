@@ -1,17 +1,23 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Link, NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { ToastProvider } from '../context/ToastContext';
 import api from '../services/api';
 import ContextualHelp from './ContextualHelp';
+import CommandPalette from './CommandPalette';
+import KeyboardShortcutsModal from './KeyboardShortcutsModal';
 
 import healingHandsLogo from '../assets/healinghands.png';
 import medopsLogo from '../assets/medops.png';
 
-const Layout = ({ children }) => {
+const LayoutInner = ({ children }) => {
   const { user, logout, hasPermission } = useAuth();
   const [notifications, setNotifications] = useState([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [notifOpen, setNotifOpen] = useState(false);
+  const [cmdOpen, setCmdOpen] = useState(false);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [isCollapsed, setIsCollapsed] = useState(() => localStorage.getItem('sidebarCollapsed') === 'true');
   const dropdownRef = useRef(null);
   const navigate = useNavigate();
   const location = useLocation();
@@ -22,7 +28,29 @@ const Layout = ({ children }) => {
   const isManagement = user?.role === 'MANAGEMENT_OFFICE';
   const brandName = isManagement ? 'MedOPS' : 'HEALING HANDS CENTER';
 
-  // Close sidebar on page change
+  // Toggle sidebar rail mode
+  const toggleCollapse = () => {
+    const next = !isCollapsed;
+    setIsCollapsed(next);
+    localStorage.setItem('sidebarCollapsed', String(next));
+  };
+
+  // Keyboard shortcut Ctrl+K and ? listener
+  useEffect(() => {
+    const handleGlobalKeyDown = (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setCmdOpen((prev) => !prev);
+      } else if (e.key === '?' && !['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName) && !e.target.isContentEditable) {
+        e.preventDefault();
+        setShortcutsOpen((prev) => !prev);
+      }
+    };
+    window.addEventListener('keydown', handleGlobalKeyDown);
+    return () => window.removeEventListener('keydown', handleGlobalKeyDown);
+  }, []);
+
+  // Close sidebar on mobile page change
   useEffect(() => {
     setSidebarOpen(false);
   }, [location.pathname]);
@@ -61,11 +89,10 @@ const Layout = ({ children }) => {
 
   useEffect(() => {
     fetchNotifications();
-    const interval = setInterval(fetchNotifications, 20000); // Poll every 20 seconds
+    const interval = setInterval(fetchNotifications, 20000);
     return () => clearInterval(interval);
   }, [user]);
 
-  // Handle click outside notification dropdown to close it
   useEffect(() => {
     const handleClickOutside = (e) => {
       if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
@@ -103,10 +130,9 @@ const Layout = ({ children }) => {
     }
   };
 
-  // Resolve user initials for avatar
   const getInitials = (name) => {
     if (!name) return 'U';
-    return name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
+    return name.split(' ').map((n) => n[0]).join('').toUpperCase().slice(0, 2);
   };
 
   const getPageTitle = () => {
@@ -132,208 +158,227 @@ const Layout = ({ children }) => {
     return 'MedOPS Portal';
   };
 
+  const getBreadcrumbs = () => {
+    const path = location.pathname;
+    if (path === '/') return [{ label: 'Portal', path: '/' }, { label: 'Overview', path: '/' }];
+    const title = getPageTitle();
+    return [{ label: 'Portal', path: '/' }, { label: title, path }];
+  };
+
   return (
     <div className="app-container">
       {/* Sidebar Navigation */}
-      <aside className={`sidebar ${sidebarOpen ? 'open' : ''}`}>
-        <div className="sidebar-brand" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '20px 16px' }}>
-          <img 
-            src={isManagement ? medopsLogo : healingHandsLogo} 
-            alt={brandName} 
-            style={{ 
-              maxHeight: '52px', 
-              maxWidth: '100%', 
+      <aside className={`sidebar ${sidebarOpen ? 'open' : ''} ${isCollapsed ? 'collapsed' : ''}`}>
+        <div className="sidebar-brand" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '16px 12px', position: 'relative' }}>
+          <img
+            src={isManagement ? medopsLogo : healingHandsLogo}
+            alt={brandName}
+            style={{
+              maxHeight: isCollapsed ? '36px' : '48px',
+              maxWidth: '100%',
               objectFit: 'contain',
-              marginBottom: '8px',
-              borderRadius: 'var(--border-radius-sm)'
-            }} 
+              marginBottom: isCollapsed ? '0' : '8px',
+              borderRadius: 'var(--border-radius-sm)',
+              transition: 'all 0.2s ease',
+            }}
           />
-          <h2 style={{ fontSize: '13px', color: '#cbd5e1', letterSpacing: '1px', textTransform: 'uppercase', textAlign: 'center', margin: 0 }}>
-            {brandName}
-          </h2>
+          {!isCollapsed && (
+            <h2 className="sidebar-brand-title" style={{ fontSize: '12px', color: '#cbd5e1', letterSpacing: '1px', textTransform: 'uppercase', textAlign: 'center', margin: 0 }}>
+              {brandName}
+            </h2>
+          )}
+          <button
+            onClick={toggleCollapse}
+            title={isCollapsed ? 'Expand Sidebar' : 'Collapse Sidebar'}
+            style={{
+              position: 'absolute',
+              right: '-12px',
+              top: '20px',
+              width: '24px',
+              height: '24px',
+              borderRadius: '50%',
+              background: 'var(--theme-primary)',
+              color: '#fff',
+              border: '2px solid var(--theme-sidebar-bg)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              cursor: 'pointer',
+              fontSize: '10px',
+              zIndex: 10,
+            }}
+          >
+            {isCollapsed ? '▶' : '◀'}
+          </button>
         </div>
-        
+
         <ul className="sidebar-menu">
-          <li className="sidebar-item">
-            <NavLink to="/" className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`} end>
-              <span className="sidebar-icon" style={{ display: 'inline-flex', alignItems: 'center' }}>
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="9"></rect><rect x="14" y="3" width="7" height="5"></rect><rect x="14" y="12" width="7" height="9"></rect><rect x="3" y="16" width="7" height="5"></rect></svg>
-              </span> Overview
-            </NavLink>
-          </li>
-
-          {hasPermission('create_users') && (
+          {/* Group 1: Overview */}
+          <div className="sidebar-group">
+            <div className="sidebar-group-title">Overview</div>
             <li className="sidebar-item">
-              <NavLink to="/users" className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}>
-                <span className="sidebar-icon" style={{ display: 'inline-flex', alignItems: 'center' }}>
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
-                </span> Staff Accounts
+              <NavLink to="/" className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`} end title="Overview">
+                <span className="sidebar-icon">📊</span>
+                <span className="sidebar-link-text">Overview</span>
               </NavLink>
             </li>
-          )}
-
-          {hasPermission('manage_patients') && (
             <li className="sidebar-item">
-              <NavLink to="/patients" className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}>
-                <span className="sidebar-icon" style={{ display: 'inline-flex', alignItems: 'center' }}>
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"></path></svg>
-                </span> Patients
+              <NavLink to="/manual" className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`} title="System Manual">
+                <span className="sidebar-icon">📖</span>
+                <span className="sidebar-link-text">System Manual</span>
               </NavLink>
             </li>
-          )}
+          </div>
 
-          {hasPermission('manage_suppliers') && (
-            <li className="sidebar-item">
-              <NavLink to="/suppliers" className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}>
-                <span className="sidebar-icon" style={{ display: 'inline-flex', alignItems: 'center' }}>
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="1" y="3" width="15" height="13"></rect><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"></polygon><circle cx="5.5" cy="18.5" r="2.5"></circle><circle cx="18.5" cy="18.5" r="2.5"></circle></svg>
-                </span> Suppliers
-              </NavLink>
-            </li>
-          )}
+          {/* Group 2: Clinical Operations */}
+          <div className="sidebar-group">
+            <div className="sidebar-group-title">Clinical Operations</div>
+            {hasPermission('manage_patients') && (
+              <li className="sidebar-item">
+                <NavLink to="/patients" className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`} title="Patients">
+                  <span className="sidebar-icon">🩺</span>
+                  <span className="sidebar-link-text">Patients</span>
+                </NavLink>
+              </li>
+            )}
+            {(hasPermission('submit_requisition') || hasPermission('view_own_forms')) && (
+              <li className="sidebar-item">
+                <NavLink to="/requisitions" className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`} title="Requisitions">
+                  <span className="sidebar-icon">📋</span>
+                  <span className="sidebar-link-text">Requisitions</span>
+                </NavLink>
+              </li>
+            )}
+            {hasPermission('dispense_item') && (
+              <li className="sidebar-item">
+                <NavLink to="/dispense" className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`} title="Direct Dispense">
+                  <span className="sidebar-icon">💊</span>
+                  <span className="sidebar-link-text">Direct Dispense</span>
+                </NavLink>
+              </li>
+            )}
+            {hasPermission('return_item') && (
+              <li className="sidebar-item">
+                <NavLink to="/returns" className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`} title="Return Item">
+                  <span className="sidebar-icon">🔄</span>
+                  <span className="sidebar-link-text">Return Item</span>
+                </NavLink>
+              </li>
+            )}
+            {hasPermission('record_billing') && (
+              <li className="sidebar-item">
+                <NavLink to="/cashier" className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`} title="Cashier Log">
+                  <span className="sidebar-icon">💳</span>
+                  <span className="sidebar-link-text">Cashier Log</span>
+                </NavLink>
+              </li>
+            )}
+          </div>
 
-          {hasPermission('manage_categories') && (
-            <li className="sidebar-item">
-              <NavLink to="/categories" className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}>
-                <span className="sidebar-icon" style={{ display: 'inline-flex', alignItems: 'center' }}>
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"></path><line x1="7" y1="7" x2="7.01" y2="7"></line></svg>
-                </span> Categories
-              </NavLink>
-            </li>
-          )}
+          {/* Group 3: Inventory & Stock */}
+          <div className="sidebar-group">
+            <div className="sidebar-group-title">Inventory & Stock</div>
+            {(hasPermission('manage_items') || hasPermission('view_inventory_logs')) && (
+              <li className="sidebar-item">
+                <NavLink to="/items" className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`} title="Stock Items">
+                  <span className="sidebar-icon">📦</span>
+                  <span className="sidebar-link-text">Stock Items</span>
+                </NavLink>
+              </li>
+            )}
+            {hasPermission('manage_categories') && (
+              <li className="sidebar-item">
+                <NavLink to="/categories" className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`} title="Categories">
+                  <span className="sidebar-icon">🏷️</span>
+                  <span className="sidebar-link-text">Categories</span>
+                </NavLink>
+              </li>
+            )}
+            {hasPermission('receive_stock') && (
+              <li className="sidebar-item">
+                <NavLink to="/stock/receive" className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`} title="Receive Stock">
+                  <span className="sidebar-icon">📥</span>
+                  <span className="sidebar-link-text">Receive Stock</span>
+                </NavLink>
+              </li>
+            )}
+            {hasPermission('log_discard') && (
+              <li className="sidebar-item">
+                <NavLink to="/discards" className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`} title="Discard Logs">
+                  <span className="sidebar-icon">🗑️</span>
+                  <span className="sidebar-link-text">Discard Logs</span>
+                </NavLink>
+              </li>
+            )}
+            {hasPermission('enter_stocktake_count') && (
+              <li className="sidebar-item">
+                <NavLink to="/stocktake" className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`} title="Stocktake">
+                  <span className="sidebar-icon">📝</span>
+                  <span className="sidebar-link-text">Stocktake</span>
+                </NavLink>
+              </li>
+            )}
+          </div>
 
-          {(hasPermission('manage_items') || hasPermission('view_inventory_logs')) && (
-            <li className="sidebar-item">
-              <NavLink to="/items" className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}>
-                <span className="sidebar-icon" style={{ display: 'inline-flex', alignItems: 'center' }}>
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="16.5" y1="9.4" x2="7.5" y2="4.21"></line><polygon points="12 22.08 12 12 3 6.92 3 17.08 12 22.08"></polygon><polygon points="12 12 21 6.92 21 17.08 12 22.08"></polygon><polygon points="12 2 21 6.92 12 12 3 6.92 12 2"></polygon><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>
-                </span> Stock Items
-              </NavLink>
-            </li>
-          )}
-
-          {hasPermission('receive_stock') && (
-            <li className="sidebar-item">
-              <NavLink to="/stock/receive" className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}>
-                <span className="sidebar-icon" style={{ display: 'inline-flex', alignItems: 'center' }}>
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12"></polyline><path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"></path></svg>
-                </span> Receive Stock
-              </NavLink>
-            </li>
-          )}
-
-          {(hasPermission('submit_requisition') || hasPermission('view_own_forms')) && (
-            <li className="sidebar-item">
-              <NavLink to="/requisitions" className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}>
-                <span className="sidebar-icon" style={{ display: 'inline-flex', alignItems: 'center' }}>
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
-                </span> Requisitions
-              </NavLink>
-            </li>
-          )}
-
-          {hasPermission('dispense_item') && (
-            <li className="sidebar-item">
-              <NavLink to="/dispense" className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}>
-                <span className="sidebar-icon" style={{ display: 'inline-flex', alignItems: 'center' }}>
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m10.5 20.5 10-10a4.95 4.95 0 1 0-7-7l-10 10a4.95 4.95 0 1 0 7 7Z"></path><path d="m8.5 8.5 7 7"></path></svg>
-                </span> Direct Dispense
-              </NavLink>
-            </li>
-          )}
-
-          {hasPermission('return_item') && (
-            <li className="sidebar-item">
-              <NavLink to="/returns" className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}>
-                <span className="sidebar-icon" style={{ display: 'inline-flex', alignItems: 'center' }}>
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
-                </span> Return Item
-              </NavLink>
-            </li>
-          )}
-
-          {hasPermission('record_billing') && (
-            <li className="sidebar-item">
-              <NavLink to="/cashier" className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}>
-                <span className="sidebar-icon" style={{ display: 'inline-flex', alignItems: 'center' }}>
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1-2-1Z"></path><path d="M16 8H8"></path><path d="M16 12H8"></path><path d="M13 16H8"></path></svg>
-                </span> Cashier Log
-              </NavLink>
-            </li>
-          )}
-
-          {hasPermission('log_discard') && (
-            <li className="sidebar-item">
-              <NavLink to="/discards" className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}>
-                <span className="sidebar-icon" style={{ display: 'inline-flex', alignItems: 'center' }}>
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
-                </span> Discard Logs
-              </NavLink>
-            </li>
-          )}
-
-          {hasPermission('view_inventory_logs') && (
-            <li className="sidebar-item">
-              <NavLink to="/stock/transactions" className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}>
-                <span className="sidebar-icon" style={{ display: 'inline-flex', alignItems: 'center' }}>
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line><line x1="3" y1="6" x2="3.01" y2="6"></line><line x1="3" y1="12" x2="3.01" y2="12"></line><line x1="3" y1="18" x2="3.01" y2="18"></line></svg>
-                </span> Audit Feed
-              </NavLink>
-            </li>
-          )}
-
-          {user?.role === 'MANAGEMENT_OFFICE' && (
-            <li className="sidebar-item">
-              <NavLink to="/mgmt/audit" className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}>
-                <span className="sidebar-icon" style={{ display: 'inline-flex', alignItems: 'center' }}>
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
-                </span> MedOPS Audit
-              </NavLink>
-            </li>
-          )}
-
-          {hasPermission('enter_stocktake_count') && (
-            <li className="sidebar-item">
-              <NavLink to="/stocktake" className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}>
-                <span className="sidebar-icon" style={{ display: 'inline-flex', alignItems: 'center' }}>
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"></path></svg>
-                </span> Stocktake
-              </NavLink>
-            </li>
-          )}
-
-          {hasPermission('generate_reports') && (
-            <li className="sidebar-item">
-              <NavLink to="/reports" className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}>
-                <span className="sidebar-icon" style={{ display: 'inline-flex', alignItems: 'center' }}>
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
-                </span> Reports
-              </NavLink>
-            </li>
-          )}
-
-          {hasPermission('bulk_import') && (
-            <li className="sidebar-item">
-              <NavLink to="/import" className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}>
-                <span className="sidebar-icon" style={{ display: 'inline-flex', alignItems: 'center' }}>
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
-                </span> CSV Import
-              </NavLink>
-            </li>
-          )}
-
-          <li className="sidebar-item">
-            <NavLink to="/manual" className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}>
-              <span className="sidebar-icon" style={{ display: 'inline-flex', alignItems: 'center' }}>
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path></svg>
-              </span> System Manual
-            </NavLink>
-          </li>
+          {/* Group 4: Management & System */}
+          <div className="sidebar-group">
+            <div className="sidebar-group-title">Management & System</div>
+            {hasPermission('create_users') && (
+              <li className="sidebar-item">
+                <NavLink to="/users" className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`} title="Staff Accounts">
+                  <span className="sidebar-icon">👥</span>
+                  <span className="sidebar-link-text">Staff Accounts</span>
+                </NavLink>
+              </li>
+            )}
+            {hasPermission('manage_suppliers') && (
+              <li className="sidebar-item">
+                <NavLink to="/suppliers" className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`} title="Suppliers">
+                  <span className="sidebar-icon">🏢</span>
+                  <span className="sidebar-link-text">Suppliers</span>
+                </NavLink>
+              </li>
+            )}
+            {hasPermission('generate_reports') && (
+              <li className="sidebar-item">
+                <NavLink to="/reports" className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`} title="Reports">
+                  <span className="sidebar-icon">📈</span>
+                  <span className="sidebar-link-text">Reports</span>
+                </NavLink>
+              </li>
+            )}
+            {hasPermission('bulk_import') && (
+              <li className="sidebar-item">
+                <NavLink to="/import" className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`} title="CSV Import">
+                  <span className="sidebar-icon">📤</span>
+                  <span className="sidebar-link-text">CSV Import</span>
+                </NavLink>
+              </li>
+            )}
+            {hasPermission('view_inventory_logs') && (
+              <li className="sidebar-item">
+                <NavLink to="/stock/transactions" className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`} title="Audit Feed">
+                  <span className="sidebar-icon">📜</span>
+                  <span className="sidebar-link-text">Audit Feed</span>
+                </NavLink>
+              </li>
+            )}
+            {user?.role === 'MANAGEMENT_OFFICE' && (
+              <li className="sidebar-item">
+                <NavLink to="/mgmt/audit" className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`} title="MedOPS Audit">
+                  <span className="sidebar-icon">🔍</span>
+                  <span className="sidebar-link-text">MedOPS Audit</span>
+                </NavLink>
+              </li>
+            )}
+          </div>
         </ul>
 
         <div className="sidebar-footer">
-          <div>Role: <strong>{user?.role?.replace('_', ' ')}</strong></div>
-          <div style={{ opacity: 0.7, marginTop: '4px' }}>v1.0.0 (SQLite Local)</div>
+          <div className="sidebar-footer-info">
+            <div>Role: <strong>{user?.role?.replace('_', ' ')}</strong></div>
+            <div style={{ opacity: 0.7, marginTop: '4px' }}>v1.0.0 (SQLite Local)</div>
+          </div>
         </div>
       </aside>
 
@@ -341,45 +386,68 @@ const Layout = ({ children }) => {
       <div className="main-content">
         <header className="navbar">
           <div className="navbar-left">
-            <button 
+            <button
               className="menu-toggle-btn"
               onClick={() => setSidebarOpen(!sidebarOpen)}
               title="Toggle Menu"
               style={{ display: 'none' }}
             >
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                {sidebarOpen ? (
-                  <line x1="18" y1="6" x2="6" y2="18"></line>
-                ) : (
-                  <>
-                    <line x1="3" y1="12" x2="21" y2="12"></line>
-                    <line x1="3" y1="6" x2="21" y2="6"></line>
-                    <line x1="3" y1="18" x2="21" y2="18"></line>
-                  </>
-                )}
-              </svg>
+              ☰
             </button>
-            <h1 className="navbar-title">{getPageTitle()}</h1>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+              <div className="breadcrumbs">
+                {getBreadcrumbs().map((b, idx) => (
+                  <React.Fragment key={idx}>
+                    {idx > 0 && <span className="breadcrumb-separator">/</span>}
+                    <span className={idx === getBreadcrumbs().length - 1 ? 'breadcrumb-current' : ''}>
+                      {b.label}
+                    </span>
+                  </React.Fragment>
+                ))}
+              </div>
+              <h1 className="navbar-title">{getPageTitle()}</h1>
+            </div>
           </div>
-          
+
           <div className="navbar-right">
-            {/* Density Toggle Button */}
-            <button 
-              className="btn btn-secondary btn-sm"
-              onClick={() => setDensity(prev => prev === 'spaced' ? 'compact' : 'spaced')}
-              title={`Switch to ${density === 'spaced' ? 'Compact' : 'Spaced'} Layout Density`}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '13px', padding: '6px 12px', marginRight: '8px' }}
+            {/* Command Palette Trigger Button */}
+            <button
+              className="btn btn-outline btn-sm"
+              onClick={() => setCmdOpen(true)}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', fontSize: '13px', padding: '6px 14px' }}
+              title="Search menu or commands (Ctrl + K)"
             >
-              <span>{density === 'spaced' ? 'Use Compact Grid' : 'Use Spaced Grid'}</span>
+              <span>🔍 Quick Search</span>
+              <kbd style={{ fontSize: '10px', background: 'rgba(0,0,0,0.06)', padding: '1px 5px', borderRadius: '4px', border: '1px solid var(--theme-border)' }}>
+                Ctrl K
+              </kbd>
+            </button>
+
+            {/* Density Toggle Button */}
+            <button
+              className="btn btn-secondary btn-sm"
+              onClick={() => setDensity((prev) => (prev === 'spaced' ? 'compact' : 'spaced'))}
+              title={`Switch to ${density === 'spaced' ? 'Compact' : 'Spaced'} Layout Density`}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '13px', padding: '6px 12px' }}
+            >
+              <span>{density === 'spaced' ? 'Compact Density' : 'Spaced Density'}</span>
             </button>
 
             {/* Notification Bell Dropdown */}
             <div className="notification-container" ref={dropdownRef}>
-              <button className="notification-bell" onClick={() => setNotifOpen(!notifOpen)} style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ pointerEvents: 'none' }}><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>
+              <button
+                className="notification-bell"
+                onClick={() => setNotifOpen(!notifOpen)}
+                style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ pointerEvents: 'none' }}>
+                  <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
+                  <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
+                </svg>
                 {unreadCount > 0 && <span className="notification-badge">{unreadCount}</span>}
               </button>
-              
+
               <div className={`notification-dropdown ${notifOpen ? 'open' : ''}`}>
                 <div className="notification-header">
                   <strong>Notifications</strong>
@@ -389,12 +457,12 @@ const Layout = ({ children }) => {
                     </button>
                   )}
                 </div>
-                
+
                 <ul className="notification-list">
                   {notifications.length > 0 ? (
-                    notifications.map(notif => (
-                      <li 
-                        key={notif.id} 
+                    notifications.map((notif) => (
+                      <li
+                        key={notif.id}
                         className={`notification-item ${!notif.isRead ? 'unread' : ''}`}
                         onClick={(e) => handleNotificationClick(notif, e)}
                         style={{ cursor: notif.link ? 'pointer' : 'default' }}
@@ -405,7 +473,7 @@ const Layout = ({ children }) => {
                             {new Date(notif.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                           </span>
                           {!notif.isRead && (
-                            <button 
+                            <button
                               className="notification-action-btn"
                               onClick={(e) => handleMarkAsRead(notif.id, e)}
                             >
@@ -429,8 +497,8 @@ const Layout = ({ children }) => {
                 <div style={{ fontWeight: 600, color: 'var(--theme-text-bold)' }}>{user?.name}</div>
                 <div style={{ fontSize: '12px', color: 'var(--theme-text-muted)' }}>@{user?.username}</div>
               </div>
-              <button 
-                className="btn btn-secondary btn-sm" 
+              <button
+                className="btn btn-secondary btn-sm"
                 onClick={() => logout(false)}
                 style={{ marginLeft: '12px', padding: '6px 10px' }}
               >
@@ -439,15 +507,23 @@ const Layout = ({ children }) => {
             </div>
           </div>
         </header>
-        
+
         {/* Child Content */}
         {children}
 
-        {/* Floating Contextual Help */}
+        {/* Floating Contextual Help, Command Palette, and Keyboard Shortcuts */}
         <ContextualHelp />
+        <CommandPalette isOpen={cmdOpen} onClose={() => setCmdOpen(false)} />
+        <KeyboardShortcutsModal isOpen={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
       </div>
     </div>
   );
 };
 
-export default Layout;
+export default function Layout({ children }) {
+  return (
+    <ToastProvider>
+      <LayoutInner>{children}</LayoutInner>
+    </ToastProvider>
+  );
+}

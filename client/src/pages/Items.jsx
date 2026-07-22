@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
+import { useToast } from '../context/ToastContext';
 import EmptyState from '../components/EmptyState';
+import Pagination from '../components/Pagination';
 
 const ITEM_TYPES = [
   { value: 'MEDICATION', label: 'Medication' },
@@ -107,13 +109,18 @@ const renderSegmentedStockGauge = (item) => {
 
 const Items = () => {
   const { hasPermission } = useAuth();
-  
+  const toast = useToast();
+
   // Lists
   const [items, setItems] = useState([]);
   const [categories, setCategories] = useState([]);
   const [suppliers, setSuppliers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+
+  // Pagination State
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
 
   // Filters State
   const [filterSearch, setFilterSearch] = useState('');
@@ -122,9 +129,39 @@ const Items = () => {
   const [filterStockStatus, setFilterStockStatus] = useState('');
   const [filterArchived, setFilterArchived] = useState(false);
 
+  // Reset page on filter change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [filterSearch, filterCategory, filterItemType, filterStockStatus, filterArchived]);
+
   // Sorting State
   const [sortBy, setSortBy] = useState('name'); // 'name' | 'sku' | 'qty' | 'category' | 'type'
   const [sortOrder, setSortOrder] = useState('asc'); // 'asc' | 'desc'
+
+  const exportCatalogCSV = () => {
+    if (!sortedItems.length) return;
+    const headers = ['Item Name', 'SKU', 'Item Type', 'Category', 'Unit', 'Quantity On Hand', 'Status', 'Warning Threshold', 'Critical Threshold'];
+    const rows = sortedItems.map((item) => [
+      `"${(item.name || '').replace(/"/g, '""')}"`,
+      `"${(item.sku || '').replace(/"/g, '""')}"`,
+      `"${item.itemType || ''}"`,
+      `"${(item.category?.name || '').replace(/"/g, '""')}"`,
+      `"${item.unit || ''}"`,
+      item.stockLevel?.quantityOnHand ?? 0,
+      `"${item.stockStatus || 'OK'}"`,
+      item.warningLevel,
+      item.criticalLevel,
+    ]);
+    const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map((e) => e.join(','))].join('\n');
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement('a');
+    link.setAttribute('href', encodedUri);
+    link.setAttribute('download', `medops_catalog_${new Date().toISOString().split('T')[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    toast.success('Inventory catalog exported to CSV!');
+  };
 
   // Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -226,6 +263,7 @@ const Items = () => {
 
   // Poll items when filters change
   useEffect(() => {
+    setCurrentPage(1);
     fetchItems();
   }, [filterSearch, filterCategory, filterItemType, filterStockStatus, filterArchived]);
 
@@ -409,11 +447,16 @@ const Items = () => {
           <h2>Clinical & Medical Supplies Catalog</h2>
           <p className="page-title-desc">Monitor real-time clinical quantities, set alert warning limits, and manage medical equipment.</p>
         </div>
-        {canManage && (
-          <button className="btn btn-primary" onClick={openAddModal}>
-            + Add Catalog Item
+        <div style={{ display: 'flex', gap: '10px' }}>
+          <button className="btn btn-outline" onClick={exportCatalogCSV} title="Export catalog list to CSV file">
+            📥 Export to CSV
           </button>
-        )}
+          {canManage && (
+            <button className="btn btn-primary" onClick={openAddModal}>
+              + Add Catalog Item
+            </button>
+          )}
+        </div>
       </div>
 
       {error && <div className="login-error" style={{ margin: 0 }}>{error}</div>}
@@ -435,6 +478,16 @@ const Items = () => {
           </button>
         </div>
       )}
+
+      {/* 1-Click Stock Status Pills */}
+      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '14px', alignItems: 'center' }}>
+        <span style={{ fontSize: '12px', fontWeight: '600', color: 'var(--theme-text-muted)', marginRight: '4px' }}>Stock Status:</span>
+        <button className={`btn btn-sm ${filterStockStatus === '' ? 'btn-primary' : 'btn-outline'}`} onClick={() => setFilterStockStatus('')}>All Items</button>
+        <button className={`btn btn-sm ${filterStockStatus === 'IN_STOCK' ? 'btn-primary' : 'btn-outline'}`} onClick={() => setFilterStockStatus('IN_STOCK')}>🟢 In Stock</button>
+        <button className={`btn btn-sm ${filterStockStatus === 'WARNING' ? 'btn-primary' : 'btn-outline'}`} onClick={() => setFilterStockStatus('WARNING')}>🟡 Warning Level</button>
+        <button className={`btn btn-sm ${filterStockStatus === 'CRITICAL' ? 'btn-primary' : 'btn-outline'}`} onClick={() => setFilterStockStatus('CRITICAL')}>🔴 Critical Level</button>
+        <button className={`btn btn-sm ${filterStockStatus === 'OUT_OF_STOCK' ? 'btn-primary' : 'btn-outline'}`} onClick={() => setFilterStockStatus('OUT_OF_STOCK')}>❌ Out of Stock</button>
+      </div>
 
       {/* Filter Bar */}
       <div className="filter-bar">
@@ -529,105 +582,120 @@ const Items = () => {
               description="No inventory items matched your active filters or search criteria. Try modifying your search term or select another category."
             />
           ) : (
-            <table className="table">
-              <thead>
-                <tr>
-                  <th onClick={() => handleHeaderSort('name')} style={{ cursor: 'pointer', userSelect: 'none' }}>
-                    Item Name {renderSortIndicator('name')}
-                  </th>
-                  <th onClick={() => handleHeaderSort('sku')} style={{ cursor: 'pointer', userSelect: 'none' }}>
-                    SKU {renderSortIndicator('sku')}
-                  </th>
-                  <th onClick={() => handleHeaderSort('type')} style={{ cursor: 'pointer', userSelect: 'none' }}>
-                    Type {renderSortIndicator('type')}
-                  </th>
-                  <th onClick={() => handleHeaderSort('category')} style={{ cursor: 'pointer', userSelect: 'none' }}>
-                    Category {renderSortIndicator('category')}
-                  </th>
-                  <th onClick={() => handleHeaderSort('qty')} style={{ cursor: 'pointer', userSelect: 'none' }}>
-                    In Stock Qty {renderSortIndicator('qty')}
-                  </th>
-                  <th>
-                    <span className="tooltip-container" style={{ borderBottom: '1px dotted var(--theme-text-muted)' }}>
-                      Thresholds (Warn/Crit)
-                      <span className="tooltip-text">Warn: Quantity level that triggers a warning. Crit: Quantity level that triggers a critical low warning.</span>
-                    </span>
-                  </th>
-                  <th>Default Supplier</th>
-                  <th>
-                    <span className="tooltip-container" style={{ borderBottom: '1px dotted var(--theme-text-muted)' }}>
-                      Alert Status
-                      <span className="tooltip-text">Current status calculated dynamically from stock level and thresholds.</span>
-                    </span>
-                  </th>
-                  <th style={{ textAlign: 'right' }}>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {sortedItems.map(item => (
-                  <tr key={item.id}>
-                    <td>
-                      <div>
-                        <strong>
-                          <HighlightText text={item.name} search={filterSearch} />
-                        </strong>
-                        {item.itemType === 'MEDICAL_EQUIPMENT' && item.serialNumber && (
-                          <div style={{ fontSize: '11px', color: 'var(--theme-text-muted)', marginTop: '2px' }}>
-                            S/N: <code>{item.serialNumber}</code> • Condition: <span style={{ fontWeight: '500' }}>{item.condition}</span>
-                          </div>
-                        )}
-                      </div>
-                    </td>
-                    <td>
-                      <code>
-                        <HighlightText text={item.sku} search={filterSearch} />
-                      </code>
-                    </td>
-                    <td style={{ fontSize: '13px' }}>
-                      {ITEM_TYPES.find(t => t.value === item.itemType)?.label.split(' (')[0]}
-                    </td>
-                    <td>{item.category?.name?.replace('— ', '') || <span style={{ color: 'var(--theme-text-muted)', fontSize: '12px' }}>—</span>}</td>
-                    <td>
-                      {renderSegmentedStockGauge(item)}
-                    </td>
-                    <td style={{ fontSize: '13px' }}>
-                      <span style={{ fontWeight: '500' }}>{item.warningLevel}</span> / <span style={{ fontWeight: '500', color: 'var(--color-critical)' }}>{item.criticalLevel}</span>
-                    </td>
-                    <td>{item.supplier?.name || <span style={{ color: 'var(--theme-text-muted)', fontSize: '12px' }}>—</span>}</td>
-                    <td>{getStatusBadge(item.stockStatus)}</td>
-                    <td style={{ textAlign: 'right' }}>
-                      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '6px' }}>
-                        {(item.itemType === 'MEDICATION' || (item.category?.hasBatchControl ?? false)) && (
-                          <button 
-                            className="btn btn-secondary btn-sm"
-                            onClick={(e) => openBatchesModal(item, e)}
-                            style={{ borderColor: 'var(--theme-primary)', color: 'var(--theme-primary)' }}
-                          >
-                            Batches
-                          </button>
-                        )}
-                        {canManage && (
-                          <>
+            <>
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th onClick={() => handleHeaderSort('name')} style={{ cursor: 'pointer', userSelect: 'none' }}>
+                      Item Name {renderSortIndicator('name')}
+                    </th>
+                    <th onClick={() => handleHeaderSort('sku')} style={{ cursor: 'pointer', userSelect: 'none' }}>
+                      SKU {renderSortIndicator('sku')}
+                    </th>
+                    <th onClick={() => handleHeaderSort('type')} style={{ cursor: 'pointer', userSelect: 'none' }}>
+                      Type {renderSortIndicator('type')}
+                    </th>
+                    <th onClick={() => handleHeaderSort('category')} style={{ cursor: 'pointer', userSelect: 'none' }}>
+                      Category {renderSortIndicator('category')}
+                    </th>
+                    <th onClick={() => handleHeaderSort('qty')} style={{ cursor: 'pointer', userSelect: 'none' }}>
+                      In Stock Qty {renderSortIndicator('qty')}
+                    </th>
+                    <th>
+                      <span className="tooltip-container" style={{ borderBottom: '1px dotted var(--theme-text-muted)' }}>
+                        Thresholds (Warn/Crit)
+                        <span className="tooltip-text">Warn: Quantity level that triggers a warning. Crit: Quantity level that triggers a critical low warning.</span>
+                      </span>
+                    </th>
+                    <th>Default Supplier</th>
+                    <th>
+                      <span className="tooltip-container" style={{ borderBottom: '1px dotted var(--theme-text-muted)' }}>
+                        Alert Status
+                        <span className="tooltip-text">Current status calculated dynamically from stock level and thresholds.</span>
+                      </span>
+                    </th>
+                    <th style={{ textAlign: 'right' }}>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sortedItems
+                    .slice((currentPage - 1) * pageSize, currentPage * pageSize)
+                    .map(item => (
+                    <tr key={item.id}>
+                      <td>
+                        <div>
+                          <strong>
+                            <HighlightText text={item.name} search={filterSearch} />
+                          </strong>
+                          {item.itemType === 'MEDICAL_EQUIPMENT' && item.serialNumber && (
+                            <div style={{ fontSize: '11px', color: 'var(--theme-text-muted)', marginTop: '2px' }}>
+                              S/N: <code>{item.serialNumber}</code> • Condition: <span style={{ fontWeight: '500' }}>{item.condition}</span>
+                            </div>
+                          )}
+                        </div>
+                      </td>
+                      <td>
+                        <code>
+                          <HighlightText text={item.sku} search={filterSearch} />
+                        </code>
+                      </td>
+                      <td style={{ fontSize: '13px' }}>
+                        {ITEM_TYPES.find(t => t.value === item.itemType)?.label.split(' (')[0]}
+                      </td>
+                      <td>{item.category?.name?.replace('— ', '') || <span style={{ color: 'var(--theme-text-muted)', fontSize: '12px' }}>—</span>}</td>
+                      <td>
+                        {renderSegmentedStockGauge(item)}
+                      </td>
+                      <td style={{ fontSize: '13px' }}>
+                        <span style={{ fontWeight: '500' }}>{item.warningLevel}</span> / <span style={{ fontWeight: '500', color: 'var(--color-critical)' }}>{item.criticalLevel}</span>
+                      </td>
+                      <td>{item.supplier?.name || <span style={{ color: 'var(--theme-text-muted)', fontSize: '12px' }}>—</span>}</td>
+                      <td>{getStatusBadge(item.stockStatus)}</td>
+                      <td style={{ textAlign: 'right' }}>
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '6px' }}>
+                          {(item.itemType === 'MEDICATION' || (item.category?.hasBatchControl ?? false)) && (
                             <button 
                               className="btn btn-secondary btn-sm"
-                              onClick={(e) => openEditModal(item, e)}
+                              onClick={(e) => openBatchesModal(item, e)}
+                              style={{ borderColor: 'var(--theme-primary)', color: 'var(--theme-primary)' }}
                             >
-                              Edit
+                              Batches
                             </button>
-                            <button 
-                              className={`btn ${item.isArchived ? 'btn-primary' : 'btn-danger'} btn-sm`}
-                              onClick={(e) => handleToggleArchive(item.id, item.isArchived, item.name, e)}
-                            >
-                              {item.isArchived ? 'Unarchive' : 'Archive'}
-                            </button>
-                          </>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                          )}
+                          {canManage && (
+                            <>
+                              <button 
+                                className="btn btn-secondary btn-sm"
+                                onClick={(e) => openEditModal(item, e)}
+                              >
+                                Edit
+                              </button>
+                              <button 
+                                className={`btn ${item.isArchived ? 'btn-primary' : 'btn-danger'} btn-sm`}
+                                onClick={(e) => handleToggleArchive(item.id, item.isArchived, item.name, e)}
+                              >
+                                {item.isArchived ? 'Unarchive' : 'Archive'}
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+
+              <Pagination
+                currentPage={currentPage}
+                totalItems={sortedItems.length}
+                pageSize={pageSize}
+                onPageChange={setCurrentPage}
+                onPageSizeChange={(newSize) => {
+                  setPageSize(newSize);
+                  setCurrentPage(1);
+                }}
+              />
+            </>
           )}
         </div>
       </div>

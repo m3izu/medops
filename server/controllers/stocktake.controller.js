@@ -73,8 +73,8 @@ const getOne = async (req, res, next) => {
 const updateLine = async (req, res, next) => {
   try {
     const { physicalQty } = req.body;
-    if (typeof physicalQty !== 'number' || physicalQty < 0) {
-      return res.status(400).json({ error: 'Physical quantity must be a non-negative number' });
+    if (typeof physicalQty !== 'number' || physicalQty < 0 || !Number.isInteger(physicalQty)) {
+      return res.status(400).json({ error: 'Physical quantity must be a non-negative whole number.' });
     }
 
     const line = await prisma.stocktakeLine.findUnique({

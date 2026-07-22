@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
+import { useToast } from '../context/ToastContext';
 import BackupManager from '../components/BackupManager';
 
 const DAYS = Array.from({ length: 28 }, (_, i) => i + 1);
@@ -18,6 +19,7 @@ const REPORT_SECTIONS = [
 
 const Reports = () => {
   const { user } = useAuth();
+  const toast = useToast();
 
   const [reports,      setReports]      = useState([]);
   const [schedule,     setSchedule]     = useState({ dayOfMonth: 1, isActive: true });
@@ -82,13 +84,15 @@ const Reports = () => {
       setGenSuccess('');
       const res = await api.post('/reports/generate');
       const r = res.data;
-      setGenSuccess(
-        `Report generated for period ${new Date(r.periodStart).toLocaleDateString()} – ${new Date(r.periodEnd).toLocaleDateString()}`
-      );
+      const msg = `Report generated for period ${new Date(r.periodStart).toLocaleDateString()} – ${new Date(r.periodEnd).toLocaleDateString()}`;
+      setGenSuccess(msg);
+      toast.success(msg);
       await fetchReports();
     } catch (err) {
       console.error(err);
-      alert(err.response?.data?.error || 'Failed to generate report.');
+      const errMsg = err.response?.data?.error || 'Failed to generate report.';
+      alert(errMsg);
+      toast.error(errMsg);
     } finally {
       setGenerating(false);
     }
@@ -102,10 +106,13 @@ const Reports = () => {
       await api.put('/reports/schedule', { dayOfMonth: editDay, isActive: editActive });
       setSchedule({ dayOfMonth: editDay, isActive: editActive });
       setSchedSaved(true);
+      toast.success('Automated report email schedule updated!');
       setTimeout(() => setSchedSaved(false), 3000);
     } catch (err) {
       console.error(err);
-      alert(err.response?.data?.error || 'Failed to update schedule.');
+      const errMsg = err.response?.data?.error || 'Failed to update schedule.';
+      alert(errMsg);
+      toast.error(errMsg);
     } finally {
       setSavingSched(false);
     }

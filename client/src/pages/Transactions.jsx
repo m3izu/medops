@@ -1,6 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
+import { useToast } from '../context/ToastContext';
+import EmptyState from '../components/EmptyState';
+import Pagination from '../components/Pagination';
 
 const ACTION_TYPES = [
   { value: 'INBOUND', label: 'INBOUND (Delivery)' },
@@ -11,12 +14,17 @@ const ACTION_TYPES = [
 ];
 
 const Transactions = () => {
-  const { user, hasPermission } = useAuth();
+  const { hasPermission } = useAuth();
+  const toast = useToast();
 
   const [logs, setLogs] = useState([]);
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+
+  // Pagination State
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(15);
 
   // Selected Log for details / comments
   const [selectedLog, setSelectedLog] = useState(null);
@@ -44,7 +52,6 @@ const Transactions = () => {
       const response = await api.get('/stock/transactions', { params });
       setLogs(response.data || []);
       
-      // Update selected log reference if currently open
       if (selectedLog) {
         const updated = response.data.find(l => l.id === selectedLog.id);
         if (updated) setSelectedLog(updated);
@@ -73,6 +80,7 @@ const Transactions = () => {
 
   useEffect(() => {
     fetchLogs();
+    setCurrentPage(1);
   }, [filterType, filterItemId, filterFrom, filterTo]);
 
   const handleAddComment = async (e) => {
@@ -84,11 +92,12 @@ const Transactions = () => {
       await api.post(`/mgmt/logs/${selectedLog.id}/comment`, { commentText, isFlagged });
       setCommentText('');
       setIsFlagged(false);
-      // Reload logs to fetch updated comments
+      toast.success('Comment added to audit record.');
       await fetchLogs();
     } catch (err) {
       console.error('Failed to submit comment:', err);
-      alert(err.response?.data?.error || 'Failed to add comment.');
+      const msg = err.response?.data?.error || 'Failed to add comment.';
+      toast.error(msg);
     } finally {
       setSubmittingComment(false);
     }
@@ -99,329 +108,275 @@ const Transactions = () => {
     try {
       await api.patch(`/mgmt/logs/${selectedLog.id}/comments/${commentId}/flag`);
       await fetchLogs();
+      toast.info('Comment flag toggled.');
     } catch (err) {
-      console.error('Toggle flag failed:', err);
-      alert(err.response?.data?.error || 'Failed to toggle flag.');
+      console.error(err);
+      toast.error('Failed to toggle comment flag.');
     }
   };
 
-  const getBadgeClass = (type) => {
+  const exportAuditCSV = () => {
+    if (!logs.length) return;
+    const headers = ['Log ID', 'Timestamp', 'Action Type', 'Item Name', 'SKU', 'Qty Adjustment', 'Logged By', 'Role'];
+    const rows = logs.map((log) => [
+      `"${log.id.slice(-6).toUpperCase()}"`,
+      `"${new Date(log.timestamp).toLocaleString()}"`,
+      `"${log.type}"`,
+      `"${(log.item?.name || '').replace(/"/g, '""')}"`,
+      `"${(log.item?.sku || '').replace(/"/g, '""')}"`,
+      `${log.type === 'INBOUND' ? '+' : '-'}${log.qty}`,
+      `"${(log.user?.name || '').replace(/"/g, '""')}"`,
+      `"${log.user?.role || ''}"`,
+    ]);
+    const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map((e) => e.join(','))].join('\n');
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement('a');
+    link.setAttribute('href', encodedUri);
+    link.setAttribute('download', `medops_audit_feed_${new Date().toISOString().split('T')[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    toast.success('Audit feed exported to CSV!');
+  };
+
+  const getActionBadgeClass = (type) => {
     switch (type) {
       case 'INBOUND':
         return 'badge-success';
       case 'OUTBOUND':
-        return 'badge-neutral';
-      case 'DISCARD':
-      case 'CANCEL':
-        return 'badge-critical';
-      default:
         return 'badge-warning';
+      case 'DISCARD':
+        return 'badge-critical';
+      case 'ADJUSTMENT':
+        return 'badge-primary';
+      default:
+        return 'badge-neutral';
     }
   };
 
-  if (!hasPermission('view_inventory_logs')) {
-    return (
-      <div className="page-container">
-        <div className="widget-card" style={{ borderLeft: '4px solid var(--color-critical)' }}>
-          <div className="widget-header">
-            <span className="widget-title">Access Denied</span>
-          </div>
-          <div className="widget-body">
-            <p style={{ color: 'var(--theme-text-muted)' }}>
-              You do not have the required permission (`view_inventory_logs`) to view the system transaction logs.
-            </p>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  const canComment = hasPermission('comment_on_logs');
-
   return (
     <div className="page-container">
-      <div className="page-header">
+      <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
-          <h2>Inventory Transaction Logs</h2>
-          <p className="page-title-desc">View real-time inventory adjustments and co-sign notes or flag anomalies in clinical operations.</p>
+          <h2>System Audit Feed & Inventory Transaction Logs</h2>
+          <p className="page-title-desc">Immutable audit feed of stock movements, direct dispensations, inbound shipments, and management comments.</p>
         </div>
+        <button className="btn btn-outline" onClick={exportAuditCSV} title="Export audit feed logs to CSV">
+          📥 Export CSV
+        </button>
       </div>
 
-      {error && <div className="login-error" style={{ margin: 0 }}>{error}</div>}
+      {error && <div className="login-error">{error}</div>}
 
-      {/* Filter Bar */}
-      <div className="filter-bar">
-        <div className="filter-item" style={{ minWidth: '150px' }}>
-          <label>Adjustment Type</label>
-          <select 
-            className="form-control"
-            value={filterType}
-            onChange={(e) => setFilterType(e.target.value)}
-          >
-            <option value="">All Transactions</option>
-            {ACTION_TYPES.map(t => (
-              <option key={t.value} value={t.value}>{t.label}</option>
-            ))}
-          </select>
+      {/* Filter Chips & Bar */}
+      <div className="filter-bar" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+        <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center' }}>
+          <span style={{ fontSize: '12px', fontWeight: '600', color: 'var(--theme-text-muted)', marginRight: '4px' }}>Quick Type Filter:</span>
+          <button className={`btn btn-sm ${filterType === '' ? 'btn-primary' : 'btn-outline'}`} onClick={() => setFilterType('')}>All Types</button>
+          <button className={`btn btn-sm ${filterType === 'INBOUND' ? 'btn-primary' : 'btn-outline'}`} onClick={() => setFilterType('INBOUND')}>📥 Inbound</button>
+          <button className={`btn btn-sm ${filterType === 'OUTBOUND' ? 'btn-primary' : 'btn-outline'}`} onClick={() => setFilterType('OUTBOUND')}>💊 Outbound</button>
+          <button className={`btn btn-sm ${filterType === 'DISCARD' ? 'btn-primary' : 'btn-outline'}`} onClick={() => setFilterType('DISCARD')}>🗑 Discards</button>
+          <button className={`btn btn-sm ${filterType === 'ADJUSTMENT' ? 'btn-primary' : 'btn-outline'}`} onClick={() => setFilterType('ADJUSTMENT')}>📝 Adjustments</button>
         </div>
 
-        <div className="filter-item" style={{ flexGrow: 1, minWidth: '200px' }}>
-          <label>Inventory Item</label>
-          <select 
-            className="form-control"
-            value={filterItemId}
-            onChange={(e) => setFilterItemId(e.target.value)}
-          >
-            <option value="">All Items...</option>
-            {items.map(item => (
-              <option key={item.id} value={item.id}>
-                [{item.sku}] {item.name}
-              </option>
-            ))}
-          </select>
-        </div>
+        <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'center' }}>
+          <div className="filter-item" style={{ flexGrow: 1, minWidth: '200px' }}>
+            <label>Filter by Item</label>
+            <select className="form-control" value={filterItemId} onChange={(e) => setFilterItemId(e.target.value)}>
+              <option value="">All Catalog Items</option>
+              {items.map((item) => (
+                <option key={item.id} value={item.id}>
+                  [{item.sku}] {item.name}
+                </option>
+              ))}
+            </select>
+          </div>
 
-        <div className="filter-item" style={{ minWidth: '130px' }}>
-          <label>From Date</label>
-          <input 
-            type="date" 
-            className="form-control" 
-            value={filterFrom}
-            onChange={(e) => setFilterFrom(e.target.value)}
-          />
-        </div>
+          <div className="filter-item" style={{ width: '150px' }}>
+            <label>Date From</label>
+            <input type="date" className="form-control" value={filterFrom} onChange={(e) => setFilterFrom(e.target.value)} />
+          </div>
 
-        <div className="filter-item" style={{ minWidth: '130px' }}>
-          <label>To Date</label>
-          <input 
-            type="date" 
-            className="form-control" 
-            value={filterTo}
-            onChange={(e) => setFilterTo(e.target.value)}
-          />
+          <div className="filter-item" style={{ width: '150px' }}>
+            <label>Date To</label>
+            <input type="date" className="form-control" value={filterTo} onChange={(e) => setFilterTo(e.target.value)} />
+          </div>
+
+          <button className="btn btn-secondary btn-sm" onClick={() => { setFilterType(''); setFilterItemId(''); setFilterFrom(''); setFilterTo(''); }} style={{ marginTop: 'auto', padding: '8px 12px' }}>
+            Reset Filters
+          </button>
         </div>
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: selectedLog ? '1.5fr 1fr' : '1fr', gap: '24px', transition: 'grid-template-columns 0.3s ease' }}>
-        
-        {/* Left Side: Logs Table */}
+        {/* Left Side: Audit Feed Table */}
         <div className="widget-card">
           <div className="widget-header">
-            <span className="widget-title">Audit Trail logs</span>
-            <span style={{ fontSize: '13px', color: 'var(--theme-text-muted)' }}>
-              {logs.length} Entries Loaded
-            </span>
+            <span className="widget-title">Transaction History</span>
+            <span style={{ fontSize: '13px', color: 'var(--theme-text-muted)' }}>{logs.length} records</span>
           </div>
 
           <div className="widget-body" style={{ padding: 0 }}>
             {loading ? (
-              <p style={{ padding: '24px', color: 'var(--theme-text-muted)' }}>Loading transaction logs...</p>
+              <p style={{ padding: '24px', color: 'var(--theme-text-muted)' }}>Loading audit log feed...</p>
             ) : logs.length === 0 ? (
-              <p style={{ padding: '24px', color: 'var(--theme-text-muted)', textAlign: 'center' }}>
-                No transaction logs matched your selected query filters.
-              </p>
+              <EmptyState
+                icon="📜"
+                title="No Transactions Found"
+                description="No stock movements matched your filter criteria."
+              />
             ) : (
-              <table className="table">
-                <thead>
-                  <tr>
-                    <th>Timestamp</th>
-                    <th>Action</th>
-                    <th>Item Name</th>
-                    <th>Quantity</th>
-                    <th>Logged By</th>
-                    <th>Flags</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {logs.map(log => {
-                    const hasFlaggedComments = log.mgmtComments?.some(c => c.isFlagged);
-                    const qtyPrefix = log.type === 'INBOUND' ? '+' : '-';
-                    return (
-                      <tr 
+              <>
+                <table className="table">
+                  <thead>
+                    <tr>
+                      <th>Time</th>
+                      <th>Action</th>
+                      <th>Supply Item</th>
+                      <th>Qty Adjustment</th>
+                      <th>Logged By</th>
+                      <th>Comments</th>
+                      <th style={{ textAlign: 'right' }}>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {logs
+                      .slice((currentPage - 1) * pageSize, currentPage * pageSize)
+                      .map((log) => (
+                      <tr
                         key={log.id}
                         onClick={() => setSelectedLog(log)}
-                        style={{ 
+                        style={{
                           cursor: 'pointer',
-                          backgroundColor: selectedLog?.id === log.id ? 'var(--theme-primary-bg)' : 'transparent'
+                          backgroundColor: selectedLog?.id === log.id ? 'var(--theme-primary-bg)' : undefined,
                         }}
                       >
-                        <td style={{ fontSize: '13px' }}>
+                        <td style={{ fontSize: '12px', color: 'var(--theme-text-muted)', whiteSpace: 'nowrap' }}>
                           {new Date(log.timestamp).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}
                         </td>
                         <td>
-                          <span className={`badge ${getBadgeClass(log.type)}`}>
+                          <span className={`badge ${getActionBadgeClass(log.type)}`}>
                             {log.type}
                           </span>
                         </td>
                         <td>
-                          <div>
-                            <strong>{log.item.name}</strong>
-                            {log.batch && (
-                              <div style={{ fontSize: '11px', color: 'var(--theme-text-muted)', marginTop: '2px' }}>
-                                Batch: <code>{log.batch.batchNo}</code> • Exp: {new Date(log.batch.expiryDate).toLocaleDateString()}
-                              </div>
-                            )}
+                          <strong>{log.item.name}</strong>
+                          <div style={{ fontSize: '11px', color: 'var(--theme-text-muted)', fontFamily: 'var(--font-mono)' }}>
+                            {log.item.sku}
                           </div>
                         </td>
-                        <td>
-                          <strong>{qtyPrefix}{log.qty}</strong> <span style={{ fontSize: '12px', color: 'var(--theme-text-muted)' }}>{log.item.unit}</span>
+                        <td style={{ fontFamily: 'var(--font-mono)', fontWeight: 'bold' }}>
+                          <span style={{ color: log.type === 'INBOUND' ? 'var(--color-success)' : 'var(--color-critical)' }}>
+                            {log.type === 'INBOUND' ? `+${log.qty}` : `-${log.qty}`}
+                          </span>{' '}
+                          <span style={{ fontSize: '11px', fontWeight: 'normal', color: 'var(--theme-text-muted)' }}>{log.item.unit}</span>
                         </td>
                         <td style={{ fontSize: '13px' }}>
-                          {log.user.name} <span style={{ fontSize: '11px', color: 'var(--theme-text-muted)' }}>({log.user.role.replace('_', ' ')})</span>
+                          <div><strong>{log.user?.name}</strong></div>
+                          <div style={{ fontSize: '11px', color: 'var(--theme-text-muted)' }}>{log.user?.role?.replace('_', ' ')}</div>
                         </td>
-                        <td>
-                          {hasFlaggedComments && <span style={{ fontSize: '16px', color: 'var(--color-critical)' }}>🚩</span>}
-                          {log.mgmtComments?.length > 0 && !hasFlaggedComments && <span style={{ fontSize: '14px', color: 'var(--theme-text-muted)' }}>💬</span>}
+                        <td style={{ fontSize: '12px' }}>
+                          {log.comments && log.comments.length > 0 ? (
+                            <span style={{ color: 'var(--theme-primary)', fontWeight: '600' }}>💬 {log.comments.length}</span>
+                          ) : (
+                            <span style={{ color: 'var(--theme-text-muted)' }}>—</span>
+                          )}
+                        </td>
+                        <td style={{ textAlign: 'right' }}>
+                          <button className="btn btn-secondary btn-sm" onClick={() => setSelectedLog(log)}>Inspect</button>
                         </td>
                       </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+                    ))}
+                  </tbody>
+                </table>
+
+                <Pagination
+                  currentPage={currentPage}
+                  totalItems={logs.length}
+                  pageSize={pageSize}
+                  onPageChange={setCurrentPage}
+                  onPageSizeChange={(newSize) => {
+                    setPageSize(newSize);
+                    setCurrentPage(1);
+                  }}
+                />
+              </>
             )}
           </div>
         </div>
 
-        {/* Right Side: Log Comments & Details */}
+        {/* Right Side: Log Inspection & Management Comments */}
         {selectedLog && (
           <div className="widget-card" style={{ alignSelf: 'start' }}>
             <div className="widget-header">
-              <span className="widget-title">📜 Log Entry Details</span>
-              <button 
-                className="modal-close" 
-                onClick={() => setSelectedLog(null)}
-                style={{ fontSize: '14px', cursor: 'pointer', background: 'none', border: 'none', color: 'var(--theme-text-muted)' }}
-              >
-                Close ✕
-              </button>
+              <span className="widget-title">📜 Log Detail #{selectedLog.id.slice(-6).toUpperCase()}</span>
+              <button className="modal-close" onClick={() => setSelectedLog(null)}>Close ✕</button>
             </div>
 
             <div className="widget-body" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
               <div>
-                <span className={`badge ${getBadgeClass(selectedLog.type)}`} style={{ marginBottom: '8px' }}>{selectedLog.type}</span>
+                <span className={`badge ${getActionBadgeClass(selectedLog.type)}`} style={{ marginBottom: '8px' }}>
+                  {selectedLog.type}
+                </span>
                 <h3 style={{ fontSize: '18px', fontWeight: 'bold' }}>{selectedLog.item.name}</h3>
-                <span style={{ fontSize: '12px', color: 'var(--theme-text-muted)' }}>SKU: <code>{selectedLog.item.sku}</code> • Transaction ID: {selectedLog.id}</span>
+                <span style={{ fontSize: '12px', color: 'var(--theme-text-muted)' }}>
+                  SKU: <code>{selectedLog.item.sku}</code>
+                </span>
               </div>
 
-              <div style={{ background: 'var(--theme-bg)', padding: '12px 16px', borderRadius: 'var(--border-radius-md)', fontSize: '13px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                <div>
-                  <strong>Quantity Adjusted:</strong> {selectedLog.type === 'INBOUND' ? '+' : '-'}{selectedLog.qty} {selectedLog.item.unit}
-                </div>
-                <div>
-                  <strong>Logged By:</strong> {selectedLog.user.name} ({selectedLog.user.role.replace('_', ' ')})
-                </div>
-                <div>
-                  <strong>Time Logged:</strong> {new Date(selectedLog.timestamp).toLocaleString()}
-                </div>
-                {selectedLog.batch && (
-                  <>
-                    <div>
-                      <strong>Batch Number:</strong> <code>{selectedLog.batch.batchNo}</code>
-                    </div>
-                    <div>
-                      <strong>Batch Expiry:</strong> {new Date(selectedLog.batch.expiryDate).toLocaleDateString()}
-                    </div>
-                  </>
-                )}
-                {selectedLog.notes && (
-                  <div style={{ marginTop: '4px', paddingTop: '6px', borderTop: '1px solid var(--theme-border)' }}>
-                    <strong>Intake Notes:</strong>
-                    <p style={{ marginTop: '2px', fontStyle: 'italic', color: 'var(--theme-text-muted)' }}>
-                      "{selectedLog.notes}"
-                    </p>
-                  </div>
-                )}
+              <div style={{ background: 'var(--theme-bg)', padding: '14px', borderRadius: 'var(--border-radius-md)', fontSize: '13px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                <div><strong>Timestamp:</strong> {new Date(selectedLog.timestamp).toLocaleString()}</div>
+                <div><strong>Quantity Adjusted:</strong> {selectedLog.qty} {selectedLog.item.unit}</div>
+                <div><strong>Logged By User:</strong> {selectedLog.user?.name} (@{selectedLog.user?.username})</div>
+                <div><strong>User Role:</strong> {selectedLog.user?.role?.replace('_', ' ')}</div>
               </div>
 
-              {/* Management Comments Section */}
+              {/* Management Comments Audit Section */}
               <div style={{ borderTop: '1px solid var(--theme-border)', paddingTop: '16px' }}>
-                <strong style={{ display: 'block', marginBottom: '12px', fontSize: '14px' }}>
-                  Management Remarks & Flags ({selectedLog.mgmtComments?.length || 0})
-                </strong>
+                <h4 style={{ fontSize: '14px', fontWeight: '600', marginBottom: '12px' }}>Audit Comments & Review Flags</h4>
 
-                {selectedLog.mgmtComments && selectedLog.mgmtComments.length > 0 ? (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '16px', maxHeight: '200px', overflowY: 'auto' }}>
-                    {selectedLog.mgmtComments.map(comment => (
-                      <div 
-                        key={comment.id} 
-                        style={{ 
-                          padding: '10px 12px', 
-                          background: comment.isFlagged ? 'var(--color-critical-bg)' : 'var(--theme-bg)', 
-                          borderRadius: 'var(--border-radius-md)',
-                          fontSize: '12px',
-                          position: 'relative'
-                        }}
-                      >
-                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px', fontWeight: '600' }}>
-                          <span>{comment.commentedBy.name}</span>
-                          <span style={{ fontSize: '10px', color: 'var(--theme-text-muted)' }}>
-                            {new Date(comment.createdAt).toLocaleDateString()}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '16px', maxHeight: '200px', overflowY: 'auto' }}>
+                  {selectedLog.comments && selectedLog.comments.length > 0 ? (
+                    selectedLog.comments.map((c) => (
+                      <div key={c.id} style={{ background: c.isFlagged ? 'var(--color-critical-bg)' : 'var(--theme-card-bg)', padding: '10px 12px', borderRadius: 'var(--border-radius-sm)', border: '1px solid var(--theme-border)', fontSize: '13px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                          <strong>{c.user?.name}</strong>
+                          <span style={{ fontSize: '11px', color: 'var(--theme-text-muted)' }}>
+                            {new Date(c.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                           </span>
                         </div>
-                        <p style={{ color: 'var(--theme-text)', paddingRight: '24px' }}>{comment.commentText}</p>
-                        
-                        {/* Flag Indicator / Toggle */}
-                        <button
-                          onClick={() => canComment && handleToggleFlag(comment.id)}
-                          style={{
-                            position: 'absolute',
-                            top: '8px',
-                            right: '8px',
-                            background: 'none',
-                            border: 'none',
-                            cursor: canComment ? 'pointer' : 'default',
-                            fontSize: '14px',
-                            opacity: comment.isFlagged ? 1 : 0.2
-                          }}
-                          title={canComment ? 'Toggle administrative alert flag' : 'Flag status'}
-                          disabled={!canComment}
-                        >
-                          🚩
-                        </button>
+                        <p style={{ margin: 0 }}>{c.commentText}</p>
+                        {hasPermission('create_users') && (
+                          <button onClick={() => handleToggleFlag(c.id)} style={{ background: 'none', border: 'none', color: 'var(--theme-primary)', fontSize: '11px', cursor: 'pointer', marginTop: '4px', padding: 0 }}>
+                            {c.isFlagged ? '🚩 Flagged (Click to Unflag)' : '🏳️ Flag Comment'}
+                          </button>
+                        )}
                       </div>
-                    ))}
-                  </div>
-                ) : (
-                  <p style={{ fontSize: '12px', color: 'var(--theme-text-muted)', marginBottom: '16px', fontStyle: 'italic' }}>
-                    No management comments compiled for this transaction log.
-                  </p>
-                )}
+                    ))
+                  ) : (
+                    <p style={{ fontSize: '12px', color: 'var(--theme-text-muted)' }}>No audit notes or comments attached.</p>
+                  )}
+                </div>
 
                 {/* Add Comment Form */}
-                {canComment && (
-                  <form onSubmit={handleAddComment} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                    <div className="form-group" style={{ marginBottom: 0 }}>
-                      <input
-                        type="text"
-                        className="form-control"
-                        placeholder="Add review notes, flag errors..."
-                        value={commentText}
-                        onChange={(e) => setCommentText(e.target.value)}
-                        required
-                        disabled={submittingComment}
-                      />
-                    </div>
-                    
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', cursor: 'pointer', userSelect: 'none' }}>
-                        <input
-                          type="checkbox"
-                          checked={isFlagged}
-                          onChange={(e) => setIsFlagged(e.target.checked)}
-                          disabled={submittingComment}
-                        />
-                        Flag this transaction (triggers Admin Alert)
-                      </label>
-                      <button 
-                        type="submit" 
-                        className="btn btn-primary btn-sm"
-                        disabled={submittingComment || !commentText.trim()}
-                      >
-                        Submit
-                      </button>
-                    </div>
-                  </form>
-                )}
+                <form onSubmit={handleAddComment} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  <textarea
+                    className="form-control"
+                    placeholder="Add audit note or discrepancy comment..."
+                    value={commentText}
+                    onChange={(e) => setCommentText(e.target.value)}
+                    style={{ minHeight: '60px', fontSize: '13px' }}
+                  />
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <label style={{ fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}>
+                      <input type="checkbox" checked={isFlagged} onChange={(e) => setIsFlagged(e.target.checked)} />
+                      <span style={{ color: isFlagged ? 'var(--color-critical)' : 'inherit', fontWeight: isFlagged ? 'bold' : 'normal' }}>🚩 Flag for review</span>
+                    </label>
+                    <button type="submit" className="btn btn-primary btn-sm" disabled={submittingComment || !commentText.trim()}>
+                      {submittingComment ? 'Saving...' : 'Post Audit Note'}
+                    </button>
+                  </div>
+                </form>
               </div>
             </div>
           </div>

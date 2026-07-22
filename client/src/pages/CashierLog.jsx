@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
+import { useToast } from '../context/ToastContext';
 import EmptyState from '../components/EmptyState';
+import Pagination from '../components/Pagination';
 
 const BILLING_STATUS_BADGE = {
   PENDING: { label: 'Pending Billing', color: '#f59e0b', bg: 'rgba(245,158,11,0.08)' },
@@ -23,15 +25,48 @@ const HighlightText = ({ text, search }) => {
 
 const CashierLog = () => {
   const { user } = useAuth();
+  const toast = useToast();
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+
+  // Pagination
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(15);
 
   // Filters State
   const [statusFilter, setStatusFilter] = useState('PENDING'); // 'PENDING' | 'RECORDED' | 'ALL'
   const [searchQuery, setSearchQuery] = useState('');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [statusFilter, searchQuery, dateFrom, dateTo]);
+
+  const exportCashierCSV = () => {
+    if (!filteredLogs.length) return;
+    const headers = ['Dispense ID', 'Date & Time', 'Patient Name', 'Chart #', 'Item Dispensed', 'Quantity', 'Dispensed By', 'Billing Status'];
+    const rows = filteredLogs.map((log) => [
+      `"${log.id.slice(-6).toUpperCase()}"`,
+      `"${new Date(log.dispensedAt).toLocaleString()}"`,
+      `"${(log.patient?.name || '').replace(/"/g, '""')}"`,
+      `"${(log.patient?.chartNumber || '').replace(/"/g, '""')}"`,
+      `"${(log.item?.name || '').replace(/"/g, '""')}"`,
+      log.quantity,
+      `"${(log.dispensedBy?.name || '').replace(/"/g, '""')}"`,
+      `"${log.billingStatus}"`,
+    ]);
+    const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map((e) => e.join(','))].join('\n');
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement('a');
+    link.setAttribute('href', encodedUri);
+    link.setAttribute('download', `medops_billing_logs_${new Date().toISOString().split('T')[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    toast.success('Billing log exported to CSV!');
+  };
 
   // Selection state
   const [selectedIds, setSelectedIds] = useState([]);
@@ -60,8 +95,9 @@ const CashierLog = () => {
   };
 
   useEffect(() => {
+    setCurrentPage(1);
     fetchLogs();
-  }, [statusFilter, dateFrom, dateTo]);
+  }, [statusFilter, dateFrom, dateTo, searchQuery]);
 
   const handleSearchKeyPress = (e) => {
     if (e.key === 'Enter') {
@@ -177,15 +213,20 @@ const CashierLog = () => {
                 Review and record patient direct dispensations on their accounting billing statement.
               </p>
             </div>
-            {selectedIds.length > 0 && (
-              <button
-                className="btn btn-primary"
-                onClick={handleBulkRecord}
-                disabled={actionLoading}
-              >
-                {actionLoading ? 'Recording...' : `✓ Record Selected (${selectedIds.length})`}
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+              <button className="btn btn-outline btn-sm" onClick={exportCashierCSV} title="Export billing log to CSV">
+                📥 Export CSV
               </button>
-            )}
+              {selectedIds.length > 0 && (
+                <button
+                  className="btn btn-primary btn-sm"
+                  onClick={handleBulkRecord}
+                  disabled={actionLoading}
+                >
+                  {actionLoading ? 'Recording...' : `✓ Record Selected (${selectedIds.length})`}
+                </button>
+              )}
+            </div>
           </div>
 
           <div style={{ display: 'flex', gap: '8px' }}>
@@ -311,12 +352,10 @@ const CashierLog = () => {
                       <input
                         type="checkbox"
                         onChange={handleSelectAll}
-                        checked={
-                          filteredLogs.length > 0 &&
-                          filteredLogs
-                            .filter(l => l.billingStatus === 'PENDING')
-                            .every(l => selectedIds.includes(l.id))
-                        }
+                        checked={(() => {
+                          const pendingLogs = filteredLogs.filter(l => l.billingStatus === 'PENDING');
+                          return pendingLogs.length > 0 && pendingLogs.every(l => selectedIds.includes(l.id));
+                        })()}
                       />
                     </th>
                   )}
@@ -330,7 +369,9 @@ const CashierLog = () => {
                 </tr>
               </thead>
               <tbody>
-                {filteredLogs.map(log => {
+                {filteredLogs
+                  .slice((currentPage - 1) * pageSize, currentPage * pageSize)
+                  .map(log => {
                   const isPending = log.billingStatus === 'PENDING';
                   const badge = BILLING_STATUS_BADGE[log.billingStatus] || BILLING_STATUS_BADGE.PENDING;
                   return (
@@ -408,7 +449,8 @@ const CashierLog = () => {
                           fontSize: '11px',
                           fontWeight: '600',
                           color: badge.color,
-                          background: badge.bg,
+                          backgroundColor: badge.bg,
+                          display: 'inline-block'
                         }}>
                           {badge.label}
                         </span>
@@ -427,7 +469,7 @@ const CashierLog = () => {
                               disabled={actionLoading}
                               style={{ padding: '4px 10px', fontSize: '12px' }}
                             >
-                              ✓ Record Billing
+                              Record Log
                             </button>
                           )}
                         </td>
@@ -437,6 +479,17 @@ const CashierLog = () => {
                 })}
               </tbody>
             </table>
+
+            <Pagination
+              currentPage={currentPage}
+              totalItems={filteredLogs.length}
+              pageSize={pageSize}
+              onPageChange={setCurrentPage}
+              onPageSizeChange={(newSize) => {
+                setPageSize(newSize);
+                setCurrentPage(1);
+              }}
+            />
           </div>
         )}
       </div>

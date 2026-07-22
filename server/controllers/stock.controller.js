@@ -58,9 +58,11 @@ const checkAndFireAlerts = async (itemId) => {
 
 const receiveStock = async (req, res, next) => {
   try {
-    const { itemId, quantity, supplierId, batchNo, expiryDate, notes } = req.body;
-    if (!itemId || !quantity || quantity <= 0) {
-      return res.status(400).json({ error: 'itemId and positive quantity are required' });
+    if (!itemId || !quantity) {
+      return res.status(400).json({ error: 'itemId and quantity are required.' });
+    }
+    if (typeof quantity !== 'number' || quantity <= 0 || !Number.isInteger(quantity)) {
+      return res.status(400).json({ error: 'Quantity must be a positive whole number.' });
     }
 
     const result = await prisma.$transaction(async (tx) => {
@@ -91,6 +93,9 @@ const receiveStock = async (req, res, next) => {
       if (batchNo || expiryDate) {
         if (expiryDate) {
           const expDate = new Date(expiryDate);
+          if (isNaN(expDate.getTime())) {
+            throw new Error('Invalid expiry date format.');
+          }
           const today = new Date();
           today.setHours(0, 0, 0, 0);
           if (expDate < today) {

@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
+import { useToast } from '../context/ToastContext';
+import Pagination from '../components/Pagination';
 
 const STATUS_COLORS = {
   PENDING: 'badge-warning',
@@ -21,6 +23,11 @@ const CLASSIFICATIONS = [
 
 const Requisitions = () => {
   const { user, hasPermission } = useAuth();
+  const toast = useToast();
+
+  // ── Pagination State ──
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
 
   // ── Data State ──
   const [requisitions, setRequisitions] = useState([]);
@@ -304,10 +311,12 @@ const Requisitions = () => {
       });
       setIsGridOpen(false);
       fetchRequisitions();
-      alert('Requisition Sheet submitted successfully.');
+      toast.success('Requisition Sheet submitted successfully!');
     } catch (err) {
       console.error('Batch requisition submit failed:', err);
-      setGridError(err.response?.data?.error || 'Failed to submit Requisition Sheet.');
+      const msg = err.response?.data?.error || 'Failed to submit Requisition Sheet.';
+      setGridError(msg);
+      toast.error(msg);
     } finally {
       setIsSubmitting(false);
     }
@@ -320,9 +329,12 @@ const Requisitions = () => {
       await api.patch(`/requisitions/${reqId}/cancel`);
       fetchRequisitions();
       if (selectedReq?.id === reqId) fetchDetail(reqId);
+      toast.info('Requisition cancelled.');
     } catch (err) {
       console.error('Cancel failed:', err);
-      alert(err.response?.data?.error || 'Failed to cancel requisition.');
+      const msg = err.response?.data?.error || 'Failed to cancel requisition.';
+      alert(msg);
+      toast.error(msg);
     }
   };
 
@@ -334,9 +346,12 @@ const Requisitions = () => {
       setApproveLine(null);
       fetchDetail(selectedReq.id);
       fetchRequisitions();
+      toast.success('Line item approved!');
     } catch (err) {
       console.error('Approve failed:', err);
-      alert(err.response?.data?.error || 'Failed to approve line item.');
+      const msg = err.response?.data?.error || 'Failed to approve line item.';
+      alert(msg);
+      toast.error(msg);
     }
   };
 
@@ -349,15 +364,16 @@ const Requisitions = () => {
     try {
       setIsApprovingAll(true);
       for (const line of pendingLines) {
-        if (line.item?.itemType === 'MEDICATION' && !line.coVerifiedById) continue;
         await api.patch(`/requisitions/${selectedReq.id}/lines/${line.id}/approve`, { qtyApproved: line.qtyRequested });
       }
-      fetchDetail(selectedReq.id);
-      fetchRequisitions();
+      toast.success(`Approved all ${pendingLines.length} pending line item(s) for ${selectedReq.patient?.name}`);
     } catch (err) {
       console.error('Approve all lines failed:', err);
-      alert(err.response?.data?.error || 'Error while approving line items.');
+      const msg = err.response?.data?.error || 'Error while approving line items.';
+      toast.error(msg);
     } finally {
+      fetchDetail(selectedReq.id);
+      fetchRequisitions();
       setIsApprovingAll(false);
     }
   };
@@ -451,7 +467,9 @@ const Requisitions = () => {
                   </tr>
                 </thead>
                 <tbody>
-                  {requisitions.map(r => {
+                  {requisitions
+                    .slice((currentPage - 1) * pageSize, currentPage * pageSize)
+                    .map(r => {
                     const isSelected = selectedReq?.id === r.id;
                     const pendingCount = r.lines?.filter(l => l.status === 'PENDING').length || 0;
                     return (
@@ -500,6 +518,17 @@ const Requisitions = () => {
                   })}
                 </tbody>
               </table>
+
+              <Pagination
+                currentPage={currentPage}
+                totalItems={requisitions.length}
+                pageSize={pageSize}
+                onPageChange={setCurrentPage}
+                onPageSizeChange={(newSize) => {
+                  setPageSize(newSize);
+                  setCurrentPage(1);
+                }}
+              />
             </div>
           )}
         </div>

@@ -89,10 +89,11 @@ const create = async (req, res, next) => {
         }
 
         if (!isExpired) {
-          // Update StockLevel
-          await tx.stockLevel.update({
+          // Update StockLevel (upsert in case stockLevel record was deleted or is missing)
+          await tx.stockLevel.upsert({
             where: { itemId },
-            data: { quantityOnHand: { increment: qty }, lastUpdated: new Date() }
+            update: { quantityOnHand: { increment: qty }, lastUpdated: new Date() },
+            create: { itemId, quantityOnHand: qty, lastUpdated: new Date() },
           });
 
           // Update ItemBatch if batch-controlled
@@ -231,10 +232,11 @@ const create = async (req, res, next) => {
               const isExpired = batch.expiryDate && new Date(batch.expiryDate) < today;
 
               if (!isExpired) {
-                // Update StockLevel
-                await tx.stockLevel.update({
+                // Update StockLevel (upsert in case stockLevel record was deleted or is missing)
+                await tx.stockLevel.upsert({
                   where: { itemId },
-                  data: { quantityOnHand: { increment: returnQtyForBatch }, lastUpdated: new Date() }
+                  update: { quantityOnHand: { increment: returnQtyForBatch }, lastUpdated: new Date() },
+                  create: { itemId, quantityOnHand: returnQtyForBatch, lastUpdated: new Date() },
                 });
 
                 // Update ItemBatch
@@ -294,10 +296,11 @@ const create = async (req, res, next) => {
                 });
               }
             } else {
-              // No batchId (non-batch controlled)
-              await tx.stockLevel.update({
+              // No batchId (non-batch controlled) - upsert stockLevel
+              await tx.stockLevel.upsert({
                 where: { itemId },
-                data: { quantityOnHand: { increment: returnQtyForBatch }, lastUpdated: new Date() }
+                update: { quantityOnHand: { increment: returnQtyForBatch }, lastUpdated: new Date() },
+                create: { itemId, quantityOnHand: returnQtyForBatch, lastUpdated: new Date() },
               });
 
               await tx.transactionLog.create({
@@ -321,9 +324,10 @@ const create = async (req, res, next) => {
           }
         } else {
           // Non-batch controlled: single TransactionLog
-          await tx.stockLevel.update({
+          await tx.stockLevel.upsert({
             where: { itemId },
-            data: { quantityOnHand: { increment: qty }, lastUpdated: new Date() }
+            update: { quantityOnHand: { increment: qty }, lastUpdated: new Date() },
+            create: { itemId, quantityOnHand: qty, lastUpdated: new Date() }
           });
 
           await tx.transactionLog.create({
