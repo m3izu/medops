@@ -76,8 +76,11 @@ const create = async (req, res, next) => {
 const createBatch = async (req, res, next) => {
   try {
     const { sessionDate, requisitions } = req.body;
-    if (!sessionDate || !Array.isArray(requisitions) || requisitions.length === 0) {
-      return res.status(400).json({ error: 'sessionDate and requisitions array are required' });
+    if (!sessionDate || isNaN(new Date(sessionDate).getTime())) {
+      return res.status(400).json({ error: 'Valid sessionDate is required.' });
+    }
+    if (!Array.isArray(requisitions) || requisitions.length === 0) {
+      return res.status(400).json({ error: 'At least one requisition column is required.' });
     }
 
     const createdRequisitions = [];
@@ -85,10 +88,39 @@ const createBatch = async (req, res, next) => {
     await prisma.$transaction(async (tx) => {
       for (const itemReq of requisitions) {
         const { patientId, lines, notes, isAdditional } = itemReq;
-        if (!lines || lines.length === 0) continue;
+        if (!Array.isArray(lines) || lines.length === 0) continue;
 
+        // 1. Consolidate lines (aggregate quantities for duplicate item entries in the same column)
+        const lineMap = {};
+        for (const l of lines) {
+          if (!l.itemId) continue;
+          const qty = Math.floor(Number(l.quantity));
+          if (!Number.isInteger(qty) || qty <= 0) {
+            throw new Error(`Invalid requested quantity "${l.quantity}" for item.`);
+          }
+          if (lineMap[l.itemId]) {
+            lineMap[l.itemId] += qty;
+          } else {
+            lineMap[l.itemId] = qty;
+          }
+        }
+
+        const consolidatedItems = Object.keys(lineMap);
+        if (consolidatedItems.length === 0) continue;
+
+        // 2. Validate all requested items exist and are not archived
+        for (const itemId of consolidatedItems) {
+          const itemDb = await tx.item.findUnique({ where: { id: itemId } });
+          if (!itemDb) {
+            throw new Error(`Catalog item not found: ${itemId}`);
+          }
+          if (itemDb.isArchived) {
+            throw new Error(`Cannot request archived item: ${itemDb.name}`);
+          }
+        }
+
+        // 3. Resolve Patient
         let resolvedPatientId = patientId;
-
         if (isAdditional || patientId === 'ADDITIONAL') {
           let addPatient = await tx.patient.findFirst({
             where: { chartNumber: 'ADDITIONAL' }
@@ -114,16 +146,17 @@ const createBatch = async (req, res, next) => {
           }
         }
 
+        // 4. Create Requisition & Line Items
         const requisition = await tx.requisition.create({
           data: {
             patientId: resolvedPatientId,
             submittedById: req.user.id,
             sessionDate: new Date(sessionDate),
             lines: {
-              create: lines.map(l => ({
-                itemId: l.itemId,
-                qtyRequested: l.quantity,
-                reason: notes?.trim() || l.reason?.trim() || 'Grid Requisition sheet entry'
+              create: consolidatedItems.map(itemId => ({
+                itemId,
+                qtyRequested: lineMap[itemId],
+                reason: notes?.trim() || 'Grid Requisition sheet entry'
               }))
             }
           },
@@ -133,24 +166,27 @@ const createBatch = async (req, res, next) => {
       }
     });
 
-    if (createdRequisitions.length > 0) {
-      const managers = await prisma.user.findMany({
-        where: { role: { in: ['TOP_ADMIN', 'INVENTORY_MANAGER'] }, isActive: true, isDeleted: false },
-        select: { id: true }
-      });
-      await prisma.notification.createMany({
-        data: managers.map(m => ({
-          userId: m.id,
-          eventType: 'REQUISITION_SUBMITTED',
-          message: `Batch requisition sheet (${createdRequisitions.length} columns) submitted by ${req.user.name}`,
-          link: `/requisitions`
-        }))
-      });
+    if (createdRequisitions.length === 0) {
+      return res.status(400).json({ error: 'No valid line item quantities were provided to submit.' });
     }
+
+    // Notify inventory managers
+    const managers = await prisma.user.findMany({
+      where: { role: { in: ['TOP_ADMIN', 'INVENTORY_MANAGER'] }, isActive: true, isDeleted: false },
+      select: { id: true }
+    });
+    await prisma.notification.createMany({
+      data: managers.map(m => ({
+        userId: m.id,
+        eventType: 'REQUISITION_SUBMITTED',
+        message: `Batch requisition sheet (${createdRequisitions.length} columns) submitted by ${req.user.name}`,
+        link: `/requisitions`
+      }))
+    });
 
     res.status(201).json({ success: true, count: createdRequisitions.length, requisitions: createdRequisitions });
   } catch (err) {
-    if (err.message && err.message.includes('Patient not found')) {
+    if (err.message && err.message.includes('not found')) {
       return res.status(404).json({ error: err.message });
     }
     res.status(400).json({ error: err.message || 'Failed to submit batch requisitions.' });

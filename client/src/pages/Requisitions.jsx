@@ -12,11 +12,11 @@ const STATUS_COLORS = {
 };
 
 const CLASSIFICATIONS = [
-  { key: 'MEDICATION', label: '💊 Medications', color: '#3B82F6', bgColor: '#EFF6FF' },
-  { key: 'MEDICAL_CONSUMABLE', label: '🩹 Medical Consumables', color: '#10B981', bgColor: '#ECFDF5' },
-  { key: 'MEDICAL_EQUIPMENT', label: '🩺 Medical Equipment', color: '#8B5CF6', bgColor: '#F5F3FF' },
-  { key: 'PPE', label: '🥼 PPE & Protective Wear', color: '#F59E0B', bgColor: '#FFFBEB' },
-  { key: 'OFFICE_SUPPLY', label: '📦 Office & Clinic Supplies', color: '#64748B', bgColor: '#F8FAFC' },
+  { key: 'MEDICATION', label: 'Medications', color: '#1E40AF', bgColor: '#F0F9FF' },
+  { key: 'MEDICAL_CONSUMABLE', label: 'Medical Consumables', color: '#065F46', bgColor: '#ECFDF5' },
+  { key: 'MEDICAL_EQUIPMENT', label: 'Medical Equipment', color: '#5B21B6', bgColor: '#F5F3FF' },
+  { key: 'PPE', label: 'PPE & Protective Wear', color: '#92400E', bgColor: '#FFFBEB' },
+  { key: 'OFFICE_SUPPLY', label: 'Office & Clinic Supplies', color: '#334155', bgColor: '#F8FAFC' },
 ];
 
 const Requisitions = () => {
@@ -128,17 +128,11 @@ const Requisitions = () => {
   }, [items]);
 
   // ── Grid Sheet Controls ──
+  // Starts 100% BLANK as requested by user (no pre-populated patients or items)
   const openGridSheet = () => {
     setGridSessionDate(new Date().toISOString().substring(0, 10));
-    // Default columns: first active patients from registry + ADDITIONAL column
-    const activePats = patients.slice(0, 6);
-    const cols = activePats.map(p => ({ patientId: p.id, notes: '', isAdditional: false }));
-    cols.push({ patientId: 'ADDITIONAL', notes: '', isAdditional: true });
-    setGridColumns(cols);
-
-    // Default items: include common items from catalog
-    const initialItemIds = items.slice(0, 8).map(i => i.id);
-    setSheetItemIds(initialItemIds);
+    setGridColumns([{ patientId: 'ADDITIONAL', notes: '', isAdditional: true }]);
+    setSheetItemIds([]);
     setGridQuantities({});
     setGridError('');
     setIsGridOpen(true);
@@ -147,7 +141,7 @@ const Requisitions = () => {
   const addPatientFromRegistry = (patientId) => {
     if (!patientId) return;
     if (gridColumns.some(c => c.patientId === patientId)) {
-      alert('This patient is already in today\'s requisition sheet.');
+      alert('This patient is already added to today\'s requisition sheet.');
       return;
     }
     const newCols = [...gridColumns];
@@ -188,14 +182,14 @@ const Requisitions = () => {
   };
 
   const handleCellChange = (patientId, itemId, value) => {
-    const qty = parseInt(value, 10);
+    const parsed = parseInt(value, 10);
     const key = `${patientId}_${itemId}`;
     setGridQuantities(prev => {
       const copy = { ...prev };
-      if (isNaN(qty) || qty <= 0) {
+      if (isNaN(parsed) || parsed <= 0) {
         delete copy[key];
       } else {
-        copy[key] = qty;
+        copy[key] = parsed;
       }
       return copy;
     });
@@ -238,7 +232,7 @@ const Requisitions = () => {
     }).filter(r => r.lines.length > 0);
 
     if (reqs.length === 0) {
-      return setGridError('Please enter at least one item quantity in the grid before submitting.');
+      return setGridError('Please add at least one item and enter a quantity before submitting.');
     }
 
     try {
@@ -249,7 +243,7 @@ const Requisitions = () => {
       });
       setIsGridOpen(false);
       fetchRequisitions();
-      alert('✓ Requisition Sheet submitted successfully!');
+      alert('Requisition Sheet submitted successfully.');
     } catch (err) {
       console.error('Batch requisition submit failed:', err);
       setGridError(err.response?.data?.error || 'Failed to submit Requisition Sheet.');
@@ -360,7 +354,7 @@ const Requisitions = () => {
         </div>
         {canSubmit && (
           <button className="btn btn-primary" onClick={openGridSheet} style={{ fontWeight: '600', padding: '10px 18px' }}>
-            📋 New Requisition Sheet
+            New Requisition Sheet
           </button>
         )}
       </div>
@@ -509,7 +503,7 @@ const Requisitions = () => {
                         disabled={isApprovingAll}
                         style={{ fontSize: '12px', padding: '4px 10px' }}
                       >
-                        {isApprovingAll ? 'Approving...' : '✅ Approve All Pending Lines'}
+                        {isApprovingAll ? 'Approving...' : 'Approve All Pending Lines'}
                       </button>
                     )}
                   </div>
@@ -575,7 +569,7 @@ const Requisitions = () => {
                                   }
                                 }}
                               >
-                                🩺 Co-Verify
+                                Co-Verify
                               </button>
                             )}
 
@@ -590,7 +584,7 @@ const Requisitions = () => {
                                   disabled={line.item?.itemType === 'MEDICATION' && !line.coVerifiedById}
                                   title={line.item?.itemType === 'MEDICATION' && !line.coVerifiedById ? "Medication co-verification is required before approval." : ""}
                                 >
-                                  ✓ Approve
+                                  Approve
                                 </button>
                                 <button
                                   className="btn btn-critical btn-sm"
@@ -599,7 +593,7 @@ const Requisitions = () => {
                                     setRejectReason('');
                                   }}
                                 >
-                                  ✕ Reject
+                                  Reject
                                 </button>
                               </>
                             )}
@@ -614,7 +608,7 @@ const Requisitions = () => {
                                   setResubError('');
                                 }}
                               >
-                                ↩ Resubmit
+                                Resubmit
                               </button>
                             )}
                           </div>
@@ -629,7 +623,7 @@ const Requisitions = () => {
         )}
       </div>
 
-      {/* ── REVAMPED CLASSIFICATION-BASED SPREADSHEET GRID MODAL ── */}
+      {/* ── HIGH-READABILITY CLASSIFICATION-BASED SPREADSHEET GRID MODAL ── */}
       {isGridOpen && (
         <div className="modal-overlay" onClick={() => setIsGridOpen(false)}>
           <div
@@ -652,7 +646,7 @@ const Requisitions = () => {
                   REQUISITION FORM
                 </h2>
                 <span style={{ fontSize: '12px', color: 'var(--theme-text-muted)' }}>
-                  Multi-patient session inventory acquisition sheet (Classifications & Registry Patients)
+                  Multi-patient session inventory acquisition sheet (Classifications & Patients Registry)
                 </span>
               </div>
               <button className="modal-close" onClick={() => setIsGridOpen(false)}>✕</button>
@@ -705,7 +699,7 @@ const Requisitions = () => {
                       style={{
                         padding: '12px',
                         textAlign: 'left',
-                        minWidth: '260px',
+                        minWidth: '280px',
                         position: 'sticky',
                         top: 0,
                         left: 0,
@@ -727,7 +721,7 @@ const Requisitions = () => {
                             style={{
                               padding: '10px 8px',
                               textAlign: 'center',
-                              minWidth: '120px',
+                              minWidth: '130px',
                               position: 'sticky',
                               top: 0,
                               zIndex: 20,
@@ -749,7 +743,7 @@ const Requisitions = () => {
                           style={{
                             padding: '10px 8px',
                             textAlign: 'center',
-                            minWidth: '130px',
+                            minWidth: '140px',
                             position: 'sticky',
                             top: 0,
                             zIndex: 20,
@@ -788,7 +782,7 @@ const Requisitions = () => {
                       style={{
                         padding: '12px',
                         textAlign: 'center',
-                        minWidth: '90px',
+                        minWidth: '95px',
                         position: 'sticky',
                         top: 0,
                         right: 0,
@@ -819,10 +813,10 @@ const Requisitions = () => {
                           <td
                             colSpan={gridColumns.length + 2}
                             style={{
-                              padding: '10px 14px',
+                              padding: '8px 14px',
                               fontWeight: '700',
                               fontSize: '12px',
-                              letterSpacing: '0.5px',
+                              letterSpacing: '0.3px',
                               color: cls.color,
                               borderTop: '2px solid var(--theme-border)',
                               borderBottom: '1px solid var(--theme-border)',
@@ -841,7 +835,7 @@ const Requisitions = () => {
                                   }}
                                   style={{ fontSize: '11px', padding: '3px 8px', height: '28px', minWidth: '220px' }}
                                 >
-                                  <option value="">+ Add {cls.label.split(' ')[1] || 'Item'}...</option>
+                                  <option value="">+ Add {cls.label} Item...</option>
                                   {clsCatalogItems.map(it => (
                                     <option key={it.id} value={it.id}>
                                       {it.name} (Stock: {it.stockLevel?.quantityOnHand ?? 0} {it.unit})
@@ -952,7 +946,7 @@ const Requisitions = () => {
                                 >
                                   {rowTotal || 0}
                                   {isLowStock && (
-                                    <div style={{ fontSize: '9px', color: 'var(--color-critical)', fontWeight: '700' }}>⚠️ EXCEEDS STOCK</div>
+                                    <div style={{ fontSize: '9px', color: 'var(--color-critical)', fontWeight: '700' }}>EXCEEDS STOCK</div>
                                   )}
                                 </td>
                               </tr>
