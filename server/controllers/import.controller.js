@@ -72,9 +72,6 @@ const importCsv = async (req, res, next) => {
             const existingSku = await tx.item.findUnique({
               where: { sku: row.sku.trim() }
             });
-            if (existingSku) {
-              throw new Error(`Row ${lineNum}: SKU "${row.sku}" is already in use.`);
-            }
 
             // Validate Category and Supplier if provided
             let categoryId = row.categoryId?.trim() || null;
@@ -116,31 +113,59 @@ const importCsv = async (req, res, next) => {
               acquisitionDate = parsedDate;
             }
 
-            // Create item and its stock level
-            const newItem = await tx.item.create({
-              data: {
-                name: row.name.trim(),
-                sku: row.sku.trim(),
-                itemType,
-                unit: row.unit.trim(),
-                categoryId,
-                supplierId,
-                warningLevel,
-                criticalLevel,
-                serialNumber: row.serialNumber?.trim() || null,
-                acquisitionDate,
-                condition: row.condition?.trim() || 'GOOD',
-                createdById: req.user.id,
-                stockLevel: {
-                  create: {
-                    quantityOnHand: initialQty,
-                    lastUpdated: new Date()
+            let targetItem;
+
+            if (existingSku) {
+              // UPSERT / UPDATE existing item
+              targetItem = await tx.item.update({
+                where: { id: existingSku.id },
+                data: {
+                  name: row.name.trim(),
+                  itemType,
+                  unit: row.unit.trim(),
+                  warningLevel,
+                  criticalLevel,
+                  condition: row.condition?.trim() || existingSku.condition,
+                  ...(categoryId ? { categoryId } : {}),
+                  ...(supplierId ? { supplierId } : {}),
+                  ...(row.serialNumber?.trim() ? { serialNumber: row.serialNumber.trim() } : {}),
+                  ...(acquisitionDate ? { acquisitionDate } : {}),
+                }
+              });
+
+              // Upsert stock level
+              await tx.stockLevel.upsert({
+                where: { itemId: targetItem.id },
+                update: { quantityOnHand: initialQty, lastUpdated: new Date() },
+                create: { itemId: targetItem.id, quantityOnHand: initialQty, lastUpdated: new Date() }
+              });
+            } else {
+              // CREATE new item and stock level
+              targetItem = await tx.item.create({
+                data: {
+                  name: row.name.trim(),
+                  sku: row.sku.trim(),
+                  itemType,
+                  unit: row.unit.trim(),
+                  categoryId,
+                  supplierId,
+                  warningLevel,
+                  criticalLevel,
+                  serialNumber: row.serialNumber?.trim() || null,
+                  acquisitionDate,
+                  condition: row.condition?.trim() || 'GOOD',
+                  createdById: req.user.id,
+                  stockLevel: {
+                    create: {
+                      quantityOnHand: initialQty,
+                      lastUpdated: new Date()
+                    }
                   }
                 }
-              }
-            });
+              });
+            }
 
-            // Create a default batch for medications/batch-controlled items with initial quantity
+            // Create or update batch for medications/batch-controlled items with initial quantity
             let batchId = null;
             const isBatchControlled = itemType === 'MEDICATION' || (cat?.hasBatchControl ?? false);
             if (isBatchControlled && initialQty > 0) {
@@ -155,28 +180,46 @@ const importCsv = async (req, res, next) => {
                 importExpiryDate = parsedExpiry;
               }
               
-              const batch = await tx.itemBatch.create({
-                data: {
-                  itemId: newItem.id,
-                  batchNo: importBatchNo,
-                  expiryDate: importExpiryDate,
-                  quantityRemaining: initialQty,
-                  supplierId
-                }
+              // Check if batch already exists for this item & batchNo
+              const existingBatch = await tx.itemBatch.findFirst({
+                where: { itemId: targetItem.id, batchNo: importBatchNo }
               });
-              batchId = batch.id;
+
+              if (existingBatch) {
+                const updatedBatch = await tx.itemBatch.update({
+                  where: { id: existingBatch.id },
+                  data: {
+                    quantityRemaining: initialQty,
+                    expiryDate: importExpiryDate
+                  }
+                });
+                batchId = updatedBatch.id;
+              } else {
+                const batch = await tx.itemBatch.create({
+                  data: {
+                    itemId: targetItem.id,
+                    batchNo: importBatchNo,
+                    expiryDate: importExpiryDate,
+                    quantityRemaining: initialQty,
+                    supplierId
+                  }
+                });
+                batchId = batch.id;
+              }
             }
 
             // Log transaction if there is initial qty
             if (initialQty > 0) {
               await tx.transactionLog.create({
                 data: {
-                  itemId: newItem.id,
+                  itemId: targetItem.id,
                   batchId,
                   type: 'INBOUND',
                   qty: initialQty,
                   userId: req.user.id,
-                  notes: 'Initial stock intake from CSV bulk import'
+                  notes: existingSku 
+                    ? 'Stock count updated via CSV bulk import (Upsert)'
+                    : 'Initial stock intake from CSV bulk import'
                 }
               });
             }
