@@ -215,9 +215,17 @@ const Stocktake = () => {
               <p style={{ marginBottom: '12px' }}>
                 This will apply ADJUSTMENT transaction logs for all <strong>{discrepancyLines.length}</strong> line(s) with discrepancies and mark the stocktake as completed.
               </p>
-              {uncountedLines > 0 && (
+              {countedLines.length === 0 ? (
                 <div style={{ padding: '10px 14px', background: 'var(--color-warning-bg)', color: 'var(--color-warning)', borderRadius: 'var(--border-radius-md)', fontSize: '13px', marginBottom: '12px' }}>
-                  ⚠️ <strong>{uncountedLines}</strong> item(s) have not been physically counted yet and will be skipped.
+                  ⚠️ <strong>0 items</strong> have been physically counted yet. Completing now will leave all current system stock levels unchanged.
+                </div>
+              ) : uncountedLines > 0 ? (
+                <div style={{ padding: '10px 14px', background: 'var(--color-warning-bg)', color: 'var(--color-warning)', borderRadius: 'var(--border-radius-md)', fontSize: '13px', marginBottom: '12px' }}>
+                  ⚠️ <strong>{uncountedLines}</strong> item(s) have not been physically counted yet and will be skipped (leaving their stock unchanged). <strong>{countedLines.length}</strong> counted item(s) will be processed.
+                </div>
+              ) : (
+                <div style={{ padding: '10px 14px', background: 'var(--color-success-bg)', color: 'var(--color-success)', borderRadius: 'var(--border-radius-md)', fontSize: '13px', marginBottom: '12px' }}>
+                  ✓ All <strong>{totalLines}</strong> items have been physically counted.
                 </div>
               )}
               <p style={{ fontSize: '13px', color: 'var(--theme-text-muted)' }}>

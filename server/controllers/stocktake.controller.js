@@ -142,14 +142,6 @@ const complete = async (req, res, next) => {
         });
       }
 
-      // Verify all lines have been counted
-      const uncounted = lines.filter(l => l.physicalQty === null);
-      if (uncounted.length > 0) {
-        const error = new Error('Cannot complete stocktake. Some items have not been counted.');
-        error.uncountedItems = uncounted.map(l => ({ id: l.itemId, name: l.item.name, sku: l.item.sku }));
-        throw error;
-      }
-
       for (const line of lines) {
         if (line.physicalQty !== null && line.discrepancy !== 0) {
           // Update global stock level (upsert in case stockLevel record was deleted or is missing)
