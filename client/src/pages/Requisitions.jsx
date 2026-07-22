@@ -11,6 +11,14 @@ const STATUS_COLORS = {
   CANCELLED: 'badge-neutral',
 };
 
+const CLASSIFICATIONS = [
+  { key: 'MEDICATION', label: '💊 Medications', color: '#3B82F6', bgColor: '#EFF6FF' },
+  { key: 'MEDICAL_CONSUMABLE', label: '🩹 Medical Consumables', color: '#10B981', bgColor: '#ECFDF5' },
+  { key: 'MEDICAL_EQUIPMENT', label: '🩺 Medical Equipment', color: '#8B5CF6', bgColor: '#F5F3FF' },
+  { key: 'PPE', label: '🥼 PPE & Protective Wear', color: '#F59E0B', bgColor: '#FFFBEB' },
+  { key: 'OFFICE_SUPPLY', label: '📦 Office & Clinic Supplies', color: '#64748B', bgColor: '#F8FAFC' },
+];
+
 const Requisitions = () => {
   const { user, hasPermission } = useAuth();
 
@@ -18,7 +26,6 @@ const Requisitions = () => {
   const [requisitions, setRequisitions] = useState([]);
   const [patients, setPatients] = useState([]);
   const [items, setItems] = useState([]);
-  const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -31,6 +38,7 @@ const Requisitions = () => {
   const [isGridOpen, setIsGridOpen] = useState(false);
   const [gridSessionDate, setGridSessionDate] = useState(new Date().toISOString().substring(0, 10));
   const [gridColumns, setGridColumns] = useState([]); // [{ patientId, notes, isAdditional }]
+  const [sheetItemIds, setSheetItemIds] = useState([]); // Array of item IDs added to today's grid sheet
   const [gridQuantities, setGridQuantities] = useState({}); // { [`${patientId}_${itemId}`]: qty }
   const [selectedPatientPicker, setSelectedPatientPicker] = useState('');
   const [gridError, setGridError] = useState('');
@@ -86,14 +94,12 @@ const Requisitions = () => {
 
   const fetchLookups = async () => {
     try {
-      const [pRes, iRes, cRes] = await Promise.all([
+      const [pRes, iRes] = await Promise.all([
         api.get('/patients', { params: { status: 'ACTIVE' } }),
         api.get('/items'),
-        api.get('/categories'),
       ]);
       setPatients(pRes.data || []);
       setItems(iRes.data || []);
-      setCategories(cRes.data || []);
     } catch (err) {
       console.error('Error fetching lookups:', err);
     }
@@ -104,13 +110,19 @@ const Requisitions = () => {
     fetchLookups();
   }, []);
 
-  // Group items by category for the Grid Requisition Sheet
-  const groupedItems = useMemo(() => {
-    const map = {};
+  // Items grouped by top-level classification
+  const itemsByClassification = useMemo(() => {
+    const map = {
+      MEDICATION: [],
+      MEDICAL_CONSUMABLE: [],
+      MEDICAL_EQUIPMENT: [],
+      PPE: [],
+      OFFICE_SUPPLY: [],
+    };
     items.forEach(it => {
-      const catName = it.category?.name || (it.itemType ? it.itemType.replace(/_/g, ' ') : 'UNSPECIFIED');
-      if (!map[catName]) map[catName] = [];
-      map[catName].push(it);
+      const type = it.itemType || 'MEDICAL_CONSUMABLE';
+      if (!map[type]) map[type] = [];
+      map[type].push(it);
     });
     return map;
   }, [items]);
@@ -118,11 +130,15 @@ const Requisitions = () => {
   // ── Grid Sheet Controls ──
   const openGridSheet = () => {
     setGridSessionDate(new Date().toISOString().substring(0, 10));
-    // Default columns: first few active patients from registry + ADDITIONAL column
+    // Default columns: first active patients from registry + ADDITIONAL column
     const activePats = patients.slice(0, 6);
     const cols = activePats.map(p => ({ patientId: p.id, notes: '', isAdditional: false }));
     cols.push({ patientId: 'ADDITIONAL', notes: '', isAdditional: true });
     setGridColumns(cols);
+
+    // Default items: include common items from catalog
+    const initialItemIds = items.slice(0, 8).map(i => i.id);
+    setSheetItemIds(initialItemIds);
     setGridQuantities({});
     setGridError('');
     setIsGridOpen(true);
@@ -149,6 +165,26 @@ const Requisitions = () => {
   const removePatientColumn = (idx) => {
     if (gridColumns[idx]?.isAdditional) return;
     setGridColumns(gridColumns.filter((_, i) => i !== idx));
+  };
+
+  const addItemToSheet = (itemId) => {
+    if (!itemId) return;
+    if (sheetItemIds.includes(itemId)) {
+      alert('This item is already added to today\'s sheet.');
+      return;
+    }
+    setSheetItemIds(prev => [...prev, itemId]);
+  };
+
+  const removeItemFromSheet = (itemId) => {
+    setSheetItemIds(prev => prev.filter(id => id !== itemId));
+    setGridQuantities(prev => {
+      const copy = { ...prev };
+      Object.keys(copy).forEach(k => {
+        if (k.endsWith(`_${itemId}`)) delete copy[k];
+      });
+      return copy;
+    });
   };
 
   const handleCellChange = (patientId, itemId, value) => {
@@ -187,10 +223,10 @@ const Requisitions = () => {
     // Package columns into requisition payloads
     const reqs = gridColumns.map(col => {
       const colLines = [];
-      items.forEach(it => {
-        const qty = gridQuantities[`${col.patientId}_${it.id}`];
+      sheetItemIds.forEach(itemId => {
+        const qty = gridQuantities[`${col.patientId}_${itemId}`];
         if (qty && qty > 0) {
-          colLines.push({ itemId: it.id, quantity: qty, reason: col.notes || 'Grid Requisition entry' });
+          colLines.push({ itemId, quantity: qty, reason: col.notes || 'Grid Requisition entry' });
         }
       });
       return {
@@ -202,7 +238,7 @@ const Requisitions = () => {
     }).filter(r => r.lines.length > 0);
 
     if (reqs.length === 0) {
-      return setGridError('Please enter at least one quantity in the grid before submitting.');
+      return setGridError('Please enter at least one item quantity in the grid before submitting.');
     }
 
     try {
@@ -593,35 +629,37 @@ const Requisitions = () => {
         )}
       </div>
 
-      {/* ── REVAMPED MULTI-PATIENT SPREADSHEET GRID MODAL ── */}
+      {/* ── REVAMPED CLASSIFICATION-BASED SPREADSHEET GRID MODAL ── */}
       {isGridOpen && (
         <div className="modal-overlay" onClick={() => setIsGridOpen(false)}>
           <div
             className="modal-content"
             onClick={e => e.stopPropagation()}
             style={{
-              maxWidth: '95vw',
-              width: '1300px',
-              maxHeight: '92vh',
+              maxWidth: '96vw',
+              width: '1400px',
+              maxHeight: '94vh',
               display: 'flex',
               flexDirection: 'column',
               padding: '24px',
+              overflow: 'hidden',
             }}
           >
-            <div className="modal-header" style={{ borderBottom: '2px solid var(--theme-border)', pb: '12px' }}>
+            {/* Header */}
+            <div className="modal-header" style={{ borderBottom: '2px solid var(--theme-border)', paddingBottom: '12px' }}>
               <div>
                 <h2 style={{ margin: 0, fontSize: '20px', fontWeight: '700', color: 'var(--theme-text-bold)' }}>
                   REQUISITION FORM
                 </h2>
                 <span style={{ fontSize: '12px', color: 'var(--theme-text-muted)' }}>
-                  Multi-patient session inventory acquisition sheet
+                  Multi-patient session inventory acquisition sheet (Classifications & Registry Patients)
                 </span>
               </div>
               <button className="modal-close" onClick={() => setIsGridOpen(false)}>✕</button>
             </div>
 
             {/* Top Toolbar */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', margin: '16px 0', gap: '16px', flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', margin: '14px 0', gap: '16px', flexWrap: 'wrap' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                 <label style={{ fontSize: '13px', fontWeight: '600' }}>Session Date:</label>
                 <input
@@ -629,7 +667,7 @@ const Requisitions = () => {
                   className="form-control"
                   value={gridSessionDate}
                   onChange={e => setGridSessionDate(e.target.value)}
-                  style={{ width: '170px' }}
+                  style={{ width: '160px' }}
                 />
               </div>
 
@@ -642,7 +680,7 @@ const Requisitions = () => {
                     setSelectedPatientPicker(e.target.value);
                     if (e.target.value) addPatientFromRegistry(e.target.value);
                   }}
-                  style={{ width: '260px' }}
+                  style={{ width: '280px' }}
                 >
                   <option value="">+ Add Patient from Registry...</option>
                   {patients.map(p => (
@@ -656,19 +694,49 @@ const Requisitions = () => {
 
             {gridError && <div className="login-error" style={{ marginBottom: '12px' }}>{gridError}</div>}
 
-            {/* Scrollable Spreadsheet Table Container */}
-            <div style={{ flex: 1, overflow: 'auto', border: '1px solid var(--theme-border)', borderRadius: 'var(--border-radius-md)' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
+            {/* Scrollable Sticky Spreadsheet Grid Container */}
+            <div style={{ flex: 1, overflow: 'auto', border: '1px solid var(--theme-border)', borderRadius: 'var(--border-radius-md)', position: 'relative' }}>
+              <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0, fontSize: '12px' }}>
                 <thead>
-                  {/* Row 1: Column Headers (Patient Names) */}
-                  <tr style={{ background: 'var(--theme-card-bg)', borderBottom: '1px solid var(--theme-border)' }}>
-                    <th style={{ padding: '12px', textAlign: 'left', minWidth: '220px', position: 'sticky', left: 0, background: 'var(--theme-card-bg)', zIndex: 10 }}>
-                      ITEM DESCRIPTION
+                  {/* Top Header Row: Patients */}
+                  <tr>
+                    {/* Top-Left Cell (Sticky Top & Left) */}
+                    <th
+                      style={{
+                        padding: '12px',
+                        textAlign: 'left',
+                        minWidth: '260px',
+                        position: 'sticky',
+                        top: 0,
+                        left: 0,
+                        zIndex: 30,
+                        background: 'var(--theme-card-bg)',
+                        borderBottom: '2px solid var(--theme-border)',
+                        borderRight: '2px solid var(--theme-border)',
+                      }}
+                    >
+                      ITEM CLASSIFICATIONS & DESCRIPTION
                     </th>
+
+                    {/* Patient Column Headers (Sticky Top) */}
                     {gridColumns.map((col, idx) => {
                       if (col.isAdditional) {
                         return (
-                          <th key="additional" style={{ padding: '10px 8px', textAlign: 'center', minWidth: '110px', background: '#FEF3C7', color: '#92400E', borderLeft: '2px solid #F59E0B' }}>
+                          <th
+                            key="additional"
+                            style={{
+                              padding: '10px 8px',
+                              textAlign: 'center',
+                              minWidth: '120px',
+                              position: 'sticky',
+                              top: 0,
+                              zIndex: 20,
+                              background: '#FEF3C7',
+                              color: '#92400E',
+                              borderBottom: '2px solid var(--theme-border)',
+                              borderLeft: '2px solid #F59E0B',
+                            }}
+                          >
                             <div style={{ fontWeight: '700', fontSize: '13px' }}>ADDITIONAL</div>
                             <div style={{ fontSize: '10px', fontWeight: '400' }}>Station Stock</div>
                           </th>
@@ -676,8 +744,21 @@ const Requisitions = () => {
                       }
                       const pat = patients.find(p => p.id === col.patientId);
                       return (
-                        <th key={col.patientId} style={{ padding: '10px 8px', textAlign: 'center', minWidth: '120px', borderLeft: '1px solid var(--theme-border)' }}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: '4px' }}>
+                        <th
+                          key={col.patientId}
+                          style={{
+                            padding: '10px 8px',
+                            textAlign: 'center',
+                            minWidth: '130px',
+                            position: 'sticky',
+                            top: 0,
+                            zIndex: 20,
+                            background: 'var(--theme-card-bg)',
+                            borderBottom: '2px solid var(--theme-border)',
+                            borderLeft: '1px solid var(--theme-border)',
+                          }}
+                        >
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
                             <span style={{ fontWeight: '700', fontSize: '13px', color: 'var(--theme-text-bold)' }}>
                               {pat?.name || 'Patient'}
                             </span>
@@ -685,7 +766,7 @@ const Requisitions = () => {
                               type="button"
                               onClick={() => removePatientColumn(idx)}
                               style={{ background: 'none', border: 'none', color: 'var(--color-critical)', cursor: 'pointer', fontSize: '12px' }}
-                              title="Remove column"
+                              title="Remove patient column"
                             >
                               ✕
                             </button>
@@ -701,99 +782,200 @@ const Requisitions = () => {
                         </th>
                       );
                     })}
-                    <th style={{ padding: '12px', textAlign: 'center', minWidth: '80px', background: '#E0F2FE', color: '#0369A1', borderLeft: '2px solid #0284C7', position: 'sticky', right: 0, zIndex: 10 }}>
+
+                    {/* Rightmost Total Header (Sticky Top & Right) */}
+                    <th
+                      style={{
+                        padding: '12px',
+                        textAlign: 'center',
+                        minWidth: '90px',
+                        position: 'sticky',
+                        top: 0,
+                        right: 0,
+                        zIndex: 30,
+                        background: '#E0F2FE',
+                        color: '#0369A1',
+                        borderBottom: '2px solid var(--theme-border)',
+                        borderLeft: '2px solid #0284C7',
+                      }}
+                    >
                       TOTAL
                     </th>
                   </tr>
                 </thead>
                 <tbody>
-                  {Object.keys(groupedItems).length === 0 ? (
-                    <tr>
-                      <td colSpan={gridColumns.length + 2} style={{ padding: '24px', textAlign: 'center', color: 'var(--theme-text-muted)' }}>
-                        No items found in catalog.
-                      </td>
-                    </tr>
-                  ) : (
-                    Object.entries(groupedItems).map(([categoryName, catItems]) => (
-                      <React.Fragment key={categoryName}>
-                        {/* Category Header Row */}
-                        <tr style={{ background: '#1E293B', color: '#F8FAFC' }}>
+                  {/* Render Sections per Top-Level Item Classification */}
+                  {CLASSIFICATIONS.map(cls => {
+                    const clsCatalogItems = itemsByClassification[cls.key] || [];
+                    const clsSheetItemIds = sheetItemIds.filter(id => {
+                      const found = items.find(i => i.id === id);
+                      return found && (found.itemType || 'MEDICAL_CONSUMABLE') === cls.key;
+                    });
+
+                    return (
+                      <React.Fragment key={cls.key}>
+                        {/* Classification Header Row */}
+                        <tr style={{ background: cls.bgColor }}>
                           <td
                             colSpan={gridColumns.length + 2}
-                            style={{ padding: '8px 12px', fontWeight: '700', fontSize: '11px', letterSpacing: '0.5px', textTransform: 'uppercase' }}
+                            style={{
+                              padding: '10px 14px',
+                              fontWeight: '700',
+                              fontSize: '12px',
+                              letterSpacing: '0.5px',
+                              color: cls.color,
+                              borderTop: '2px solid var(--theme-border)',
+                              borderBottom: '1px solid var(--theme-border)',
+                            }}
                           >
-                            {categoryName}
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <span>{cls.label} ({clsSheetItemIds.length} added)</span>
+
+                              {/* Dropdown to add item specifically under this classification */}
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <select
+                                  className="form-control"
+                                  onChange={e => {
+                                    addItemToSheet(e.target.value);
+                                    e.target.value = '';
+                                  }}
+                                  style={{ fontSize: '11px', padding: '3px 8px', height: '28px', minWidth: '220px' }}
+                                >
+                                  <option value="">+ Add {cls.label.split(' ')[1] || 'Item'}...</option>
+                                  {clsCatalogItems.map(it => (
+                                    <option key={it.id} value={it.id}>
+                                      {it.name} (Stock: {it.stockLevel?.quantityOnHand ?? 0} {it.unit})
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+                            </div>
                           </td>
                         </tr>
 
-                        {/* Items under Category */}
-                        {catItems.map(it => {
-                          const rowTotal = calculateRowTotal(it.id);
-                          return (
-                            <tr key={it.id} style={{ borderBottom: '1px solid var(--theme-border)' }}>
-                              {/* Left Item Description */}
-                              <td style={{ padding: '8px 12px', position: 'sticky', left: 0, background: 'var(--theme-card-bg)', zIndex: 5, fontWeight: '500' }}>
-                                {it.name}
-                                <span style={{ fontSize: '10px', color: 'var(--theme-text-muted)', marginLeft: '6px' }}>
-                                  ({it.unit})
-                                </span>
-                              </td>
+                        {/* Item Rows under this classification */}
+                        {clsSheetItemIds.length === 0 ? (
+                          <tr>
+                            <td
+                              colSpan={gridColumns.length + 2}
+                              style={{ padding: '8px 16px', fontSize: '11px', color: 'var(--theme-text-muted)', fontStyle: 'italic', borderBottom: '1px solid var(--theme-border)' }}
+                            >
+                              No items added under {cls.label} yet. Use the "+ Add Item" picker above to add items to today's sheet.
+                            </td>
+                          </tr>
+                        ) : (
+                          clsSheetItemIds.map(itemId => {
+                            const item = items.find(i => i.id === itemId);
+                            if (!item) return null;
 
-                              {/* Columns for each Patient */}
-                              {gridColumns.map(col => {
-                                const val = gridQuantities[`${col.patientId}_${it.id}`] || '';
-                                return (
-                                  <td
-                                    key={col.patientId}
-                                    style={{
-                                      padding: '4px',
-                                      textAlign: 'center',
-                                      borderLeft: col.isAdditional ? '2px solid #F59E0B' : '1px solid var(--theme-border)',
-                                      background: col.isAdditional ? '#FFFBEB' : undefined,
-                                    }}
-                                  >
-                                    <input
-                                      type="number"
-                                      min="0"
-                                      className="form-control"
-                                      value={val}
-                                      onChange={e => handleCellChange(col.patientId, it.id, e.target.value)}
+                            const availStock = item.stockLevel?.quantityOnHand ?? 0;
+                            const rowTotal = calculateRowTotal(item.id);
+                            const isLowStock = rowTotal > availStock;
+
+                            return (
+                              <tr key={item.id} style={{ borderBottom: '1px solid var(--theme-border)' }}>
+                                {/* Left Item Column (Sticky Left) */}
+                                <td
+                                  style={{
+                                    padding: '8px 12px',
+                                    position: 'sticky',
+                                    left: 0,
+                                    zIndex: 10,
+                                    background: 'var(--theme-card-bg)',
+                                    borderRight: '2px solid var(--theme-border)',
+                                    fontWeight: '500',
+                                  }}
+                                >
+                                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                    <div>
+                                      <div style={{ fontWeight: '600', color: 'var(--theme-text-bold)' }}>{item.name}</div>
+                                      <div style={{ fontSize: '10px', color: 'var(--theme-text-muted)' }}>
+                                        Unit: {item.unit} | Stock: <span style={{ fontWeight: '700', color: availStock < 10 ? 'var(--color-critical)' : 'var(--color-success)' }}>{availStock}</span>
+                                      </div>
+                                    </div>
+                                    <button
+                                      type="button"
+                                      onClick={() => removeItemFromSheet(item.id)}
+                                      style={{ background: 'none', border: 'none', color: 'var(--color-critical)', cursor: 'pointer', fontSize: '12px' }}
+                                      title="Remove item row"
+                                    >
+                                      ✕
+                                    </button>
+                                  </div>
+                                </td>
+
+                                {/* Patient Cells */}
+                                {gridColumns.map(col => {
+                                  const val = gridQuantities[`${col.patientId}_${item.id}`] || '';
+                                  return (
+                                    <td
+                                      key={col.patientId}
                                       style={{
-                                        width: '100%',
-                                        textAlign: 'center',
                                         padding: '4px',
-                                        fontWeight: val ? '700' : 'normal',
-                                        backgroundColor: val ? '#FEF08A' : undefined,
+                                        textAlign: 'center',
+                                        borderLeft: col.isAdditional ? '2px solid #F59E0B' : '1px solid var(--theme-border)',
+                                        background: col.isAdditional ? '#FFFBEB' : undefined,
                                       }}
-                                    />
-                                  </td>
-                                );
-                              })}
+                                    >
+                                      <input
+                                        type="number"
+                                        min="0"
+                                        className="form-control"
+                                        value={val}
+                                        onChange={e => handleCellChange(col.patientId, item.id, e.target.value)}
+                                        style={{
+                                          width: '100%',
+                                          textAlign: 'center',
+                                          padding: '4px',
+                                          fontWeight: val ? '700' : 'normal',
+                                          backgroundColor: val ? '#FEF08A' : undefined,
+                                          borderColor: val ? '#F59E0B' : undefined,
+                                        }}
+                                      />
+                                    </td>
+                                  );
+                                })}
 
-                              {/* Rightmost Total Column */}
-                              <td
-                                style={{
-                                  padding: '8px',
-                                  textAlign: 'center',
-                                  fontWeight: '700',
-                                  background: '#F0F9FF',
-                                  color: rowTotal > 0 ? '#0369A1' : 'var(--theme-text-muted)',
-                                  borderLeft: '2px solid #0284C7',
-                                  position: 'sticky', right: 0, zIndex: 5,
-                                }}
-                              >
-                                {rowTotal || 0}
-                              </td>
-                            </tr>
-                          );
-                        })}
+                                {/* Rightmost Total Cell (Sticky Right) */}
+                                <td
+                                  style={{
+                                    padding: '8px',
+                                    textAlign: 'center',
+                                    fontWeight: '700',
+                                    background: isLowStock ? '#FEE2E2' : '#F0F9FF',
+                                    color: isLowStock ? 'var(--color-critical)' : rowTotal > 0 ? '#0369A1' : 'var(--theme-text-muted)',
+                                    borderLeft: '2px solid #0284C7',
+                                    position: 'sticky',
+                                    right: 0,
+                                    zIndex: 10,
+                                  }}
+                                >
+                                  {rowTotal || 0}
+                                  {isLowStock && (
+                                    <div style={{ fontSize: '9px', color: 'var(--color-critical)', fontWeight: '700' }}>⚠️ EXCEEDS STOCK</div>
+                                  )}
+                                </td>
+                              </tr>
+                            );
+                          })
+                        )}
                       </React.Fragment>
-                    ))
-                  )}
+                    );
+                  })}
 
                   {/* Bottom Patient Notes / Remarks Row */}
                   <tr style={{ background: 'var(--theme-card-bg)', borderTop: '2px solid var(--theme-border)' }}>
-                    <td style={{ padding: '12px', fontWeight: '700', position: 'sticky', left: 0, background: 'var(--theme-card-bg)', zIndex: 5 }}>
+                    <td
+                      style={{
+                        padding: '12px',
+                        fontWeight: '700',
+                        position: 'sticky',
+                        left: 0,
+                        zIndex: 10,
+                        background: 'var(--theme-card-bg)',
+                        borderRight: '2px solid var(--theme-border)',
+                      }}
+                    >
                       PATIENT SESSION NOTES / REMARKS
                     </td>
                     {gridColumns.map((col, idx) => (
@@ -808,12 +990,13 @@ const Requisitions = () => {
                         />
                       </td>
                     ))}
-                    <td style={{ position: 'sticky', right: 0, background: '#F0F9FF', borderLeft: '2px solid #0284C7' }}></td>
+                    <td style={{ position: 'sticky', right: 0, zIndex: 10, background: '#F0F9FF', borderLeft: '2px solid #0284C7' }}></td>
                   </tr>
                 </tbody>
               </table>
             </div>
 
+            {/* Modal Footer */}
             <div className="modal-footer" style={{ marginTop: '16px', borderTop: '1px solid var(--theme-border)', paddingTop: '16px' }}>
               <button type="button" className="btn" onClick={() => setIsGridOpen(false)}>Cancel</button>
               <button type="button" className="btn btn-primary" onClick={handleGridSubmit} disabled={isSubmitting} style={{ fontWeight: '700', padding: '10px 24px' }}>
