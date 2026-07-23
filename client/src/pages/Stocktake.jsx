@@ -78,10 +78,12 @@ const Stocktake = () => {
 
   useEffect(() => { fetchList(true); }, []);
 
+  const [locationScope, setLocationScope] = useState('ECART');
+
   const handleInitiate = async () => {
     try {
       setInitiating(true);
-      const res = await api.post('/stocktakes');
+      const res = await api.post('/stocktakes', { locationScope });
       setConfirmInitiate(false);
       await fetchList();
       await fetchDetail(res.data.id);
@@ -135,8 +137,9 @@ const Stocktake = () => {
     }
   };
 
-  // Discrepancy filter toggle
+  // Discrepancy filter toggle & Search bar query
   const [showDiscrepanciesOnly, setShowDiscrepanciesOnly] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
 
   // Derived counts
   const countedLines      = (activeStocktake?.lines || []).filter(l => l.physicalQty !== null);
@@ -145,8 +148,12 @@ const Stocktake = () => {
   const uncountedLines    = totalLines - countedLines.length;
 
   const displayedLines    = (activeStocktake?.lines || []).filter(l => {
-    if (!showDiscrepanciesOnly) return true;
-    return l.discrepancy !== 0 && l.discrepancy !== null;
+    const discrepancyMatch = !showDiscrepanciesOnly || (l.discrepancy !== 0 && l.discrepancy !== null);
+    const searchMatch = !searchQuery || 
+      (l.item?.name || '').toLowerCase().includes(searchQuery.toLowerCase()) || 
+      (l.item?.sku || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (l.location || '').toLowerCase().includes(searchQuery.toLowerCase());
+    return discrepancyMatch && searchMatch;
   });
 
   return (
@@ -190,8 +197,35 @@ const Stocktake = () => {
             </div>
             <div className="modal-body">
               <p style={{ marginBottom: '12px' }}>
-                This will initiate a new physical count session across the entire clinic inventory.
+                Select the physical inventory area you wish to audit for this stocktake session:
               </p>
+
+              <div className="form-group" style={{ marginBottom: '16px' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 14px', borderRadius: 'var(--border-radius-md)', border: '1px solid var(--theme-border)', cursor: 'pointer', background: locationScope === 'ECART' ? 'var(--theme-primary-bg)' : 'transparent' }}>
+                    <input type="radio" name="locationScope" value="ECART" checked={locationScope === 'ECART'} onChange={() => setLocationScope('ECART')} />
+                    <div>
+                      <div style={{ fontWeight: '600', fontSize: '13px', color: 'var(--theme-text-bold)' }}>🛒 eCart Only</div>
+                      <div style={{ fontSize: '11px', color: 'var(--theme-text-muted)' }}>Count active emergency trolley items (1 row per item)</div>
+                    </div>
+                  </label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 14px', borderRadius: 'var(--border-radius-md)', border: '1px solid var(--theme-border)', cursor: 'pointer', background: locationScope === 'CENTRAL' ? 'var(--theme-primary-bg)' : 'transparent' }}>
+                    <input type="radio" name="locationScope" value="CENTRAL" checked={locationScope === 'CENTRAL'} onChange={() => setLocationScope('CENTRAL')} />
+                    <div>
+                      <div style={{ fontWeight: '600', fontSize: '13px', color: 'var(--theme-text-bold)' }}>🏢 Central Storage Only</div>
+                      <div style={{ fontSize: '11px', color: 'var(--theme-text-muted)' }}>Count central warehouse & storage shelf items</div>
+                    </div>
+                  </label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 14px', borderRadius: 'var(--border-radius-md)', border: '1px solid var(--theme-border)', cursor: 'pointer', background: locationScope === 'ALL' ? 'var(--theme-primary-bg)' : 'transparent' }}>
+                    <input type="radio" name="locationScope" value="ALL" checked={locationScope === 'ALL'} onChange={() => setLocationScope('ALL')} />
+                    <div>
+                      <div style={{ fontWeight: '600', fontSize: '13px', color: 'var(--theme-text-bold)' }}>🌐 Full Facility Audit</div>
+                      <div style={{ fontSize: '11px', color: 'var(--theme-text-muted)' }}>Count all items across both eCart and Central Storage</div>
+                    </div>
+                  </label>
+                </div>
+              </div>
+
               <div style={{ padding: '10px 14px', background: 'var(--theme-primary-bg)', color: 'var(--theme-primary)', borderRadius: 'var(--border-radius-md)', fontSize: '13px', marginBottom: '12px' }}>
                 🔔 <strong>Notice:</strong> All active clinical staff members will receive a notification to assist with the physical counts.
               </div>
@@ -325,18 +359,66 @@ const Stocktake = () => {
             </div>
 
             <div className="widget-body" style={{ padding: 0 }}>
+              {/* Sticky Search Bar Header */}
+              <div 
+                style={{ 
+                  position: 'sticky', 
+                  top: 0, 
+                  zIndex: 10, 
+                  background: 'var(--theme-card-bg)', 
+                  borderBottom: '1px solid var(--theme-border)', 
+                  padding: '12px 16px', 
+                  display: 'flex', 
+                  gap: '12px', 
+                  alignItems: 'center',
+                  boxShadow: '0 2px 8px rgba(0,0,0,0.06)'
+                }}
+              >
+                <div style={{ position: 'relative', flex: 1 }}>
+                  <input
+                    type="text"
+                    className="form-control"
+                    placeholder="🔍 Type to search stocktake items (by name, SKU, or location)..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    style={{ paddingRight: searchQuery ? '30px' : '12px' }}
+                  />
+                  {searchQuery && (
+                    <button
+                      type="button"
+                      onClick={() => setSearchQuery('')}
+                      style={{
+                        position: 'absolute',
+                        right: '10px',
+                        top: '50%',
+                        transform: 'translateY(-50%)',
+                        background: 'none',
+                        border: 'none',
+                        cursor: 'pointer',
+                        color: 'var(--theme-text-muted)',
+                        fontSize: '12px',
+                      }}
+                      title="Clear search"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+              </div>
+
               {stLoading ? (
                 <p style={{ padding: '24px', color: 'var(--theme-text-muted)' }}>Loading count sheet...</p>
               ) : (
                 <table className="table">
                   <thead>
                     <tr>
-                      <th style={{ width: '30%' }}>Item Name</th>
-                      <th style={{ width: '15%' }}>SKU</th>
+                      <th style={{ width: '25%' }}>Item Name</th>
+                      <th style={{ width: '15%' }}>Location</th>
+                      <th style={{ width: '12%' }}>SKU</th>
                       <th style={{ width: '10%' }}>Unit</th>
-                      <th style={{ textAlign: 'right', width: '15%' }}>System Qty</th>
+                      <th style={{ textAlign: 'right', width: '13%' }}>System Qty</th>
                       <th style={{ textAlign: 'center', width: '15%', minWidth: '110px' }}>Physical Count</th>
-                      <th style={{ textAlign: 'right', width: '15%' }}>Discrepancy</th>
+                      <th style={{ textAlign: 'right', width: '10%' }}>Discrepancy</th>
                       {activeStocktake.status === 'IN_PROGRESS' && canEnterCount && <th style={{ width: '80px' }}></th>}
                     </tr>
                   </thead>
@@ -345,6 +427,7 @@ const Stocktake = () => {
                       const isSaved     = line.physicalQty !== null;
                       const discrepancy = line.discrepancy;
                       const isChanged   = counts[line.id] !== '' && String(line.physicalQty) !== counts[line.id];
+                      const loc = line.location || 'ECART';
                       return (
                         <tr key={line.id} style={{
                           backgroundColor: discrepancy !== 0 && discrepancy !== null
@@ -352,6 +435,11 @@ const Stocktake = () => {
                             : 'transparent'
                         }}>
                           <td><strong>{line.item.name}</strong></td>
+                          <td>
+                            <span className="badge badge-neutral" style={{ fontSize: '11px' }}>
+                              {loc === 'ECART' ? '🛒 eCart' : '🏢 Central'}
+                            </span>
+                          </td>
                           <td><code style={{ fontSize: '11px' }}>{line.item.sku}</code></td>
                           <td style={{ fontSize: '12px', color: 'var(--theme-text-muted)' }}>{line.item.unit}</td>
                           <td style={{ textAlign: 'right', fontWeight: '600' }}>{line.systemQty}</td>

@@ -424,7 +424,7 @@ const Dashboard = () => {
                           <tr key={item.id}>
                             <td><strong>{item.name}</strong></td>
                             <td><code>{item.sku}</code></td>
-                            <td>{item.stockLevel?.quantityOnHand ?? 0} {item.unit}</td>
+                            <td>{item.totalQty ?? item.quantityOnHand ?? 0} {item.unit}</td>
                             <td>Warning: {item.warningLevel} | Critical: {item.criticalLevel}</td>
                             <td>
                               <span className={`badge ${

@@ -142,8 +142,11 @@ const Transactions = () => {
   const getActionBadgeClass = (type) => {
     switch (type) {
       case 'INBOUND':
+      case 'TRANSFER_IN':
         return 'badge-success';
       case 'OUTBOUND':
+      case 'DISPENSE':
+      case 'TRANSFER_OUT':
         return 'badge-warning';
       case 'DISCARD':
         return 'badge-critical';
@@ -159,7 +162,7 @@ const Transactions = () => {
       <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
           <h2>System Audit Feed & Inventory Transaction Logs</h2>
-          <p className="page-title-desc">Immutable audit feed of stock movements, direct dispensations, inbound shipments, and management comments.</p>
+          <p className="page-title-desc">Immutable audit feed of stock movements, direct dispensations, inbound shipments, transfers, and management comments.</p>
         </div>
         <button className="btn btn-outline" onClick={exportAuditCSV} title="Export audit feed logs to CSV">
           📥 Export CSV
@@ -175,6 +178,7 @@ const Transactions = () => {
           <button className={`btn btn-sm ${filterType === '' ? 'btn-primary' : 'btn-outline'}`} onClick={() => setFilterType('')}>All Types</button>
           <button className={`btn btn-sm ${filterType === 'INBOUND' ? 'btn-primary' : 'btn-outline'}`} onClick={() => setFilterType('INBOUND')}>📥 Inbound</button>
           <button className={`btn btn-sm ${filterType === 'OUTBOUND' ? 'btn-primary' : 'btn-outline'}`} onClick={() => setFilterType('OUTBOUND')}>💊 Outbound</button>
+          <button className={`btn btn-sm ${filterType === 'TRANSFER_IN' || filterType === 'TRANSFER_OUT' ? 'btn-primary' : 'btn-outline'}`} onClick={() => setFilterType('TRANSFER_OUT')}>🔄 Transfers</button>
           <button className={`btn btn-sm ${filterType === 'DISCARD' ? 'btn-primary' : 'btn-outline'}`} onClick={() => setFilterType('DISCARD')}>🗑 Discards</button>
           <button className={`btn btn-sm ${filterType === 'ADJUSTMENT' ? 'btn-primary' : 'btn-outline'}`} onClick={() => setFilterType('ADJUSTMENT')}>📝 Adjustments</button>
         </div>
@@ -232,6 +236,7 @@ const Transactions = () => {
                     <tr>
                       <th>Time</th>
                       <th>Action</th>
+                      <th>Location</th>
                       <th>Supply Item</th>
                       <th>Qty Adjustment</th>
                       <th>Logged By</th>
@@ -257,6 +262,11 @@ const Transactions = () => {
                         <td>
                           <span className={`badge ${getActionBadgeClass(log.type)}`}>
                             {log.type}
+                          </span>
+                        </td>
+                        <td>
+                          <span className="badge badge-neutral" style={{ fontSize: '11px' }}>
+                            {(log.location || 'ECART') === 'ECART' ? '🛒 eCart' : '🏢 Central'}
                           </span>
                         </td>
                         <td>

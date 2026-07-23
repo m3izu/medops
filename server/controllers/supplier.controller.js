@@ -22,7 +22,7 @@ const getOne = async (req, res, next) => {
   try {
     const s = await prisma.supplier.findUnique({
       where: { id: req.params.id },
-      include: { items: { select: { id: true, name: true, sku: true } } },
+      include: { items: { select: { id: true, name: true, sku: true, unit: true, stockLevels: true } } },
     });
     if (!s) return res.status(404).json({ error: 'Supplier not found' });
     res.json(s);

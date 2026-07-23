@@ -117,7 +117,9 @@ const SearchableItemSelect = ({ items, value, onChange, placeholder = "Type item
             </div>
           ) : (
             filteredItems.map((item) => {
-              const stock = item.stockLevel?.quantityOnHand ?? 0;
+              const ecart = item.ecartQty ?? (item.stockLevels || []).find(s => s.location === 'ECART')?.quantityOnHand ?? 0;
+              const central = item.centralQty ?? (item.stockLevels || []).find(s => s.location === 'CENTRAL')?.quantityOnHand ?? 0;
+              const stock = ecart + central;
               const isSelected = item.id === value;
               return (
                 <div
@@ -182,7 +184,7 @@ const Dispense = () => {
 
   // Multi-item rows state
   const [lines, setLines] = useState([
-    { id: 1, itemId: '', qty: 1, notes: '' },
+    { id: 1, itemId: '', location: '', qty: 1, notes: '' },
   ]);
 
   const [formError, setFormError] = useState('');
@@ -236,7 +238,7 @@ const Dispense = () => {
   const handleAddLine = () => {
     setLines((prev) => [
       ...prev,
-      { id: Date.now() + Math.random(), itemId: '', qty: 1, notes: '' },
+      { id: Date.now() + Math.random(), itemId: '', location: '', qty: 1, notes: '' },
     ]);
   };
 
@@ -268,15 +270,19 @@ const Dispense = () => {
         setFormError(`Row #${i + 1}: Please search and select an item.`);
         return;
       }
+      if (!line.location) {
+        setFormError(`Row #${i + 1}: Please explicitly select a source location (eCart or Central Storage).`);
+        return;
+      }
       if (!line.qty || Number(line.qty) <= 0) {
         setFormError(`Row #${i + 1}: Quantity must be a positive number.`);
         return;
       }
       const itemObj = dispensableItems.find((item) => item.id === line.itemId);
-      const avail = itemObj?.stockLevel?.quantityOnHand ?? 0;
+      const avail = line.location === 'ECART' ? (itemObj?.ecartQty ?? 0) : (itemObj?.centralQty ?? 0);
       if (avail < Number(line.qty)) {
         setFormError(
-          `Row #${i + 1} (${itemObj?.name || 'Item'}): Insufficient stock. Available: ${avail} ${itemObj?.unit || ''}.`
+          `Row #${i + 1} (${itemObj?.name || 'Item'}): Insufficient stock in ${line.location}. Available: ${avail} ${itemObj?.unit || ''}.`
         );
         return;
       }
@@ -288,6 +294,7 @@ const Dispense = () => {
         patientId,
         items: lines.map((l) => ({
           itemId: l.itemId,
+          location: l.location,
           qty: Number(l.qty),
           notes: l.notes.trim() || undefined,
         })),
@@ -403,7 +410,9 @@ const Dispense = () => {
 
               {lines.map((line, idx) => {
                 const selectedItemObj = dispensableItems.find((i) => i.id === line.itemId);
-                const availableStock = selectedItemObj?.stockLevel?.quantityOnHand ?? 0;
+                const ecart = selectedItemObj?.ecartQty ?? (selectedItemObj?.stockLevels || []).find(s => s.location === 'ECART')?.quantityOnHand ?? 0;
+                const central = selectedItemObj?.centralQty ?? (selectedItemObj?.stockLevels || []).find(s => s.location === 'CENTRAL')?.quantityOnHand ?? 0;
+                const availableStock = ecart + central;
 
                 return (
                   <div
@@ -442,7 +451,7 @@ const Dispense = () => {
 
                     <div className="form-row" style={{ alignItems: 'flex-start' }}>
                       {/* Searchable Item Dropdown */}
-                      <div className="form-group" style={{ flex: '2', minWidth: '240px' }}>
+                      <div className="form-group" style={{ flex: '2', minWidth: '220px' }}>
                         <label className="form-label">Search & Select Item *</label>
                         <SearchableItemSelect
                           items={dispensableItems}
@@ -450,15 +459,26 @@ const Dispense = () => {
                           onChange={(val) => handleLineChange(line.id, 'itemId', val)}
                           placeholder="Type item name or SKU..."
                         />
-                        {selectedItemObj && (
-                          <div style={{ marginTop: '6px', fontSize: '12px' }}>
-                            <span style={{ color: 'var(--theme-text-muted)' }}>Available Stock: </span>
-                            <strong
-                              style={{
-                                color: availableStock > 0 ? 'var(--color-success)' : 'var(--color-critical)',
-                              }}
-                            >
-                              {availableStock} {selectedItemObj.unit}
+                      </div>
+
+                      {/* Source Location */}
+                      <div className="form-group" style={{ flex: '1.5', minWidth: '170px' }}>
+                        <label className="form-label">Source Location *</label>
+                        <select
+                          className="form-control"
+                          value={line.location || ''}
+                          onChange={(e) => handleLineChange(line.id, 'location', e.target.value)}
+                          required
+                        >
+                          <option value="">-- Choose Location --</option>
+                          <option value="ECART">🛒 eCart Inventory Pool</option>
+                          <option value="CENTRAL">🏢 Central Storage</option>
+                        </select>
+                        {selectedItemObj && line.location && (
+                          <div style={{ marginTop: '6px', fontSize: '11px' }}>
+                            <span style={{ color: 'var(--theme-text-muted)' }}>Avail: </span>
+                            <strong style={{ color: (line.location === 'ECART' ? selectedItemObj.ecartQty : selectedItemObj.centralQty) > 0 ? 'var(--color-success)' : 'var(--color-critical)' }}>
+                              {line.location === 'ECART' ? (selectedItemObj.ecartQty ?? 0) : (selectedItemObj.centralQty ?? 0)} {selectedItemObj.unit}
                             </strong>
                           </div>
                         )}
@@ -551,6 +571,7 @@ const Dispense = () => {
               <thead>
                 <tr>
                   <th>Date & Time</th>
+                  <th>Location</th>
                   <th>Patient</th>
                   <th>Item</th>
                   <th>Qty</th>
@@ -563,10 +584,16 @@ const Dispense = () => {
                 {history.map((log) => {
                   const badge =
                     BILLING_STATUS_BADGE[log.billingStatus] || BILLING_STATUS_BADGE.PENDING;
+                  const loc = log.location || 'ECART';
                   return (
                     <tr key={log.id}>
                       <td style={{ fontSize: '12px', color: 'var(--theme-text-muted)' }}>
                         {formatDate(log.dispensedAt)}
+                      </td>
+                      <td>
+                        <span className="badge badge-neutral" style={{ fontSize: '11px' }}>
+                          {loc === 'ECART' ? '🛒 eCart' : '🏢 Central'}
+                        </span>
                       </td>
                       <td>
                         <div style={{ fontWeight: '600', color: 'var(--theme-text-bold)', fontSize: '13px' }}>

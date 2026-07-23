@@ -133,14 +133,20 @@ const importCsv = async (req, res, next) => {
                 }
               });
 
-              // Upsert stock level
+              // Upsert stock level for ECART and CENTRAL
               await tx.stockLevel.upsert({
-                where: { itemId: targetItem.id },
+                where: { itemId_location: { itemId: targetItem.id, location: 'ECART' } },
                 update: { quantityOnHand: initialQty, lastUpdated: new Date() },
-                create: { itemId: targetItem.id, quantityOnHand: initialQty, lastUpdated: new Date() }
+                create: { itemId: targetItem.id, location: 'ECART', quantityOnHand: initialQty, lastUpdated: new Date() }
+              });
+
+              await tx.stockLevel.upsert({
+                where: { itemId_location: { itemId: targetItem.id, location: 'CENTRAL' } },
+                update: {},
+                create: { itemId: targetItem.id, location: 'CENTRAL', quantityOnHand: 0, lastUpdated: new Date() }
               });
             } else {
-              // CREATE new item and stock level
+              // CREATE new item and stock levels
               targetItem = await tx.item.create({
                 data: {
                   name: row.name.trim(),
@@ -155,11 +161,11 @@ const importCsv = async (req, res, next) => {
                   acquisitionDate,
                   condition: row.condition?.trim() || 'GOOD',
                   createdById: req.user.id,
-                  stockLevel: {
-                    create: {
-                      quantityOnHand: initialQty,
-                      lastUpdated: new Date()
-                    }
+                  stockLevels: {
+                    create: [
+                      { location: 'ECART', quantityOnHand: initialQty, lastUpdated: new Date() },
+                      { location: 'CENTRAL', quantityOnHand: 0, lastUpdated: new Date() },
+                    ]
                   }
                 }
               });

@@ -48,6 +48,11 @@ const create = async (req, res, next) => {
         const lineItemId = line.itemId;
         const lineQty = Number(line.qty);
         const lineNotes = line.notes?.trim() || notes?.trim() || undefined;
+        const targetLocation = line.location || req.body.location || 'ECART';
+
+        if (!['ECART', 'CENTRAL'].includes(targetLocation)) {
+          throw new Error('Location must be either ECART or CENTRAL.');
+        }
 
         itemIdsToAlert.add(lineItemId);
 
@@ -55,10 +60,11 @@ const create = async (req, res, next) => {
         const item = await tx.item.findUnique({
           where: { id: lineItemId },
           include: {
-            stockLevel: true,
+            stockLevels: true,
             category: true,
             batches: {
               where: {
+                location: targetLocation,
                 quantityRemaining: { gt: 0 },
                 OR: [
                   { expiryDate: { gte: new Date() } },
@@ -76,10 +82,11 @@ const create = async (req, res, next) => {
           throw new Error(`"${item.name}" requires a formal requisition and cannot be directly dispensed.`);
         }
 
-        // 3. Verify sufficient stock
-        const currentStock = item.stockLevel?.quantityOnHand ?? 0;
+        // 3. Verify sufficient stock in target location
+        const stockLevels = item.stockLevels || [];
+        const currentStock = stockLevels.find(s => s.location === targetLocation)?.quantityOnHand ?? 0;
         if (currentStock < lineQty) {
-          throw new Error(`Insufficient stock for "${item.name}". Available: ${currentStock} ${item.unit}.`);
+          throw new Error(`Insufficient stock in ${targetLocation} for "${item.name}". Available: ${currentStock} ${item.unit}.`);
         }
 
         // 4. FIFO batch deduction for batch-controlled items
@@ -103,6 +110,7 @@ const create = async (req, res, next) => {
 
             txLogsToCreate.push({
               itemId: lineItemId,
+              location: targetLocation,
               batchId: batch.id,
               type: 'DISPENSE',
               qty: deduct,
@@ -115,11 +123,12 @@ const create = async (req, res, next) => {
           }
 
           if (remaining > 0) {
-            throw new Error(`Insufficient batch quantities remaining to fulfill "${item.name}".`);
+            throw new Error(`Insufficient batch quantities remaining in ${targetLocation} to fulfill "${item.name}".`);
           }
         } else {
           txLogsToCreate.push({
             itemId: lineItemId,
+            location: targetLocation,
             type: 'DISPENSE',
             qty: lineQty,
             userId: req.user.id,
@@ -127,13 +136,13 @@ const create = async (req, res, next) => {
           });
         }
 
-        // 5. Deduct total from StockLevel
+        // 5. Deduct total from StockLevel at target location
         const updatedStock = await tx.stockLevel.updateMany({
-          where: { itemId: lineItemId, quantityOnHand: { gte: lineQty } },
+          where: { itemId: lineItemId, location: targetLocation, quantityOnHand: { gte: lineQty } },
           data: { quantityOnHand: { decrement: lineQty }, lastUpdated: new Date() },
         });
         if (updatedStock.count === 0) {
-          throw new Error(`Concurrent modification detected: Insufficient stock level for "${item.name}".`);
+          throw new Error(`Concurrent modification detected: Insufficient stock level in ${targetLocation} for "${item.name}".`);
         }
 
         // 6. Create DispenseLog
@@ -141,6 +150,7 @@ const create = async (req, res, next) => {
           data: {
             patientId,
             itemId: lineItemId,
+            location: targetLocation,
             batchId: isBatchControlled ? primaryBatchId : null,
             qty: lineQty,
             dispensedById: req.user.id,

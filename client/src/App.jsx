@@ -24,7 +24,9 @@ const Import = lazy(() => import('./pages/Import'));
 const Dispense = lazy(() => import('./pages/Dispense'));
 const CashierLog = lazy(() => import('./pages/CashierLog'));
 const ReturnItem = lazy(() => import('./pages/ReturnItem'));
+const Transfers = lazy(() => import('./pages/Transfers'));
 const Manual = lazy(() => import('./pages/Manual'));
+const UserProfile = lazy(() => import('./pages/UserProfile'));
 
 // Fallback loader while route chunk is loaded over network
 const RouteLoader = () => (
@@ -125,6 +127,22 @@ function App() {
               }
             />
             <Route
+              path="/profile"
+              element={
+                <PrivateRoute>
+                  <UserProfile />
+                </PrivateRoute>
+              }
+            />
+            <Route
+              path="/profile/:id"
+              element={
+                <PrivateRoute>
+                  <UserProfile />
+                </PrivateRoute>
+              }
+            />
+            <Route
               path="/patients"
               element={
                 <PrivateRoute requiredPermission={['manage_patients', 'submit_requisition', 'view_inventory_logs']}>
@@ -161,6 +179,14 @@ function App() {
               element={
                 <PrivateRoute requiredPermission="receive_stock">
                   <ReceiveStock />
+                </PrivateRoute>
+              }
+            />
+            <Route
+              path="/stock/transfers"
+              element={
+                <PrivateRoute requiredPermission={['receive_stock', 'manage_items', 'submit_requisition', 'view_inventory_logs']}>
+                  <Transfers />
                 </PrivateRoute>
               }
             />

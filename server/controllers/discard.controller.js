@@ -3,7 +3,12 @@ const { checkAndFireAlerts } = require('./stock.controller');
 
 const logDiscard = async (req, res, next) => {
   try {
-    const { itemId, batchId, quantity, reason, notes } = req.body;
+    const { itemId, batchId, quantity, reason, notes, location } = req.body;
+    const targetLocation = location || 'ECART';
+    if (!['ECART', 'CENTRAL'].includes(targetLocation)) {
+      return res.status(400).json({ error: 'Location must be either ECART or CENTRAL.' });
+    }
+
     if (!itemId || !quantity || !reason) {
       return res.status(400).json({ error: 'itemId, quantity, and reason are required' });
     }
@@ -16,7 +21,7 @@ const logDiscard = async (req, res, next) => {
       // Verify item and stock level inside transaction
       const item = await tx.item.findUnique({
         where: { id: itemId },
-        include: { stockLevel: true, category: true },
+        include: { stockLevels: true, category: true },
       });
       if (!item) {
         throw new Error('Item not found');
@@ -30,8 +35,11 @@ const logDiscard = async (req, res, next) => {
         throw new Error('A specific batch must be selected for discard.');
       }
 
-      if (!item.stockLevel || item.stockLevel.quantityOnHand < quantity) {
-        throw new Error(`Insufficient stock on hand to discard ${quantity} unit(s). Current: ${item.stockLevel?.quantityOnHand ?? 0}`);
+      const stockLevels = item.stockLevels || [];
+      const stockAtLoc = stockLevels.find(s => s.location === targetLocation)?.quantityOnHand ?? 0;
+
+      if (stockAtLoc < quantity) {
+        throw new Error(`Insufficient stock on hand in ${targetLocation} to discard ${quantity} unit(s). Current: ${stockAtLoc}`);
       }
 
       // Verify batch if specified
@@ -43,18 +51,21 @@ const logDiscard = async (req, res, next) => {
         if (batch.itemId !== itemId) {
           throw new Error('Selected batch does not belong to the selected item');
         }
+        if (batch.location !== targetLocation) {
+          throw new Error(`Selected batch is located in ${batch.location}, not ${targetLocation}.`);
+        }
         if (batch.quantityRemaining < quantity) {
           throw new Error(`Insufficient quantity in selected batch. Current remaining: ${batch.quantityRemaining}`);
         }
       }
 
       discard = await tx.discardLog.create({
-        data: { itemId, batchId, qty: quantity, reason, notes, loggedById: req.user.id },
+        data: { itemId, location: targetLocation, batchId, qty: quantity, reason, notes, loggedById: req.user.id },
       });
 
-      // Update stock level
+      // Update stock level for location
       const updatedStock = await tx.stockLevel.updateMany({
-        where: { itemId, quantityOnHand: { gte: quantity } },
+        where: { itemId, location: targetLocation, quantityOnHand: { gte: quantity } },
         data: { quantityOnHand: { decrement: quantity }, lastUpdated: new Date() },
       });
       if (updatedStock.count === 0) {
@@ -74,7 +85,7 @@ const logDiscard = async (req, res, next) => {
 
       // Transaction log entry
       await tx.transactionLog.create({
-        data: { itemId, batchId, type: 'DISCARD', qty: quantity, userId: req.user.id, notes: `${reason}: ${notes || ''}` },
+        data: { itemId, location: targetLocation, batchId, type: 'DISCARD', qty: quantity, userId: req.user.id, notes: `${reason}: ${notes || ''}` },
       });
     });
 
@@ -105,7 +116,7 @@ const list = async (req, res, next) => {
       include: {
         item: { select: { name: true, sku: true } },
         batch: { select: { batchNo: true, expiryDate: true } },
-        loggedBy: { select: { name: true, role: true } },
+        loggedBy: { select: { id: true, name: true, role: true } },
       },
       orderBy: { timestamp: 'desc' },
     });

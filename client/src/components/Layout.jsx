@@ -24,9 +24,23 @@ const LayoutInner = ({ children }) => {
 
   const [density, setDensity] = useState(() => localStorage.getItem('density') || 'spaced');
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [showScrollTop, setShowScrollTop] = useState(false);
 
   const isManagement = user?.role === 'MANAGEMENT_OFFICE';
   const brandName = isManagement ? 'MedOPS' : 'HEALING HANDS CENTER';
+
+  // Listen to window scroll position for scroll-to-top button
+  useEffect(() => {
+    const handleScroll = () => {
+      if (window.scrollY > 300) {
+        setShowScrollTop(true);
+      } else {
+        setShowScrollTop(false);
+      }
+    };
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
 
   // Toggle sidebar rail mode
   const toggleCollapse = () => {
@@ -317,6 +331,12 @@ const LayoutInner = ({ children }) => {
                 </NavLink>
               </li>
             )}
+            <li className="sidebar-item">
+              <NavLink to="/stock/transfers" className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`} title="Stock Transfers">
+                <span className="sidebar-icon">🔄</span>
+                <span className="sidebar-link-text">Stock Transfers</span>
+              </NavLink>
+            </li>
             {hasPermission('log_discard') && (
               <li className="sidebar-item">
                 <NavLink to="/discards" className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`} title="Discard Logs">
@@ -507,15 +527,30 @@ const LayoutInner = ({ children }) => {
 
             {/* Profile Avatar Card */}
             <div className="user-profile">
-              <div className="user-avatar">{getInitials(user?.name)}</div>
-              <div style={{ textAlign: 'left' }}>
+              <div 
+                className="user-avatar"
+                style={{ cursor: 'pointer' }}
+                onClick={() => navigate('/profile')}
+                title="View My Profile"
+              >
+                {getInitials(user?.name)}
+              </div>
+              <div style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => navigate('/profile')} title="View My Profile">
                 <div style={{ fontWeight: 600, color: 'var(--theme-text-bold)' }}>{user?.name}</div>
                 <div style={{ fontSize: '12px', color: 'var(--theme-text-muted)' }}>@{user?.username}</div>
               </div>
               <button
                 className="btn btn-secondary btn-sm"
+                onClick={() => navigate('/profile')}
+                style={{ marginLeft: '8px', padding: '6px 10px' }}
+                title="View My Profile & System Activity Audit"
+              >
+                👤 Profile
+              </button>
+              <button
+                className="btn btn-secondary btn-sm"
                 onClick={() => logout(false)}
-                style={{ marginLeft: '12px', padding: '6px 10px' }}
+                style={{ marginLeft: '6px', padding: '6px 10px' }}
               >
                 Sign Out
               </button>
@@ -530,6 +565,18 @@ const LayoutInner = ({ children }) => {
         <ContextualHelp />
         <CommandPalette isOpen={cmdOpen} onClose={() => setCmdOpen(false)} />
         <KeyboardShortcutsModal isOpen={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
+
+        {/* Floating Scroll to Top QoL Button */}
+        {showScrollTop && (
+          <button
+            className="scroll-to-top-btn"
+            onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+            title="Scroll to Top"
+            aria-label="Scroll to top"
+          >
+            ↑
+          </button>
+        )}
       </div>
     </div>
   );

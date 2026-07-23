@@ -12,6 +12,7 @@ const list = async (req, res, next) => {
 
 const initiate = async (req, res, next) => {
   try {
+    const { locationScope = 'ALL' } = req.body || {};
     const existing = await prisma.stocktake.findFirst({
       where: { status: 'IN_PROGRESS' },
     });
@@ -21,20 +22,39 @@ const initiate = async (req, res, next) => {
 
     const items = await prisma.item.findMany({
       where: { isArchived: false },
-      include: { stockLevel: true },
+      include: { stockLevels: true },
     });
+
+    const linesToCreate = [];
+    for (const item of items) {
+      const stockLevels = item.stockLevels || [];
+      const ecartQty = stockLevels.find(s => s.location === 'ECART')?.quantityOnHand ?? 0;
+      const centralQty = stockLevels.find(s => s.location === 'CENTRAL')?.quantityOnHand ?? 0;
+
+      if (locationScope === 'ECART' || locationScope === 'ALL') {
+        linesToCreate.push({
+          itemId: item.id,
+          location: 'ECART',
+          systemQty: ecartQty,
+        });
+      }
+      if (locationScope === 'CENTRAL' || locationScope === 'ALL') {
+        linesToCreate.push({
+          itemId: item.id,
+          location: 'CENTRAL',
+          systemQty: centralQty,
+        });
+      }
+    }
 
     const stocktake = await prisma.stocktake.create({
       data: {
         initiatedById: req.user.id,
-        lines: {
-          create: items.map(item => ({
-            itemId: item.id,
-            systemQty: item.stockLevel?.quantityOnHand ?? 0,
-          })),
-        },
+        lines: { create: linesToCreate },
       },
     });
+
+    const scopeLabel = locationScope === 'ECART' ? 'eCart' : locationScope === 'CENTRAL' ? 'Central Storage' : 'Multi-location';
 
     // Notify all clinic staff
     const staff = await prisma.user.findMany({
@@ -45,7 +65,7 @@ const initiate = async (req, res, next) => {
       data: staff.map(s => ({
         userId: s.id,
         eventType: 'STOCKTAKE_INITIATED',
-        message: 'A stocktake has been initiated. Please assist with physical counting.',
+        message: `A ${scopeLabel} stocktake has been initiated. Please assist with physical counting.`,
         link: '/stocktake',
       })),
     });
@@ -115,50 +135,24 @@ const complete = async (req, res, next) => {
         include: { item: { include: { category: true } } }
       });
 
-      // Check for newly added or unarchived items that have no stocktake line
-      const existingItemIds = lines.map(l => l.itemId);
-      const missingItems = await tx.item.findMany({
-        where: {
-          isArchived: false,
-          id: { notIn: existingItemIds.length > 0 ? existingItemIds : ['__dummy__'] }
-        },
-        include: { stockLevel: true }
-      });
-
-      if (missingItems.length > 0) {
-        // Dynamically add lines for new items added during the stocktake session
-        await tx.stocktakeLine.createMany({
-          data: missingItems.map(item => ({
-            stocktakeId: req.params.id,
-            itemId: item.id,
-            systemQty: item.stockLevel?.quantityOnHand ?? 0,
-          }))
-        });
-
-        // Re-fetch updated lines
-        lines = await tx.stocktakeLine.findMany({
-          where: { stocktakeId: req.params.id },
-          include: { item: { include: { category: true } } }
-        });
-      }
-
       for (const line of lines) {
         if (line.physicalQty !== null && line.discrepancy !== 0) {
-          // Update global stock level (upsert in case stockLevel record was deleted or is missing)
+          const loc = line.location || 'ECART';
+          // Update StockLevel for location
           await tx.stockLevel.upsert({
-            where: { itemId: line.itemId },
+            where: { itemId_location: { itemId: line.itemId, location: loc } },
             update: { quantityOnHand: line.physicalQty, lastUpdated: new Date() },
-            create: { itemId: line.itemId, quantityOnHand: line.physicalQty, lastUpdated: new Date() },
+            create: { itemId: line.itemId, location: loc, quantityOnHand: line.physicalQty, lastUpdated: new Date() },
           });
 
           // Reconcile batch quantities if item is batch-controlled
           const isBatchControlled = line.item.itemType === 'MEDICATION' || (line.item.category?.hasBatchControl ?? false);
           if (isBatchControlled) {
             if (line.discrepancy < 0) {
-              // Deduct from batches in FIFO order
+              // Deduct from batches in FIFO order in this location
               let diff = Math.abs(line.discrepancy);
               const batches = await tx.itemBatch.findMany({
-                where: { itemId: line.itemId, quantityRemaining: { gt: 0 } },
+                where: { itemId: line.itemId, location: loc, quantityRemaining: { gt: 0 } },
                 orderBy: { expiryDate: 'asc' }
               });
               for (const batch of batches) {
@@ -170,77 +164,42 @@ const complete = async (req, res, next) => {
                 });
                 diff -= deduct;
               }
-
-              // Reconcile remaining discrepancy if active batch totals were insufficient
-              if (diff > 0) {
-                const fallbackBatch = await tx.itemBatch.findFirst({
-                  where: { itemId: line.itemId },
-                  orderBy: { expiryDate: 'asc' }
-                });
-                if (fallbackBatch) {
-                  // Cap batch remaining quantity at 0 so it never goes negative
-                  await tx.itemBatch.update({
-                    where: { id: fallbackBatch.id },
-                    data: { quantityRemaining: 0 }
-                  });
-                } else {
-                  // Create a RECONCILED batch with 0 remaining (never negative)
-                  await tx.itemBatch.create({
-                    data: {
-                      itemId: line.itemId,
-                      batchNo: 'RECONCILED',
-                      expiryDate: new Date(Date.now() + 180 * 24 * 60 * 60 * 1000),
-                      quantityRemaining: 0,
-                    }
-                  });
-                }
-              }
-            } else if (line.discrepancy > 0) {
-              // Add stock discrepancy to the oldest active batch
-              const oldestBatch = await tx.itemBatch.findFirst({
-                where: { itemId: line.itemId, quantityRemaining: { gt: 0 } },
+            } else {
+              // Excess stock: add to earliest expiring batch or create fallback adjustment batch
+              const batch = await tx.itemBatch.findFirst({
+                where: { itemId: line.itemId, location: loc },
                 orderBy: { expiryDate: 'asc' }
               });
-              if (oldestBatch) {
+              if (batch) {
                 await tx.itemBatch.update({
-                  where: { id: oldestBatch.id },
+                  where: { id: batch.id },
                   data: { quantityRemaining: { increment: line.discrepancy } }
                 });
               } else {
-                // Fall back: try to find any batch (even if 0 remaining or expired)
-                const anyBatch = await tx.itemBatch.findFirst({
-                  where: { itemId: line.itemId },
-                  orderBy: { expiryDate: 'asc' }
+                await tx.itemBatch.create({
+                  data: {
+                    itemId: line.itemId,
+                    location: loc,
+                    batchNo: `RECONCILIATION-${line.item.sku.trim()}`,
+                    expiryDate: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000), // 1 year default
+                    quantityRemaining: line.discrepancy,
+                    supplierId: line.item.supplierId
+                  }
                 });
-                if (anyBatch) {
-                  await tx.itemBatch.update({
-                    where: { id: anyBatch.id },
-                    data: { quantityRemaining: { increment: line.discrepancy } }
-                  });
-                } else {
-                  // No batches exist at all; create a default RECONCILED batch
-                  await tx.itemBatch.create({
-                    data: {
-                      itemId: line.itemId,
-                      batchNo: 'RECONCILED',
-                      expiryDate: new Date(Date.now() + 180 * 24 * 60 * 60 * 1000),
-                      quantityRemaining: line.discrepancy,
-                    }
-                  });
-                }
               }
             }
           }
 
-          // Create stocktake audit log
+          // Transaction log for count adjustment
           await tx.transactionLog.create({
             data: {
               itemId: line.itemId,
+              location: loc,
               type: 'ADJUSTMENT',
               qty: line.discrepancy,
               userId: req.user.id,
-              notes: `Stocktake adjustment. System: ${line.systemQty}, Physical: ${line.physicalQty}`,
-            },
+              notes: `Physical Stocktake Reconciliation adjustment (${loc}): system count was ${line.systemQty}, physical count was ${line.physicalQty}`,
+            }
           });
         }
       }

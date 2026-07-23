@@ -1881,4 +1881,106 @@ code, .font-mono {
   background: rgba(0, 0, 0, 0.05);
 }
 
+/* ─── Extended Ultra-Wide Screen & Responsive QoL Enhancements ─── */
+
+/* 1. Extended Ultra-Wide Desktop Support (>1800px) */
+@media (min-width: 1800px) {
+  .page-container {
+    max-width: 1920px !important;
+    margin: 0 auto;
+  }
+
+  .dashboard-grid {
+    grid-template-columns: repeat(4, 1fr) !important;
+  }
+
+  .metrics-summary-grid {
+    grid-template-columns: repeat(6, 1fr) !important;
+  }
+}
+
+/* 2. Tablet & Touch Laptop Layout Adjustments (768px – 1200px) */
+@media (min-width: 768px) and (max-width: 1200px) {
+  .page-container {
+    padding: 16px 20px !important;
+  }
+
+  .dashboard-grid {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
+}
+
+/* 3. Mobile Display & Small Touch Screen Optimization (<768px) */
+@media (max-width: 768px) {
+  .page-container {
+    padding: 12px 14px !important;
+    gap: 16px !important;
+  }
+
+  .form-control, .btn {
+    min-height: 40px;
+    font-size: 14px !important;
+  }
+
+  .modal-content {
+    max-height: 85vh !important;
+    overflow-y: auto;
+    border-radius: var(--border-radius-md);
+  }
+
+  .filter-bar {
+    padding: 12px !important;
+  }
+
+  .table-container {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    border-radius: var(--border-radius-md);
+  }
+}
+
+/* Custom Scrollbar for Smooth Touch & Mobile Overflow Tables */
+.table-container::-webkit-scrollbar {
+  height: 6px;
+  width: 6px;
+}
+.table-container::-webkit-scrollbar-track {
+  background: var(--theme-bg);
+}
+.table-container::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.4);
+  border-radius: 4px;
+}
+
+/* Smooth Focus Rings for Accessibility */
+:focus-visible {
+  outline: 2px solid var(--theme-primary) !important;
+  outline-offset: 2px;
+}
+
+/* Back to Top Button */
+.scroll-to-top-btn {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  background: var(--theme-primary);
+  color: #ffffff;
+  border: none;
+  box-shadow: var(--shadow-md);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  z-index: 900;
+  transition: transform 0.2s ease, opacity 0.2s ease;
+}
+.scroll-to-top-btn:hover {
+  transform: translateY(-3px);
+  background: var(--theme-primary-hover);
+}
+
 

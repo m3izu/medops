@@ -601,8 +601,9 @@ const Requisitions = () => {
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                     {selectedReq.lines?.map(line => {
                       const isResubmission = line.isResubmission;
-                      const stockInfo = line.item?.stockLevel;
-                      const availableStock = stockInfo?.quantityOnHand ?? '?';
+                      const lineLoc = line.location || 'ECART';
+                      const stockLevels = line.item?.stockLevels || [];
+                      const availableStock = stockLevels.find(s => s.location === lineLoc)?.quantityOnHand ?? 0;
 
                       return (
                         <div
@@ -634,7 +635,9 @@ const Requisitions = () => {
                           </div>
 
                           <div style={{ fontSize: '12px', color: 'var(--theme-text-muted)', marginBottom: '8px' }}>
-                            <div>Requested: <strong>{line.qtyRequested}</strong> {line.item?.unit} | Available Stock: <strong>{availableStock}</strong></div>
+                            <div>
+                              Target Pool: <span className="badge badge-neutral" style={{ fontSize: '10px', padding: '1px 6px' }}>{lineLoc === 'ECART' ? '🛒 eCart' : '🏢 Central'}</span> • Requested: <strong>{line.qtyRequested}</strong> {line.item?.unit} | Pool Stock: <strong>{availableStock}</strong>
+                            </div>
                             <div>Notes/Reason: <em>"{line.reason}"</em></div>
                             {line.qtyApproved && (
                               <div style={{ color: 'var(--color-success)', fontWeight: '600' }}>Approved: {line.qtyApproved} {line.item?.unit}</div>
@@ -1005,8 +1008,8 @@ const Requisitions = () => {
                                             <strong style={{ display: 'block', color: 'var(--theme-text-bold)' }}>{it.name}</strong>
                                             <span style={{ fontSize: '10px', color: 'var(--theme-text-muted)' }}>[{it.sku}] • {it.unit}</span>
                                           </div>
-                                          <span style={{ fontSize: '10px', fontWeight: '700', color: (it.stockLevel?.quantityOnHand ?? 0) < 10 ? 'var(--color-critical)' : 'var(--color-success)' }}>
-                                            Stock: {it.stockLevel?.quantityOnHand ?? 0}
+                                          <span style={{ fontSize: '10px', fontWeight: '700', color: ((it.stockLevels || []).reduce((sum, s) => sum + (s.quantityOnHand || 0), 0)) < 10 ? 'var(--color-critical)' : 'var(--color-success)' }}>
+                                            Stock: {(it.stockLevels || []).reduce((sum, s) => sum + (s.quantityOnHand || 0), 0)}
                                           </span>
                                         </div>
                                       ))
@@ -1026,7 +1029,7 @@ const Requisitions = () => {
                                   <option value="">Select from list...</option>
                                   {clsCatalogItems.map(it => (
                                     <option key={it.id} value={it.id}>
-                                      {it.name} (Stock: {it.stockLevel?.quantityOnHand ?? 0})
+                                      {it.name} (Stock: {(it.stockLevels || []).reduce((sum, s) => sum + (s.quantityOnHand || 0), 0)})
                                     </option>
                                   ))}
                                 </select>
@@ -1050,7 +1053,7 @@ const Requisitions = () => {
                             const item = items.find(i => i.id === itemId);
                             if (!item) return null;
 
-                            const availStock = item.stockLevel?.quantityOnHand ?? 0;
+                            const availStock = (item.stockLevels || []).reduce((sum, s) => sum + (s.quantityOnHand || 0), 0);
                             const rowTotal = calculateRowTotal(item.id);
                             const isLowStock = rowTotal > availStock;
 
@@ -1198,26 +1201,32 @@ const Requisitions = () => {
               <button className="modal-close" onClick={() => setApproveLine(null)}>✕</button>
             </div>
             <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              <p style={{ fontSize: '13px', color: 'var(--theme-text-muted)' }}>
-                Requested: <strong>{approveLine.qtyRequested}</strong> {approveLine.item?.unit}
-                {approveLine.item?.stockLevel && (
-                  <> • Available stock: <strong>{approveLine.item.stockLevel.quantityOnHand}</strong></>
-                )}
-              </p>
-              <div className="form-group">
-                <label className="form-label">Approved Quantity</label>
-                <input
-                  type="number"
-                  className="form-control"
-                  min="1"
-                  max={approveLine.item?.stockLevel?.quantityOnHand ?? approveLine.qtyRequested}
-                  value={approveQty}
-                  onChange={e => setApproveQty(e.target.value)}
-                />
+              {(() => {
+                const lineLoc = approveLine.location || 'ECART';
+                const stockLevels = approveLine.item?.stockLevels || [];
+                const availStock = stockLevels.find(s => s.location === lineLoc)?.quantityOnHand ?? 0;
+                return (
+                  <>
+                    <p style={{ fontSize: '13px', color: 'var(--theme-text-muted)' }}>
+                      Requested: <strong>{approveLine.qtyRequested}</strong> {approveLine.item?.unit} • Target Pool: <strong style={{ color: 'var(--theme-primary)' }}>{lineLoc === 'ECART' ? '🛒 eCart' : '🏢 Central'}</strong> • Available Pool Stock: <strong>{availStock}</strong>
+                    </p>
+                    <div className="form-group">
+                      <label className="form-label">Approved Quantity</label>
+                      <input
+                        type="number"
+                        className="form-control"
+                        min="1"
+                        max={availStock || approveLine.qtyRequested}
+                        value={approveQty}
+                        onChange={e => setApproveQty(e.target.value)}
+                      />
+                    </div>
+                  </>
+                );
+              })()}
                 <span style={{ fontSize: '11px', color: 'var(--theme-text-muted)' }}>
                   You may approve a partial quantity. FIFO will auto-deduct from oldest batches for medications.
                 </span>
-              </div>
             </div>
             <div className="modal-footer">
               <button className="btn" onClick={() => setApproveLine(null)}>Cancel</button>

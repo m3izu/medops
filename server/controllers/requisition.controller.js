@@ -95,17 +95,22 @@ const createBatch = async (req, res, next) => {
         if (!Array.isArray(lines) || lines.length === 0) continue;
 
         // 1. Consolidate lines (aggregate quantities for duplicate item entries in the same column)
-        const lineMap = {};
+        const lineLocationMap = {};
         for (const l of lines) {
           if (!l.itemId) continue;
           const qty = Math.floor(Number(l.quantity));
           if (!Number.isInteger(qty) || qty <= 0) {
             throw new Error(`Invalid requested quantity "${l.quantity}" for item.`);
           }
+          const loc = l.location || itemReq.location || 'ECART';
+          if (!['ECART', 'CENTRAL'].includes(loc)) {
+            throw new Error(`Invalid location "${loc}". Must be ECART or CENTRAL.`);
+          }
           if (lineMap[l.itemId]) {
             lineMap[l.itemId] += qty;
           } else {
             lineMap[l.itemId] = qty;
+            lineLocationMap[l.itemId] = loc;
           }
         }
 
@@ -159,6 +164,7 @@ const createBatch = async (req, res, next) => {
             lines: {
               create: consolidatedItems.map(itemId => ({
                 itemId,
+                location: lineLocationMap[itemId] || 'ECART',
                 qtyRequested: lineMap[itemId],
                 reason: notes?.trim() || 'Grid Requisition sheet entry'
               }))
@@ -208,7 +214,7 @@ const getOne = async (req, res, next) => {
           include: {
             item: {
               include: { 
-                stockLevel: true, 
+                stockLevels: true, 
                 batches: { 
                   where: { 
                     quantityRemaining: { gt: 0 },
@@ -320,13 +326,15 @@ const approveLine = async (req, res, next) => {
         throw new Error('Cannot approve requisition line for an inactive patient.');
       }
 
+      const targetLocation = lineDb.location || 'ECART';
       const item = await tx.item.findUnique({
         where: { id: lineDb.itemId },
         include: { 
-          stockLevel: true, 
+          stockLevels: true, 
           category: true,
           batches: { 
             where: { 
+              location: targetLocation,
               quantityRemaining: { gt: 0 },
               OR: [
                 { expiryDate: { gte: new Date() } },
@@ -342,9 +350,10 @@ const approveLine = async (req, res, next) => {
         throw new Error('Item not found');
       }
 
-      const currentStock = item.stockLevel?.quantityOnHand ?? 0;
+      const stockLevels = item.stockLevels || [];
+      const currentStock = stockLevels.find(s => s.location === targetLocation)?.quantityOnHand ?? 0;
       if (currentStock < approvedQty) {
-        throw new Error(`Insufficient stock for this quantity. Available: ${currentStock} ${item.unit}`);
+        throw new Error(`Insufficient stock in ${targetLocation} for this quantity. Available: ${currentStock} ${item.unit}`);
       }
 
       let remaining = approvedQty;
@@ -366,6 +375,7 @@ const approveLine = async (req, res, next) => {
           await tx.transactionLog.create({
             data: {
               itemId: lineDb.itemId,
+              location: targetLocation,
               batchId: batch.id,
               type: 'OUTBOUND',
               qty: deduct,
@@ -384,6 +394,7 @@ const approveLine = async (req, res, next) => {
         await tx.transactionLog.create({
           data: {
             itemId: lineDb.itemId,
+            location: targetLocation,
             type: 'OUTBOUND',
             qty: approvedQty,
             userId: req.user.id,
@@ -392,9 +403,9 @@ const approveLine = async (req, res, next) => {
         });
       }
 
-      // Update stock level
+      // Update stock level for target location
       const updatedStock = await tx.stockLevel.updateMany({
-        where: { itemId: lineDb.itemId, quantityOnHand: { gte: approvedQty } },
+        where: { itemId: lineDb.itemId, location: targetLocation, quantityOnHand: { gte: approvedQty } },
         data: { quantityOnHand: { decrement: approvedQty }, lastUpdated: new Date() },
       });
       if (updatedStock.count === 0) {

@@ -47,6 +47,8 @@ model User {
   dispensesLogged     DispenseLog[] @relation("DispensedBy")
   dispensesRecorded   DispenseLog[] @relation("RecordedBy")
   databaseBackups     DatabaseBackup[]
+  transfersRequested  StockTransfer[] @relation("RequestedBy")
+  transfersApproved   StockTransfer[] @relation("ApprovedBy")
 
   @@map("users")
 }
@@ -159,16 +161,17 @@ model Item {
   createdAt    DateTime     @default(now()) @map("created_at")
   updatedAt    DateTime     @updatedAt @map("updated_at")
 
-  category    Category?        @relation(fields: [categoryId], references: [id])
-  supplier    Supplier?        @relation(fields: [supplierId], references: [id])
-  createdBy   User?            @relation(fields: [createdById], references: [id])
-  stockLevel  StockLevel?
-  batches     ItemBatch[]
-  transactions TransactionLog[]
-  discardLogs  DiscardLog[]
+  category       Category?        @relation(fields: [categoryId], references: [id])
+  supplier       Supplier?        @relation(fields: [supplierId], references: [id])
+  createdBy      User?            @relation(fields: [createdById], references: [id])
+  stockLevels    StockLevel[]
+  batches        ItemBatch[]
+  transactions   TransactionLog[]
+  discardLogs    DiscardLog[]
   stocktakeLines StocktakeLine[]
   requisitionLines RequisitionLine[]
-  dispenseLogs DispenseLog[]
+  dispenseLogs   DispenseLog[]
+  stockTransfers StockTransfer[]
 
   @@map("items")
 }
@@ -176,29 +179,56 @@ model Item {
 model ItemBatch {
   id                String    @id @default(cuid())
   itemId            String    @map("item_id")
+  location          String    @default("ECART") // ECART | CENTRAL
   batchNo           String?   @map("batch_no")
   expiryDate        DateTime? @map("expiry_date")
   quantityRemaining Int       @default(0) @map("quantity_remaining")
   supplierId        String?   @map("supplier_id")
   receivedAt        DateTime  @default(now()) @map("received_at")
 
-  item         Item           @relation(fields: [itemId], references: [id])
-  supplier     Supplier?      @relation(fields: [supplierId], references: [id])
-  transactions TransactionLog[]
-  discardLogs  DiscardLog[]
-  dispenseLogs DispenseLog[]
+  item           Item            @relation(fields: [itemId], references: [id])
+  supplier       Supplier?       @relation(fields: [supplierId], references: [id])
+  transactions   TransactionLog[]
+  discardLogs    DiscardLog[]
+  dispenseLogs   DispenseLog[]
+  stockTransfers StockTransfer[]
 
   @@map("item_batches")
 }
 
 model StockLevel {
-  itemId        String   @id @map("item_id")
+  itemId        String   @map("item_id")
+  location      String   @default("ECART") // ECART | CENTRAL
   quantityOnHand Int     @default(0) @map("quantity_on_hand")
   lastUpdated   DateTime @default(now()) @map("last_updated")
 
   item Item @relation(fields: [itemId], references: [id])
 
+  @@id([itemId, location])
   @@map("stock_levels")
+}
+
+model StockTransfer {
+  id              String   @id @default(cuid())
+  fromLocation    String   @map("from_location") // ECART | CENTRAL
+  toLocation      String   @map("to_location")   // ECART | CENTRAL
+  itemId          String   @map("item_id")
+  batchId         String?  @map("batch_id")
+  qty             Int
+  status          String   @default("PENDING")   // PENDING | APPROVED | REJECTED | CANCELLED
+  requestedById   String   @map("requested_by_id")
+  approvedById    String?  @map("approved_by_id")
+  rejectionReason String?  @map("rejection_reason")
+  notes           String?
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  item        Item       @relation(fields: [itemId], references: [id])
+  batch       ItemBatch? @relation(fields: [batchId], references: [id])
+  requestedBy User       @relation("RequestedBy", fields: [requestedById], references: [id])
+  approvedBy  User?      @relation("ApprovedBy", fields: [approvedById], references: [id])
+
+  @@map("stock_transfers")
 }
 
 // ─── Patients ─────────────────────────────────────────────────────────────────
@@ -247,6 +277,7 @@ model RequisitionLine {
   id               String         @id @default(cuid())
   requisitionId    String         @map("requisition_id")
   itemId           String         @map("item_id")
+  location         String         @default("ECART") // ECART | CENTRAL
   qtyRequested     Int            @map("qty_requested")
   qtyApproved      Int?           @map("qty_approved")
   reason           String
@@ -271,8 +302,9 @@ model RequisitionLine {
 model TransactionLog {
   id               String          @id @default(cuid())
   itemId           String          @map("item_id")
+  location         String          @default("ECART") // ECART | CENTRAL
   batchId          String?         @map("batch_id")
-  type             String          // INBOUND | OUTBOUND | DISCARD | ADJUSTMENT | CANCEL | DISPENSE | RETURN
+  type             String          // INBOUND | OUTBOUND | DISCARD | ADJUSTMENT | CANCEL | DISPENSE | RETURN | TRANSFER_OUT | TRANSFER_IN
   qty              Int
   userId           String          @map("user_id")
   requisitionLineId String?        @map("requisition_line_id")
@@ -293,6 +325,7 @@ model TransactionLog {
 model DiscardLog {
   id         String        @id @default(cuid())
   itemId     String        @map("item_id")
+  location   String        @default("ECART") // ECART | CENTRAL
   batchId    String?       @map("batch_id")
   qty        Int
   reason     String        // EXPIRED | DAMAGED | RECALLED | OTHER
@@ -340,6 +373,7 @@ model StocktakeLine {
   id          String   @id @default(cuid())
   stocktakeId String   @map("stocktake_id")
   itemId      String   @map("item_id")
+  location    String   @default("ECART") // ECART | CENTRAL
   systemQty   Int      @map("system_qty")
   physicalQty Int?     @map("physical_qty")
   discrepancy Int?
@@ -429,6 +463,7 @@ model DispenseLog {
   id            String    @id @default(cuid())
   patientId     String    @map("patient_id")
   itemId        String    @map("item_id")
+  location      String    @default("ECART") // ECART | CENTRAL
   batchId       String?   @map("batch_id")        // populated if item is batch-controlled (FIFO auto-selected)
   qty           Int
   dispensedById String    @map("dispensed_by_id") // the nurse

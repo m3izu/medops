@@ -360,6 +360,7 @@ const CashierLog = () => {
                     </th>
                   )}
                   <th>Date & Time</th>
+                  <th>Location</th>
                   <th>Patient Info</th>
                   <th>Item Details</th>
                   <th>Dispensed Qty</th>
@@ -374,6 +375,7 @@ const CashierLog = () => {
                   .map(log => {
                   const isPending = log.billingStatus === 'PENDING';
                   const badge = BILLING_STATUS_BADGE[log.billingStatus] || BILLING_STATUS_BADGE.PENDING;
+                  const loc = log.location || 'ECART';
                   return (
                     <tr key={log.id} style={{ opacity: isPending ? 1 : 0.8 }}>
                       {statusFilter === 'PENDING' && (
@@ -391,6 +393,11 @@ const CashierLog = () => {
                       )}
                       <td style={{ fontSize: '12px', color: 'var(--theme-text-muted)' }}>
                         {formatDate(log.dispensedAt)}
+                      </td>
+                      <td>
+                        <span className="badge badge-neutral" style={{ fontSize: '11px' }}>
+                          {loc === 'ECART' ? '🛒 eCart' : '🏢 Central'}
+                        </span>
                       </td>
                       <td>
                         <div style={{ fontWeight: '600', color: 'var(--theme-text-bold)', fontSize: '13px' }}>

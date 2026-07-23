@@ -17,7 +17,7 @@ const createReportInternal = async (userId) => {
   const in90        = new Date(); in90.setDate(in90.getDate() + 90);
 
   const [
-    inventorySummary,
+    inventorySummaryRaw,
     lowStockItemsRaw,
     expiringBatches,
     inboundLogs,
@@ -29,12 +29,12 @@ const createReportInternal = async (userId) => {
   ] = await Promise.all([
     prisma.item.findMany({
       where: { isArchived: false },
-      include: { stockLevel: true },
+      include: { stockLevels: true },
       orderBy: { name: 'asc' },
     }),
     prisma.item.findMany({
       where: { isArchived: false },
-      include: { stockLevel: true },
+      include: { stockLevels: true },
     }),
     prisma.itemBatch.findMany({
       where: { expiryDate: { lte: in90, not: null }, quantityRemaining: { gt: 0 } },
@@ -47,7 +47,7 @@ const createReportInternal = async (userId) => {
       orderBy: { timestamp: 'desc' },
     }),
     prisma.transactionLog.findMany({
-      where: { type: { in: ['OUTBOUND', 'DISPENSE'] }, timestamp: { gte: periodStart, lte: periodEnd } },
+      where: { type: { in: ['OUTBOUND', 'DISPENSE', 'TRANSFER_OUT', 'TRANSFER_IN'] }, timestamp: { gte: periodStart, lte: periodEnd } },
       include: { item: { select: { name: true, sku: true } }, user: { select: { name: true } } },
       orderBy: { timestamp: 'desc' },
     }),
@@ -82,10 +82,16 @@ const createReportInternal = async (userId) => {
     }),
   ]);
 
-  const lowStockItems = lowStockItemsRaw.filter(item => {
-    const qty = item.stockLevel?.quantityOnHand ?? 0;
-    return qty <= item.warningLevel;
-  });
+  const mapItemStock = (item) => {
+    const stockLevels = item.stockLevels || [];
+    const ecartQty = stockLevels.find(s => s.location === 'ECART')?.quantityOnHand ?? 0;
+    const centralQty = stockLevels.find(s => s.location === 'CENTRAL')?.quantityOnHand ?? 0;
+    const totalQty = ecartQty + centralQty;
+    return { ...item, ecartQty, centralQty, totalQty, quantityOnHand: totalQty };
+  };
+
+  const inventorySummary = inventorySummaryRaw.map(mapItemStock);
+  const lowStockItems = lowStockItemsRaw.map(mapItemStock).filter(item => item.totalQty <= item.warningLevel);
 
   const compiledData = {
     inventorySummary,
@@ -193,7 +199,7 @@ const getOne = async (req, res, next) => {
 
     // Compile all 9 sections in parallel for this period
     const [
-      inventorySummary,
+      inventorySummaryRaw,
       lowStockItemsRaw,
       expiringBatches,
       inboundLogs,
@@ -206,13 +212,13 @@ const getOne = async (req, res, next) => {
       // 1. Full inventory snapshot
       prisma.item.findMany({
         where: { isArchived: false },
-        include: { stockLevel: true },
+        include: { stockLevels: true },
         orderBy: { name: 'asc' },
       }),
       // 2. Items below warning/critical
       prisma.item.findMany({
         where: { isArchived: false },
-        include: { stockLevel: true },
+        include: { stockLevels: true },
       }),
       // 3. Expiring batches within 90 days
       prisma.itemBatch.findMany({
@@ -228,7 +234,7 @@ const getOne = async (req, res, next) => {
       }),
       // 5. Outbound (dispensing) in period
       prisma.transactionLog.findMany({
-        where: { type: { in: ['OUTBOUND', 'DISPENSE'] }, timestamp: { gte: periodStart, lte: periodEnd } },
+        where: { type: { in: ['OUTBOUND', 'DISPENSE', 'TRANSFER_OUT', 'TRANSFER_IN'] }, timestamp: { gte: periodStart, lte: periodEnd } },
         include: { item: { select: { name: true, sku: true } }, user: { select: { name: true } } },
         orderBy: { timestamp: 'desc' },
       }),
@@ -267,10 +273,16 @@ const getOne = async (req, res, next) => {
       }),
     ]);
 
-    const lowStockItems = lowStockItemsRaw.filter(item => {
-      const qty = item.stockLevel?.quantityOnHand ?? 0;
-      return qty <= item.warningLevel;
-    });
+    const mapItemStock = (item) => {
+      const stockLevels = item.stockLevels || [];
+      const ecartQty = stockLevels.find(s => s.location === 'ECART')?.quantityOnHand ?? 0;
+      const centralQty = stockLevels.find(s => s.location === 'CENTRAL')?.quantityOnHand ?? 0;
+      const totalQty = ecartQty + centralQty;
+      return { ...item, ecartQty, centralQty, totalQty, quantityOnHand: totalQty };
+    };
+
+    const inventorySummary = inventorySummaryRaw.map(mapItemStock);
+    const lowStockItems = lowStockItemsRaw.map(mapItemStock).filter(item => item.totalQty <= item.warningLevel);
 
     res.json({
       report,

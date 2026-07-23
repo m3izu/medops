@@ -3,6 +3,7 @@ import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import EmptyState from '../components/EmptyState';
+import SearchableSelect from '../components/SearchableSelect';
 
 const ReturnItem = () => {
   const { user } = useAuth();
@@ -266,25 +267,25 @@ const ReturnItem = () => {
               {loadingRecords ? (
                 <p style={{ fontSize: '13px', color: 'var(--theme-text-muted)' }}>Loading logs...</p>
               ) : (
-                <select
-                  className="form-control"
+                <SearchableSelect
+                  options={
+                    sourceType === 'DISPENSE'
+                      ? dispenseLogs.map(log => ({
+                          value: log.id,
+                          label: `${log.patient?.name} — ${log.item?.name} (Qty: ${log.qty} ${log.item?.unit}) [${formatDate(log.dispensedAt)}]`,
+                          sku: log.item?.sku,
+                        }))
+                      : requisitionLines.map(line => ({
+                          value: line.id,
+                          label: `${line.patient?.name} — ${line.item?.name} (Approved: ${line.qtyApproved} ${line.item?.unit}) [${formatDate(line.createdAt)}]`,
+                          sku: line.item?.sku,
+                        }))
+                  }
                   value={selectedSourceId}
-                  onChange={(e) => setSelectedSourceId(e.target.value)}
+                  onChange={(val) => setSelectedSourceId(val)}
+                  placeholder="Type to search transaction by patient name or item..."
                   required
-                >
-                  <option value="">Select transaction...</option>
-                  {sourceType === 'DISPENSE'
-                    ? dispenseLogs.map(log => (
-                        <option key={log.id} value={log.id}>
-                          {log.patient?.name} — {log.item?.name} (Qty: {log.qty} {log.item?.unit}) [{formatDate(log.dispensedAt)}]
-                        </option>
-                      ))
-                    : requisitionLines.map(line => (
-                        <option key={line.id} value={line.id}>
-                          {line.patient?.name} — {line.item?.name} (Approved: {line.qtyApproved} {line.item?.unit}) [{formatDate(line.createdAt)}]
-                        </option>
-                      ))}
-                </select>
+                />
               )}
             </div>
 
@@ -400,6 +401,7 @@ const ReturnItem = () => {
               <thead>
                 <tr>
                   <th>Date & Time</th>
+                  <th>Location</th>
                   <th>Patient</th>
                   <th>Item Returned</th>
                   <th>Qty</th>
@@ -411,10 +413,16 @@ const ReturnItem = () => {
                 {history.map(log => {
                   const patient = log.dispenseLog?.patient || log.requisitionLine?.requisition?.patient;
                   const pathway = log.dispenseLogId ? 'Direct Dispense' : 'Clinical Requisition';
+                  const loc = log.location || 'ECART';
                   return (
                     <tr key={log.id}>
                       <td style={{ fontSize: '12px', color: 'var(--theme-text-muted)' }}>
                         {formatDate(log.timestamp)}
+                      </td>
+                      <td>
+                        <span className="badge badge-neutral" style={{ fontSize: '11px' }}>
+                          {loc === 'ECART' ? '🛒 eCart' : '🏢 Central'}
+                        </span>
                       </td>
                       <td>
                         <div style={{ fontWeight: '600', color: 'var(--theme-text-bold)', fontSize: '13px' }}>

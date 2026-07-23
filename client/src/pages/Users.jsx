@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
@@ -50,6 +51,7 @@ const PERMISSION_DESCS = {
 };
 
 const Users = () => {
+  const navigate = useNavigate();
   const { user: currentUser } = useAuth();
   const toast = useToast();
   const [users, setUsers] = useState([]);
@@ -260,7 +262,7 @@ const Users = () => {
 
   const selectableRoles = currentUser?.role === 'TOP_ADMIN'
     ? ROLES
-    : ROLES.filter(r => r !== 'MANAGEMENT_OFFICE' && r !== 'TOP_ADMIN');
+    : ROLES.filter(r => !['TOP_ADMIN', 'MANAGEMENT_OFFICE', 'INVENTORY_MANAGER'].includes(r));
 
   return (
     <div className="page-container">
@@ -363,10 +365,17 @@ const Users = () => {
                           </span>
                         </td>
                         <td>
-                          {u.role === 'TOP_ADMIN' && currentUser?.role !== 'TOP_ADMIN' ? (
-                            <span className="badge badge-neutral" style={{ fontSize: '10px' }}>Protected Top Admin</span>
+                          {['TOP_ADMIN', 'MANAGEMENT_OFFICE'].includes(u.role) && currentUser?.role !== 'TOP_ADMIN' ? (
+                            <span className="badge badge-neutral" style={{ fontSize: '10px' }}>Protected Account</span>
                           ) : (
                             <div style={{ display: 'flex', gap: '6px' }}>
+                              <button 
+                                className="btn btn-secondary btn-sm"
+                                onClick={() => navigate(`/profile/${u.id}`)}
+                                title="View full user profile and system audit timeline"
+                              >
+                                👤 Profile
+                              </button>
                               {u.role !== 'TOP_ADMIN' && (
                                 <button 
                                   className="btn btn-secondary btn-sm"

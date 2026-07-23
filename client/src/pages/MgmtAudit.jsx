@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
 
@@ -20,6 +21,7 @@ const FILTER_TYPES = [
 ];
 
 const MgmtAudit = () => {
+  const navigate = useNavigate();
   const { hasPermission } = useAuth();
 
   const [logs, setLogs]             = useState([]);
@@ -194,6 +196,7 @@ const MgmtAudit = () => {
                   <tr>
                     <th>Timestamp</th>
                     <th>Type</th>
+                    <th>Location</th>
                     <th>Item</th>
                     <th>Qty Change</th>
                     <th>Batch</th>
@@ -206,6 +209,7 @@ const MgmtAudit = () => {
                     const flagged    = log.mgmtComments?.some(c => c.isFlagged);
                     const hasComment = log.mgmtComments?.length > 0;
                     const isSelected = selectedLog?.id === log.id;
+                    const loc        = log.location || 'ECART';
                     return (
                       <tr
                         key={log.id}
@@ -225,6 +229,11 @@ const MgmtAudit = () => {
                           </span>
                         </td>
                         <td>
+                          <span className="badge badge-neutral" style={{ fontSize: '11px' }}>
+                            {loc === 'ECART' ? '🛒 eCart' : '🏢 Central'}
+                          </span>
+                        </td>
+                        <td>
                           <strong style={{ fontSize: '13px' }}>{log.item.name}</strong>
                           <div style={{ fontSize: '11px', color: 'var(--theme-text-muted)' }}>
                             <code>{log.item.sku}</code>
@@ -237,7 +246,13 @@ const MgmtAudit = () => {
                           {log.batch ? <code>{log.batch.batchNo}</code> : '—'}
                         </td>
                         <td style={{ fontSize: '12px' }}>
-                          {log.user.name}
+                          <span 
+                            style={{ cursor: 'pointer', textDecoration: 'underline', color: 'var(--theme-primary)', fontWeight: 'bold' }}
+                            onClick={(e) => { e.stopPropagation(); navigate(`/profile/${log.userId || log.user?.id}`); }}
+                            title="View Staff Profile & System Audit"
+                          >
+                            👤 {log.user.name}
+                          </span>
                           <div style={{ fontSize: '10px', color: 'var(--theme-text-muted)' }}>
                             {log.user.role.replace(/_/g, ' ')}
                           </div>

@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import EmptyState from '../components/EmptyState';
 import Pagination from '../components/Pagination';
+import SearchableSelect from '../components/SearchableSelect';
 
 const REASONS = [
   { value: 'EXPIRED', label: 'Expired' },
@@ -13,6 +15,7 @@ const REASONS = [
 ];
 
 const Discards = () => {
+  const navigate = useNavigate();
   const { hasPermission } = useAuth();
   const toast = useToast();
   
@@ -31,6 +34,7 @@ const Discards = () => {
 
   // Form Fields
   const [itemId, setItemId] = useState('');
+  const [location, setLocation] = useState('');
   const [batchId, setBatchId] = useState('');
   const [quantity, setQuantity] = useState('');
   const [reason, setReason] = useState('');
@@ -103,6 +107,11 @@ const Discards = () => {
       return;
     }
 
+    if (!location) {
+      setFormError('Please select the source inventory location (eCart or Central Storage).');
+      return;
+    }
+
     const qtyNum = Number(quantity);
     if (isNaN(qtyNum) || qtyNum <= 0) {
       setFormError('Quantity must be a positive integer.');
@@ -122,6 +131,7 @@ const Discards = () => {
 
     const payload = {
       itemId,
+      location,
       quantity: qtyNum,
       reason,
       notes,
@@ -227,19 +237,32 @@ const Discards = () => {
                 {formSuccess && <div className="login-error" style={{ backgroundColor: 'var(--color-success-bg)', color: 'var(--color-success)', borderColor: 'rgba(5,150,105,0.2)' }}>{formSuccess}</div>}
 
                 <div className="form-group">
-                  <label className="form-label">Select Supply Item *</label>
-                  <select 
-                    className="form-control"
+                  <label className="form-label">Select Item to Discard *</label>
+                  <SearchableSelect
+                    options={items.map(item => ({
+                      value: item.id,
+                      label: `[${item.sku}] ${item.name} (${item.unit})`,
+                      sku: item.sku,
+                      item,
+                    }))}
                     value={itemId}
-                    onChange={(e) => setItemId(e.target.value)}
+                    onChange={(val) => setItemId(val)}
+                    placeholder="Type to search item by name or SKU..."
+                    required
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label">Source Inventory Location *</label>
+                  <select
+                    className="form-control"
+                    value={location}
+                    onChange={(e) => setLocation(e.target.value)}
                     required
                   >
-                    <option value="">Choose item...</option>
-                    {items.map(item => (
-                      <option key={item.id} value={item.id}>
-                        [{item.sku}] {item.name} ({item.unit})
-                      </option>
-                    ))}
+                    <option value="">-- Explicitly Choose Source Location --</option>
+                    <option value="ECART">🛒 eCart Inventory Pool</option>
+                    <option value="CENTRAL">🏢 Central Storage</option>
                   </select>
                 </div>
 
@@ -253,11 +276,13 @@ const Discards = () => {
                       required
                     >
                       <option value="">Select expiring batch...</option>
-                      {selectedItemDetails.batches.map(b => (
-                        <option key={b.id} value={b.id}>
-                          Batch: {b.batchNo || 'N/A'} (Exp: {new Date(b.expiryDate).toLocaleDateString()} — Remaining: {b.quantityRemaining})
-                        </option>
-                      ))}
+                      {selectedItemDetails.batches
+                        .filter(b => !location || b.location === location)
+                        .map(b => (
+                          <option key={b.id} value={b.id}>
+                            Batch: {b.batchNo || 'N/A'} [{b.location === 'ECART' ? 'eCart' : 'Central'}] (Exp: {new Date(b.expiryDate).toLocaleDateString()} — Qty: {b.quantityRemaining})
+                          </option>
+                        ))}
                     </select>
                   </div>
                 )}
@@ -276,9 +301,9 @@ const Discards = () => {
                       onChange={(e) => setQuantity(e.target.value)}
                       required
                     />
-                    {selectedItemDetails?.stockLevel && (
+                    {selectedItemDetails && location && (
                       <p style={{ fontSize: '11px', color: 'var(--theme-text-muted)', marginTop: '4px' }}>
-                        In stock: <strong>{selectedItemDetails.stockLevel.quantityOnHand} {selectedItemDetails.unit}</strong>
+                        Available in {location}: <strong>{(selectedItemDetails.stockLevels || []).find(s => s.location === location)?.quantityOnHand ?? 0} {selectedItemDetails.unit}</strong>
                       </p>
                     )}
                   </div>
@@ -379,7 +404,13 @@ const Discards = () => {
                           <span className="badge badge-neutral">{log.reason}</span>
                         </td>
                         <td style={{ fontSize: '12px' }}>
-                          {log.loggedBy.name}
+                          <span 
+                            style={{ cursor: 'pointer', textDecoration: 'underline', color: 'var(--theme-primary)' }}
+                            onClick={() => navigate(`/profile/${log.loggedById || log.loggedBy?.id}`)}
+                            title="View Staff Profile & System Audit"
+                          >
+                            👤 {log.loggedBy?.name || 'Staff'}
+                          </span>
                         </td>
                         <td style={{ fontSize: '12px', color: 'var(--theme-text-muted)', maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={log.notes}>
                           {log.notes || '—'}

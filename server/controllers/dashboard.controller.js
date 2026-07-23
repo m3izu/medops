@@ -27,7 +27,7 @@ const getSummary = async (req, res, next) => {
       }),
       prisma.item.findMany({
         where: { isArchived: false },
-        include: { stockLevel: true },
+        include: { stockLevels: true },
       }),
     ]);
 
@@ -36,7 +36,11 @@ const getSummary = async (req, res, next) => {
     let outOfStockCount = 0;
 
     for (const item of itemsWithStock) {
-      const qty = item.stockLevel?.quantityOnHand ?? 0;
+      const stockLevels = item.stockLevels || [];
+      const ecartQty = stockLevels.find(s => s.location === 'ECART')?.quantityOnHand ?? 0;
+      const centralQty = stockLevels.find(s => s.location === 'CENTRAL')?.quantityOnHand ?? 0;
+      const qty = ecartQty + centralQty;
+
       if (qty === 0) {
         outOfStockCount++;
       } else if (qty <= item.criticalLevel) {

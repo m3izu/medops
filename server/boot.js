@@ -15,18 +15,52 @@ async function main() {
 
   console.log(`[Boot] Ensuring database schema is up-to-date at ${dbPath}...`);
   try {
-    execSync(`npx prisma db push --url "file:${dbPath}"`, { stdio: 'inherit' });
+    execSync(`npx prisma db push --url "file:${dbPath}"`, { stdio: 'inherit', cwd: __dirname });
   } catch (err) {
     console.error('[Boot] Error running prisma db push:', err);
     process.exit(1);
   }
 
-  console.log('[Boot] Syncing core system configuration & admin credentials...');
+  console.log('[Boot] Checking system initialization status...');
   try {
-    execSync('node prisma/seed.js', { stdio: 'inherit' });
-    console.log('[Boot] System configuration & admin credentials synced successfully.');
+    const userCount = await prisma.user.count();
+    if (userCount === 0) {
+      console.log('[Boot] Fresh installation detected. Syncing core system configuration & admin credentials...');
+      execSync('node prisma/seed.js', { stdio: 'inherit', cwd: __dirname });
+      console.log('[Boot] System configuration & admin credentials seeded successfully.');
+    } else {
+      console.log(`[Boot] Existing system detected (${userCount} active users). Skipping seed execution.`);
+    }
   } catch (err) {
-    console.error('[Boot] Seed sync error:', err.message);
+    console.error('[Boot] Seed check error:', err.message);
+  }
+
+  console.log('[Boot] Verifying and backfilling dual stock levels (ECART & CENTRAL)...');
+  try {
+    const items = await prisma.item.findMany();
+    for (const item of items) {
+      // Ensure ECART stock level exists
+      const ecartStock = await prisma.stockLevel.findUnique({
+        where: { itemId_location: { itemId: item.id, location: 'ECART' } }
+      });
+      if (!ecartStock) {
+        await prisma.stockLevel.create({
+          data: { itemId: item.id, location: 'ECART', quantityOnHand: 0 }
+        });
+      }
+      // Ensure CENTRAL stock level exists
+      const centralStock = await prisma.stockLevel.findUnique({
+        where: { itemId_location: { itemId: item.id, location: 'CENTRAL' } }
+      });
+      if (!centralStock) {
+        await prisma.stockLevel.create({
+          data: { itemId: item.id, location: 'CENTRAL', quantityOnHand: 0 }
+        });
+      }
+    }
+    console.log('[Boot] Dual stock levels verified successfully.');
+  } catch (err) {
+    console.error('[Boot] Stock level backfill error:', err.message);
   }
 
   console.log('[Boot] Launching MedOPS Server...');

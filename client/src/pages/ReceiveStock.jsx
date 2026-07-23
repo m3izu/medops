@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
+import SearchableSelect from '../components/SearchableSelect';
 
 const ReceiveStock = () => {
   const { hasPermission } = useAuth();
@@ -14,6 +15,7 @@ const ReceiveStock = () => {
 
   // Form fields
   const [selectedItemId, setSelectedItemId] = useState('');
+  const [targetLocation, setTargetLocation] = useState('');
   const [quantity, setQuantity] = useState('');
   const [selectedSupplierId, setSelectedSupplierId] = useState('');
   const [notes, setNotes] = useState('');
@@ -76,6 +78,11 @@ const ReceiveStock = () => {
       setSubmitError('Please select an item to receive.');
       return;
     }
+
+    if (!targetLocation) {
+      setSubmitError('Please explicitly select a target inventory location.');
+      return;
+    }
     
     const qtyNum = Number(quantity);
     if (isNaN(qtyNum) || qtyNum <= 0) {
@@ -100,6 +107,7 @@ const ReceiveStock = () => {
 
     const payload = {
       itemId: selectedItemId,
+      location: targetLocation,
       quantity: qtyNum,
       supplierId: selectedSupplierId || null,
       notes,
@@ -182,18 +190,31 @@ const ReceiveStock = () => {
               <>
                 <div className="form-group">
                   <label className="form-label">Select Stock Item *</label>
-                  <select 
-                    className="form-control"
+                  <SearchableSelect
+                    options={items.map(item => ({
+                      value: item.id,
+                      label: `[${item.sku}] ${item.name} (${item.unit})`,
+                      sku: item.sku,
+                      item,
+                    }))}
                     value={selectedItemId}
-                    onChange={(e) => setSelectedItemId(e.target.value)}
+                    onChange={(val) => setSelectedItemId(val)}
+                    placeholder="Type to search stock item by name or SKU..."
+                    required
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label">Target Inventory Location *</label>
+                  <select
+                    className="form-control"
+                    value={targetLocation}
+                    onChange={(e) => setTargetLocation(e.target.value)}
                     required
                   >
-                    <option value="">Choose item from catalog...</option>
-                    {items.map(item => (
-                      <option key={item.id} value={item.id}>
-                        [{item.sku}] {item.name} ({item.unit})
-                      </option>
-                    ))}
+                    <option value="">-- Explicitly Choose Target Location --</option>
+                    <option value="ECART">🛒 eCart Inventory Pool</option>
+                    <option value="CENTRAL">🏢 Central Storage</option>
                   </select>
                 </div>
 
@@ -211,7 +232,13 @@ const ReceiveStock = () => {
                     />
                     {selectedItem && (
                       <p style={{ fontSize: '11px', color: 'var(--theme-text-muted)', marginTop: '4px' }}>
-                        Measurement unit: <strong>{selectedItem.unit}</strong>. Current stock count: {selectedItem.stockLevel?.quantityOnHand ?? 0} {selectedItem.unit}.
+                        Measurement unit: <strong>{selectedItem.unit}</strong>.
+                        {(() => {
+                          const stockLevels = selectedItem.stockLevels || [];
+                          const ecart = stockLevels.find(s => s.location === 'ECART')?.quantityOnHand ?? 0;
+                          const central = stockLevels.find(s => s.location === 'CENTRAL')?.quantityOnHand ?? 0;
+                          return ` Current Stock — 🛒 eCart: ${ecart} ${selectedItem.unit} | 🏢 Central: ${central} ${selectedItem.unit}`;
+                        })()}
                       </p>
                     )}
                   </div>

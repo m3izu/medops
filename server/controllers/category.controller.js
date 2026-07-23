@@ -77,19 +77,37 @@ const update = async (req, res, next) => {
 
         const items = await prisma.item.findMany({
           where: { categoryId: { in: categoriesToCheck }, isArchived: false },
-          include: { stockLevel: true, batches: true }
+          include: { stockLevels: true, batches: true }
         });
 
         for (const item of items) {
-          const qty = item.stockLevel?.quantityOnHand ?? 0;
-          const activeBatchesCount = item.batches.filter(b => b.quantityRemaining > 0).length;
-          if (qty > 0 && activeBatchesCount === 0) {
+          const stockLevels = item.stockLevels || [];
+          const ecartQty = stockLevels.find(s => s.location === 'ECART')?.quantityOnHand ?? 0;
+          const centralQty = stockLevels.find(s => s.location === 'CENTRAL')?.quantityOnHand ?? 0;
+
+          const ecartBatches = item.batches.filter(b => b.location === 'ECART' && b.quantityRemaining > 0).length;
+          if (ecartQty > 0 && ecartBatches === 0) {
             await prisma.itemBatch.create({
               data: {
                 itemId: item.id,
+                location: 'ECART',
                 batchNo: `IMPORT-${item.sku.trim()}`,
                 expiryDate: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000), // 1 year default
-                quantityRemaining: qty,
+                quantityRemaining: ecartQty,
+                supplierId: item.supplierId
+              }
+            });
+          }
+
+          const centralBatches = item.batches.filter(b => b.location === 'CENTRAL' && b.quantityRemaining > 0).length;
+          if (centralQty > 0 && centralBatches === 0) {
+            await prisma.itemBatch.create({
+              data: {
+                itemId: item.id,
+                location: 'CENTRAL',
+                batchNo: `IMPORT-CENTRAL-${item.sku.trim()}`,
+                expiryDate: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000), // 1 year default
+                quantityRemaining: centralQty,
                 supplierId: item.supplierId
               }
             });

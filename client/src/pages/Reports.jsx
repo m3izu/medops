@@ -419,7 +419,7 @@ const Reports = () => {
                   </div>
                   <div style={{ padding: '10px', background: 'var(--theme-bg)', borderRadius: 'var(--border-radius-md)', display: 'flex', justifyContent: 'space-between' }}>
                     <span>2. Items Below Reorder Warning:</span>
-                    <strong>{(selectedReport.data.inventorySummary || []).filter(i => i.stockLevel && i.stockLevel.quantityOnHand <= i.warningLevel).length || 0} items</strong>
+                    <strong>{selectedReport.data.lowStockItems?.length ?? (selectedReport.data.inventorySummary || []).filter(i => (i.totalQty ?? i.quantityOnHand ?? 0) <= i.warningLevel).length} items</strong>
                   </div>
                   <div style={{ padding: '10px', background: 'var(--theme-bg)', borderRadius: 'var(--border-radius-md)', display: 'flex', justifyContent: 'space-between' }}>
                     <span>3. Expiring Medication Batches:</span>
@@ -506,7 +506,7 @@ const Reports = () => {
                       <td style={{ borderBottom: '1px solid #f1f5f9', padding: '6px' }}><code>{item.sku}</code></td>
                       <td style={{ borderBottom: '1px solid #f1f5f9', padding: '6px' }}>{item.itemType}</td>
                       <td style={{ borderBottom: '1px solid #f1f5f9', padding: '6px' }}>{item.unit}</td>
-                      <td style={{ borderBottom: '1px solid #f1f5f9', padding: '6px', textAlign: 'right' }}>{item.stockLevel?.quantityOnHand ?? 0}</td>
+                      <td style={{ borderBottom: '1px solid #f1f5f9', padding: '6px', textAlign: 'right' }}>{item.totalQty ?? item.quantityOnHand ?? 0}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -517,7 +517,7 @@ const Reports = () => {
           {/* 2. Items below warning/critical */}
           <div className="print-section" style={{ marginBottom: '30px' }}>
             <h3 style={{ fontSize: '14px', fontWeight: '700', borderBottom: '1px solid #cbd5e1', paddingBottom: '4px', textTransform: 'uppercase' }}>2. Items Below Warning / Critical Levels</h3>
-            {(!selectedReport.data.inventorySummary || selectedReport.data.inventorySummary.filter(item => item.stockLevel && item.stockLevel.quantityOnHand <= item.warningLevel).length === 0) ? (
+            {(!selectedReport.data.lowStockItems || selectedReport.data.lowStockItems.length === 0) && (!selectedReport.data.inventorySummary || selectedReport.data.inventorySummary.filter(item => (item.totalQty ?? item.quantityOnHand ?? 0) <= item.warningLevel).length === 0) ? (
               <p style={{ fontStyle: 'italic', fontSize: '12px', color: '#94a3b8' }}>All items currently within safe operating limits.</p>
             ) : (
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11px', marginTop: '8px' }}>
@@ -532,8 +532,8 @@ const Reports = () => {
                   </tr>
                 </thead>
                 <tbody>
-                  {selectedReport.data.inventorySummary.filter(item => item.stockLevel && item.stockLevel.quantityOnHand <= item.warningLevel).map(item => {
-                    const qty = item.stockLevel?.quantityOnHand ?? 0;
+                  {(selectedReport.data.lowStockItems || selectedReport.data.inventorySummary.filter(item => (item.totalQty ?? item.quantityOnHand ?? 0) <= item.warningLevel)).map(item => {
+                    const qty = item.totalQty ?? item.quantityOnHand ?? 0;
                     const isCritical = qty <= item.criticalLevel;
                     return (
                       <tr key={item.id}>

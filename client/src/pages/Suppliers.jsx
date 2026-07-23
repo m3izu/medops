@@ -317,22 +317,41 @@ const Suppliers = () => {
                 <strong style={{ display: 'block', marginBottom: '8px' }}>Catalog Items Supplied:</strong>
                 {selectedSupplier.items && selectedSupplier.items.length > 0 ? (
                   <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                    {selectedSupplier.items.map(item => (
-                      <li 
-                        key={item.id}
-                        style={{ 
-                          padding: '6px 12px', 
-                          background: 'var(--theme-bg)', 
-                          borderRadius: 'var(--border-radius-sm)', 
-                          fontSize: '13px',
-                          display: 'flex',
-                          justifyContent: 'space-between'
-                        }}
-                      >
-                        <span>{item.name}</span>
-                        <code style={{ fontSize: '11px', color: 'var(--theme-text-muted)' }}>{item.sku}</code>
-                      </li>
-                    ))}
+                    {selectedSupplier.items.map(item => {
+                      const stockLevels = item.stockLevels || [];
+                      const ecartQty = stockLevels.find(s => s.location === 'ECART')?.quantityOnHand ?? 0;
+                      const centralQty = stockLevels.find(s => s.location === 'CENTRAL')?.quantityOnHand ?? 0;
+                      const totalQty = ecartQty + centralQty;
+                      return (
+                        <li 
+                          key={item.id}
+                          style={{ 
+                            padding: '8px 12px', 
+                            background: 'var(--theme-bg)', 
+                            borderRadius: 'var(--border-radius-sm)', 
+                            fontSize: '13px',
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center'
+                          }}
+                        >
+                          <div>
+                            <strong>{item.name}</strong> <code style={{ fontSize: '11px', color: 'var(--theme-text-muted)', marginLeft: '4px' }}>{item.sku}</code>
+                          </div>
+                          <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+                            <span className="badge badge-neutral" style={{ fontSize: '10px' }} title="eCart Stock">
+                              🛒 {ecartQty}
+                            </span>
+                            <span className="badge badge-secondary" style={{ fontSize: '10px' }} title="Central Storage Stock">
+                              🏢 {centralQty}
+                            </span>
+                            <span style={{ fontSize: '11px', fontWeight: 'bold', marginLeft: '4px', color: totalQty === 0 ? 'var(--color-critical)' : 'var(--theme-text-bold)' }}>
+                              Total: {totalQty}
+                            </span>
+                          </div>
+                        </li>
+                      );
+                    })}
                   </ul>
                 ) : (
                   <p style={{ fontSize: '13px', color: 'var(--theme-text-muted)' }}>

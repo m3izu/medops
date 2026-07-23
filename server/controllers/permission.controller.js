@@ -30,8 +30,8 @@ const setRolePermission = async (req, res, next) => {
       return res.status(400).json({ error: `Invalid role "${role}". Valid roles: ${validRoles.join(', ')}` });
     }
 
-    if (role === 'TOP_ADMIN' && req.user.role !== 'TOP_ADMIN') {
-      return res.status(403).json({ error: 'Only Top Admin users can modify Top Admin role permissions' });
+    if (['TOP_ADMIN', 'MANAGEMENT_OFFICE'].includes(role) && req.user.role !== 'TOP_ADMIN') {
+      return res.status(403).json({ error: 'Only Top Admin users can modify Top Admin or Management Office role permissions' });
     }
 
     if (LOCKED_PERMISSIONS.includes(permissionKey)) {
@@ -89,8 +89,8 @@ const setUserPermission = async (req, res, next) => {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    if (user.role === 'TOP_ADMIN' && req.user.role !== 'TOP_ADMIN') {
-      return res.status(403).json({ error: 'Only Top Admin users can modify Top Admin user permission overrides' });
+    if (['TOP_ADMIN', 'MANAGEMENT_OFFICE'].includes(user.role) && req.user.role !== 'TOP_ADMIN') {
+      return res.status(403).json({ error: 'Only Top Admin users can modify Top Admin or Management Office user permission overrides' });
     }
 
     const { getEffectivePermissions } = require('../middleware/rbac');

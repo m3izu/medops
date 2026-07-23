@@ -78,22 +78,50 @@ const create = async (req, res, next) => {
         }
 
         let isExpired = false;
-        if (isBatchControlled && targetBatchId) {
-          const batch = await tx.itemBatch.findUnique({ where: { id: targetBatchId } });
-          if (!batch) {
-            throw new Error(`Original batch (ID: ${targetBatchId}) no longer exists. Please contact an administrator.`);
+        if (isBatchControlled) {
+          if (targetBatchId) {
+            const batch = await tx.itemBatch.findUnique({ where: { id: targetBatchId } });
+            if (!batch) {
+              throw new Error(`Original batch (ID: ${targetBatchId}) no longer exists. Please contact an administrator.`);
+            }
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            isExpired = batch.expiryDate && new Date(batch.expiryDate) < today;
+          } else {
+            const targetLoc = dispenseLog.location || 'ECART';
+            const existingBatch = await tx.itemBatch.findFirst({
+              where: { itemId, location: targetLoc },
+              orderBy: { expiryDate: 'asc' }
+            });
+            if (existingBatch) {
+              targetBatchId = existingBatch.id;
+              const today = new Date();
+              today.setHours(0, 0, 0, 0);
+              isExpired = existingBatch.expiryDate && new Date(existingBatch.expiryDate) < today;
+            } else {
+              const newBatch = await tx.itemBatch.create({
+                data: {
+                  itemId,
+                  location: targetLoc,
+                  batchNo: `RETURN-RECOVERY-${dispenseLog.item.sku.trim()}`,
+                  expiryDate: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
+                  quantityRemaining: 0,
+                  supplierId: dispenseLog.item.supplierId
+                }
+              });
+              targetBatchId = newBatch.id;
+            }
           }
-          const today = new Date();
-          today.setHours(0, 0, 0, 0);
-          isExpired = batch.expiryDate && new Date(batch.expiryDate) < today;
         }
+
+        const targetLocation = dispenseLog.location || 'ECART';
 
         if (!isExpired) {
           // Update StockLevel (upsert in case stockLevel record was deleted or is missing)
           await tx.stockLevel.upsert({
-            where: { itemId },
+            where: { itemId_location: { itemId, location: targetLocation } },
             update: { quantityOnHand: { increment: qty }, lastUpdated: new Date() },
-            create: { itemId, quantityOnHand: qty, lastUpdated: new Date() },
+            create: { itemId, location: targetLocation, quantityOnHand: qty, lastUpdated: new Date() },
           });
 
           // Update ItemBatch if batch-controlled
@@ -104,10 +132,11 @@ const create = async (req, res, next) => {
             });
           }
         } else {
-          // It is expired: log discard! (Bug #1 in Part 2)
+          // It is expired: log discard!
           await tx.discardLog.create({
             data: {
               itemId,
+              location: targetLocation,
               batchId: targetBatchId,
               qty,
               reason: 'EXPIRED',
@@ -120,6 +149,7 @@ const create = async (req, res, next) => {
           await tx.transactionLog.create({
             data: {
               itemId,
+              location: targetLocation,
               batchId: targetBatchId,
               type: 'DISCARD',
               qty,
@@ -134,6 +164,7 @@ const create = async (req, res, next) => {
         await tx.transactionLog.create({
           data: {
             itemId,
+            location: targetLocation,
             batchId: targetBatchId,
             type: 'RETURN',
             qty,
@@ -231,12 +262,14 @@ const create = async (req, res, next) => {
               today.setHours(0, 0, 0, 0);
               const isExpired = batch.expiryDate && new Date(batch.expiryDate) < today;
 
+              const reqLocation = reqLine.location || 'ECART';
+
               if (!isExpired) {
                 // Update StockLevel (upsert in case stockLevel record was deleted or is missing)
                 await tx.stockLevel.upsert({
-                  where: { itemId },
+                  where: { itemId_location: { itemId, location: reqLocation } },
                   update: { quantityOnHand: { increment: returnQtyForBatch }, lastUpdated: new Date() },
-                  create: { itemId, quantityOnHand: returnQtyForBatch, lastUpdated: new Date() },
+                  create: { itemId, location: reqLocation, quantityOnHand: returnQtyForBatch, lastUpdated: new Date() },
                 });
 
                 // Update ItemBatch
@@ -249,6 +282,7 @@ const create = async (req, res, next) => {
                 await tx.transactionLog.create({
                   data: {
                     itemId,
+                    location: reqLocation,
                     batchId: outbound.batchId,
                     type: 'RETURN',
                     qty: returnQtyForBatch,
@@ -258,10 +292,11 @@ const create = async (req, res, next) => {
                   }
                 });
               } else {
-                // Expired: auto-discard! (Bug #1 in Part 2)
+                // Expired: auto-discard!
                 await tx.discardLog.create({
                   data: {
                     itemId,
+                    location: reqLocation,
                     batchId: outbound.batchId,
                     qty: returnQtyForBatch,
                     reason: 'EXPIRED',
@@ -273,6 +308,7 @@ const create = async (req, res, next) => {
                 await tx.transactionLog.create({
                   data: {
                     itemId,
+                    location: reqLocation,
                     batchId: outbound.batchId,
                     type: 'DISCARD',
                     qty: returnQtyForBatch,
@@ -286,6 +322,7 @@ const create = async (req, res, next) => {
                 await tx.transactionLog.create({
                   data: {
                     itemId,
+                    location: reqLocation,
                     batchId: outbound.batchId,
                     type: 'RETURN',
                     qty: returnQtyForBatch,
@@ -296,16 +333,18 @@ const create = async (req, res, next) => {
                 });
               }
             } else {
+              const reqLocation = reqLine.location || 'ECART';
               // No batchId (non-batch controlled) - upsert stockLevel
               await tx.stockLevel.upsert({
-                where: { itemId },
+                where: { itemId_location: { itemId, location: reqLocation } },
                 update: { quantityOnHand: { increment: returnQtyForBatch }, lastUpdated: new Date() },
-                create: { itemId, quantityOnHand: returnQtyForBatch, lastUpdated: new Date() },
+                create: { itemId, location: reqLocation, quantityOnHand: returnQtyForBatch, lastUpdated: new Date() },
               });
 
               await tx.transactionLog.create({
                 data: {
                   itemId,
+                  location: reqLocation,
                   batchId: null,
                   type: 'RETURN',
                   qty: returnQtyForBatch,
@@ -323,16 +362,18 @@ const create = async (req, res, next) => {
             throw new Error('Could not allocate returned quantity to original batches.');
           }
         } else {
+          const reqLocation = reqLine.location || 'ECART';
           // Non-batch controlled: single TransactionLog
           await tx.stockLevel.upsert({
-            where: { itemId },
+            where: { itemId_location: { itemId, location: reqLocation } },
             update: { quantityOnHand: { increment: qty }, lastUpdated: new Date() },
-            create: { itemId, quantityOnHand: qty, lastUpdated: new Date() }
+            create: { itemId, location: reqLocation, quantityOnHand: qty, lastUpdated: new Date() }
           });
 
           await tx.transactionLog.create({
             data: {
               itemId,
+              location: reqLocation,
               batchId: null,
               type: 'RETURN',
               qty,

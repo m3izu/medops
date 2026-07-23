@@ -4,11 +4,11 @@ const prisma = require('../lib/prisma');
 const checkAndFireAlerts = async (itemId) => {
   const item = await prisma.item.findUnique({
     where: { id: itemId },
-    include: { stockLevel: true },
+    include: { stockLevels: true },
   });
-  if (!item || !item.stockLevel) return;
+  if (!item || !item.stockLevels) return;
 
-  const qty = item.stockLevel.quantityOnHand;
+  const qty = item.stockLevels.reduce((sum, s) => sum + (s.quantityOnHand || 0), 0);
   let alertLevel = null;
 
   if (qty <= item.criticalLevel) alertLevel = 'CRITICAL';
@@ -26,7 +26,7 @@ const checkAndFireAlerts = async (itemId) => {
 
   const eventType = `STOCK_${alertLevel}`;
   const link = `/items/${itemId}`;
-  const message = `${alertLevel} stock alert: ${item.name} has ${qty} ${item.unit} remaining`;
+  const message = `${alertLevel} stock alert: ${item.name} has ${qty} ${item.unit} remaining (Combined Total)`;
 
   const notificationsToCreate = [];
   for (const recipient of recipients) {
@@ -58,6 +58,13 @@ const checkAndFireAlerts = async (itemId) => {
 
 const receiveStock = async (req, res, next) => {
   try {
+    const { itemId, batchNo, expiryDate, quantity, supplierId, notes, location } = req.body;
+
+    const targetLocation = location || 'ECART';
+    if (!['ECART', 'CENTRAL'].includes(targetLocation)) {
+      return res.status(400).json({ error: 'Location must be either ECART or CENTRAL.' });
+    }
+
     if (!itemId || !quantity) {
       return res.status(400).json({ error: 'itemId and quantity are required.' });
     }
@@ -103,15 +110,14 @@ const receiveStock = async (req, res, next) => {
           }
         }
 
-        // Try to find an existing batch with the same batchNo for consolidation
+        // Find existing batch in target location
         let existingBatch = null;
         if (batchNo && batchNo.trim()) {
           const candidateBatch = await tx.itemBatch.findFirst({
-            where: { itemId, batchNo: batchNo.trim() }
+            where: { itemId, batchNo: batchNo.trim(), location: targetLocation }
           });
 
           if (candidateBatch) {
-            // Check if expiry dates match (comparing YYYY-MM-DD or null states)
             const incomingExpStr = expiryDate ? new Date(expiryDate).toISOString().slice(0, 10) : null;
             const existingExpStr = candidateBatch.expiryDate ? new Date(candidateBatch.expiryDate).toISOString().slice(0, 10) : null;
 
@@ -131,6 +137,7 @@ const receiveStock = async (req, res, next) => {
           const batch = await tx.itemBatch.create({
             data: {
               itemId,
+              location: targetLocation,
               batchNo: batchNo ? batchNo.trim() : null,
               expiryDate: expiryDate ? new Date(expiryDate) : null,
               quantityRemaining: quantity,
@@ -145,6 +152,7 @@ const receiveStock = async (req, res, next) => {
       const txn = await tx.transactionLog.create({
         data: {
           itemId,
+          location: targetLocation,
           batchId,
           type: 'INBOUND',
           qty: quantity,
@@ -153,17 +161,16 @@ const receiveStock = async (req, res, next) => {
         },
       });
 
-      // Update stock level
+      // Update stock level for target location
       await tx.stockLevel.upsert({
-        where: { itemId },
+        where: { itemId_location: { itemId, location: targetLocation } },
         update: { quantityOnHand: { increment: quantity }, lastUpdated: new Date() },
-        create: { itemId, quantityOnHand: quantity },
+        create: { itemId, location: targetLocation, quantityOnHand: quantity },
       });
 
       return { txn, batchId };
     });
 
-    // Re-evaluate stock alerts (stock may have come back above warning/critical)
     await checkAndFireAlerts(itemId);
 
     res.status(201).json({ transaction: result.txn, batchId: result.batchId });
@@ -173,7 +180,9 @@ const receiveStock = async (req, res, next) => {
     }
     if (
       err.message === 'Cannot receive stock for an archived item' ||
-      err.message === 'Medication batch cannot be registered with a past expiry date.'
+      err.message === 'Medication batch cannot be registered with a past expiry date.' ||
+      err.message === 'Batch / Lot number is required for batch-controlled items.' ||
+      err.message === 'Expiry date is required for batch-controlled items.'
     ) {
       return res.status(400).json({ error: err.message });
     }
@@ -181,14 +190,297 @@ const receiveStock = async (req, res, next) => {
   }
 };
 
+// Stock Transfer Handlers (Two-Step Workflow)
+const requestTransfer = async (req, res, next) => {
+  try {
+    const { fromLocation, toLocation, itemId, batchId, qty, notes } = req.body;
+
+    if (!fromLocation || !toLocation || !['ECART', 'CENTRAL'].includes(fromLocation) || !['ECART', 'CENTRAL'].includes(toLocation)) {
+      return res.status(400).json({ error: 'Valid fromLocation and toLocation (ECART or CENTRAL) are required.' });
+    }
+    if (fromLocation === toLocation) {
+      return res.status(400).json({ error: 'Source location and destination location must be different.' });
+    }
+    if (!itemId || !qty || typeof qty !== 'number' || qty <= 0 || !Number.isInteger(qty)) {
+      return res.status(400).json({ error: 'Valid itemId and positive whole number quantity are required.' });
+    }
+
+    // Verify stock availability at fromLocation
+    const stockLevel = await prisma.stockLevel.findUnique({
+      where: { itemId_location: { itemId, location: fromLocation } }
+    });
+    const currentQty = stockLevel?.quantityOnHand || 0;
+    if (currentQty < qty) {
+      return res.status(400).json({ error: `Insufficient stock in ${fromLocation}. Available: ${currentQty}` });
+    }
+
+    if (batchId) {
+      const batch = await prisma.itemBatch.findUnique({ where: { id: batchId } });
+      if (!batch) {
+        return res.status(400).json({ error: 'Selected batch was not found.' });
+      }
+      if (batch.location !== fromLocation) {
+        return res.status(400).json({ error: `Selected batch is located in ${batch.location}, not ${fromLocation}.` });
+      }
+      if (batch.quantityRemaining < qty) {
+        return res.status(400).json({ error: `Selected batch has insufficient stock in ${fromLocation}. Available: ${batch.quantityRemaining}` });
+      }
+    }
+
+    const transfer = await prisma.stockTransfer.create({
+      data: {
+        fromLocation,
+        toLocation,
+        itemId,
+        batchId,
+        qty,
+        notes,
+        requestedById: req.user.id,
+        status: 'PENDING',
+      },
+      include: {
+        item: { select: { id: true, name: true, sku: true, unit: true } },
+        batch: { select: { id: true, batchNo: true, expiryDate: true } },
+        requestedBy: { select: { id: true, name: true } },
+      },
+    });
+
+    res.status(201).json(transfer);
+  } catch (err) { next(err); }
+};
+
+const approveTransfer = async (req, res, next) => {
+  try {
+    const transferId = req.params.id;
+
+    const transfer = await prisma.stockTransfer.findUnique({
+      where: { id: transferId },
+      include: { batch: true, item: true }
+    });
+
+    if (!transfer) return res.status(404).json({ error: 'Transfer request not found' });
+    if (transfer.status !== 'PENDING') {
+      return res.status(400).json({ error: `Transfer request is already ${transfer.status}` });
+    }
+
+    const { fromLocation, toLocation, itemId, batchId, qty } = transfer;
+
+    await prisma.$transaction(async (tx) => {
+      // 1. Verify stock availability at source location
+      const sourceStock = await tx.stockLevel.findUnique({
+        where: { itemId_location: { itemId, location: fromLocation } }
+      });
+
+      if (!sourceStock || sourceStock.quantityOnHand < qty) {
+        throw new Error(`Insufficient stock in ${fromLocation} to fulfill transfer.`);
+      }
+
+      let targetBatchId = null;
+
+      // 2. If batch specified, check source batch & transfer/create batch in destination
+      if (batchId && transfer.batch) {
+        if (transfer.batch.quantityRemaining < qty) {
+          throw new Error(`Insufficient batch quantity in ${fromLocation} to fulfill transfer.`);
+        }
+
+        // Deduct source batch
+        await tx.itemBatch.update({
+          where: { id: batchId },
+          data: { quantityRemaining: { decrement: qty } }
+        });
+
+        // Find or create matching batch in target location
+        let targetBatch = null;
+        if (transfer.batch.batchNo) {
+          targetBatch = await tx.itemBatch.findFirst({
+            where: { itemId, batchNo: transfer.batch.batchNo, location: toLocation }
+          });
+        }
+
+        if (targetBatch) {
+          await tx.itemBatch.update({
+            where: { id: targetBatch.id },
+            data: { quantityRemaining: { increment: qty } }
+          });
+          targetBatchId = targetBatch.id;
+        } else {
+          const newBatch = await tx.itemBatch.create({
+            data: {
+              itemId,
+              location: toLocation,
+              batchNo: transfer.batch.batchNo,
+              expiryDate: transfer.batch.expiryDate,
+              quantityRemaining: qty,
+              supplierId: transfer.batch.supplierId,
+            }
+          });
+          targetBatchId = newBatch.id;
+        }
+      }
+
+      // 3. Deduct source stock level
+      await tx.stockLevel.update({
+        where: { itemId_location: { itemId, location: fromLocation } },
+        data: { quantityOnHand: { decrement: qty }, lastUpdated: new Date() }
+      });
+
+      // 4. Increment target stock level
+      await tx.stockLevel.upsert({
+        where: { itemId_location: { itemId, location: toLocation } },
+        update: { quantityOnHand: { increment: qty }, lastUpdated: new Date() },
+        create: { itemId, location: toLocation, quantityOnHand: qty }
+      });
+
+      // 5. Log transfer transactions
+      await tx.transactionLog.create({
+        data: {
+          itemId,
+          location: fromLocation,
+          batchId: batchId || null,
+          type: 'TRANSFER_OUT',
+          qty,
+          userId: req.user.id,
+          notes: `Transferred ${qty} to ${toLocation}. ${transfer.notes || ''}`.trim(),
+        }
+      });
+
+      await tx.transactionLog.create({
+        data: {
+          itemId,
+          location: toLocation,
+          batchId: targetBatchId || null,
+          type: 'TRANSFER_IN',
+          qty,
+          userId: req.user.id,
+          notes: `Received ${qty} from ${fromLocation}. ${transfer.notes || ''}`.trim(),
+        }
+      });
+
+      // 6. Atomically update transfer request status (guarantees single execution)
+      const updateResult = await tx.stockTransfer.updateMany({
+        where: { id: transferId, status: 'PENDING' },
+        data: {
+          status: 'APPROVED',
+          approvedById: req.user.id,
+          updatedAt: new Date(),
+        }
+      });
+
+      if (updateResult.count === 0) {
+        throw new Error('Transfer request has already been processed or cancelled by another user.');
+      }
+    });
+
+    await checkAndFireAlerts(itemId);
+
+    const updatedTransfer = await prisma.stockTransfer.findUnique({
+      where: { id: transferId },
+      include: {
+        item: { select: { id: true, name: true, sku: true, unit: true } },
+        requestedBy: { select: { id: true, name: true } },
+        approvedBy: { select: { id: true, name: true } },
+      }
+    });
+
+    res.json(updatedTransfer);
+  } catch (err) {
+    if (err.message.includes('Insufficient stock') || err.message.includes('Insufficient batch') || err.message.includes('already been processed')) {
+      return res.status(400).json({ error: err.message });
+    }
+    next(err);
+  }
+};
+
+const rejectTransfer = async (req, res, next) => {
+  try {
+    const { rejectionReason } = req.body;
+    const transferId = req.params.id;
+
+    const updatedResult = await prisma.stockTransfer.updateMany({
+      where: { id: transferId, status: 'PENDING' },
+      data: {
+        status: 'REJECTED',
+        rejectionReason: rejectionReason?.trim() || 'Rejected by manager',
+        approvedById: req.user.id,
+        updatedAt: new Date(),
+      },
+    });
+
+    if (updatedResult.count === 0) {
+      return res.status(400).json({ error: 'Transfer request is not pending and cannot be rejected.' });
+    }
+
+    const updated = await prisma.stockTransfer.findUnique({
+      where: { id: transferId },
+      include: {
+        item: { select: { id: true, name: true } },
+        requestedBy: { select: { name: true } },
+        approvedBy: { select: { name: true } },
+      }
+    });
+
+    res.json(updated);
+  } catch (err) { next(err); }
+};
+
+const cancelTransfer = async (req, res, next) => {
+  try {
+    const transferId = req.params.id;
+
+    const updatedResult = await prisma.stockTransfer.updateMany({
+      where: { id: transferId, status: 'PENDING' },
+      data: { status: 'CANCELLED', updatedAt: new Date() }
+    });
+
+    if (updatedResult.count === 0) {
+      return res.status(400).json({ error: 'Transfer request is not pending and cannot be cancelled.' });
+    }
+
+    const updated = await prisma.stockTransfer.findUnique({
+      where: { id: transferId },
+      include: {
+        item: { select: { id: true, name: true } },
+        requestedBy: { select: { name: true } },
+      }
+    });
+
+    res.json(updated);
+  } catch (err) { next(err); }
+};
+
+const getTransfers = async (req, res, next) => {
+  try {
+    const { fromLocation, toLocation, status, itemId } = req.query;
+    const where = {};
+    if (fromLocation) where.fromLocation = fromLocation;
+    if (toLocation) where.toLocation = toLocation;
+    if (status) where.status = status;
+    if (itemId) where.itemId = itemId;
+
+    const transfers = await prisma.stockTransfer.findMany({
+      where,
+      include: {
+        item: { select: { id: true, name: true, sku: true, unit: true } },
+        batch: { select: { id: true, batchNo: true, expiryDate: true } },
+        requestedBy: { select: { id: true, name: true, role: true } },
+        approvedBy: { select: { id: true, name: true, role: true } },
+      },
+      orderBy: { createdAt: 'desc' }
+    });
+
+    res.json(transfers);
+  } catch (err) { next(err); }
+};
+
 const getTransactions = async (req, res, next) => {
   try {
-    const { itemId, type, userId, from, to, limit = '100' } = req.query;
+    const { itemId, type, userId, location, from, to, limit = '100' } = req.query;
     const parsedLimit = Math.min(Math.max(parseInt(limit, 10) || 100, 1), 500);
     const where = {};
     if (itemId) where.itemId = itemId;
     if (type) where.type = type;
     if (userId) where.userId = userId;
+    if (location) where.location = location;
     if (from || to) {
       where.timestamp = {};
       if (from) where.timestamp.gte = new Date(from);
@@ -218,7 +510,7 @@ let lastExpiryAlertCheck = 0;
 const checkAndFireExpiryAlerts = async () => {
   const now = Date.now();
   if (now - lastExpiryAlertCheck < 5 * 60 * 1000) {
-    return; // Cooldown active (Bug #19)
+    return;
   }
   lastExpiryAlertCheck = now;
 
@@ -226,7 +518,6 @@ const checkAndFireExpiryAlerts = async () => {
   const in90 = new Date(today);
   in90.setDate(today.getDate() + 90);
 
-  // Find all batches expiring in 90 days that still have stock
   const batches = await prisma.itemBatch.findMany({
     where: {
       expiryDate: { lte: in90, gte: today },
@@ -251,7 +542,7 @@ const checkAndFireExpiryAlerts = async () => {
     else if (daysLeft <= 60) threshold = 60;
 
     const eventType = `EXPIRY_ALERT_${threshold}`;
-    const message = `Medication batch ${batch.batchNo || 'N/A'} of ${batch.item.name} is expiring in ${daysLeft} days (Batch ID: ${batch.id})`;
+    const message = `Medication batch ${batch.batchNo || 'N/A'} (${batch.location}) of ${batch.item.name} is expiring in ${daysLeft} days (Batch ID: ${batch.id})`;
 
     for (const recipient of recipients) {
       const existing = await prisma.notification.findFirst({
@@ -278,24 +569,23 @@ const checkAndFireExpiryAlerts = async () => {
 
 const getAlerts = async (req, res, next) => {
   try {
-    // Proactively generate notifications for expiring batches
     await checkAndFireExpiryAlerts();
 
     const items = await prisma.item.findMany({
       where: { isArchived: false },
-      include: { stockLevel: true },
+      include: { stockLevels: true },
     });
 
     const today = new Date();
     const in90 = new Date(today); in90.setDate(today.getDate() + 90);
 
     const stockAlerts = items
-      .filter(i => i.stockLevel)
       .map(i => {
-        const qty = i.stockLevel.quantityOnHand;
-        if (qty === 0) return { ...i, alertLevel: 'OUT_OF_STOCK' };
-        if (qty <= i.criticalLevel) return { ...i, alertLevel: 'CRITICAL' };
-        if (qty <= i.warningLevel) return { ...i, alertLevel: 'WARNING' };
+        const stockLevels = i.stockLevels || [];
+        const totalQty = stockLevels.reduce((sum, s) => sum + (s.quantityOnHand || 0), 0);
+        if (totalQty === 0) return { ...i, alertLevel: 'OUT_OF_STOCK', totalQty };
+        if (totalQty <= i.criticalLevel) return { ...i, alertLevel: 'CRITICAL', totalQty };
+        if (totalQty <= i.warningLevel) return { ...i, alertLevel: 'WARNING', totalQty };
         return null;
       })
       .filter(Boolean);
@@ -313,4 +603,15 @@ const getAlerts = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-module.exports = { receiveStock, getTransactions, getAlerts, checkAndFireAlerts, checkAndFireExpiryAlerts };
+module.exports = {
+  receiveStock,
+  getTransactions,
+  getAlerts,
+  checkAndFireAlerts,
+  checkAndFireExpiryAlerts,
+  requestTransfer,
+  approveTransfer,
+  rejectTransfer,
+  cancelTransfer,
+  getTransfers,
+};

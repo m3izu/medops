@@ -20,21 +20,33 @@ const list = async (req, res, next) => {
     const items = await prisma.item.findMany({
       where,
       include: {
-        stockLevel: true,
+        stockLevels: true,
         category: true,
         supplier: { select: { id: true, name: true } },
       },
       orderBy: { name: 'asc' },
     });
 
-    // Apply stock status filter
+    // Apply stock status filter based on combined total stock across both pools
     const withStatus = items.map(item => {
-      const qty = item.stockLevel?.quantityOnHand ?? 0;
+      const stockLevels = item.stockLevels || [];
+      const ecartQty = stockLevels.find(s => s.location === 'ECART')?.quantityOnHand ?? 0;
+      const centralQty = stockLevels.find(s => s.location === 'CENTRAL')?.quantityOnHand ?? 0;
+      const totalQty = ecartQty + centralQty;
+
       let status = 'IN_STOCK';
-      if (qty === 0) status = 'OUT_OF_STOCK';
-      else if (qty <= item.criticalLevel) status = 'CRITICAL';
-      else if (qty <= item.warningLevel) status = 'WARNING';
-      return { ...item, stockStatus: status };
+      if (totalQty === 0) status = 'OUT_OF_STOCK';
+      else if (totalQty <= item.criticalLevel) status = 'CRITICAL';
+      else if (totalQty <= item.warningLevel) status = 'WARNING';
+
+      return {
+        ...item,
+        ecartQty,
+        centralQty,
+        totalQty,
+        quantityOnHand: totalQty, // backward compatibility
+        stockStatus: status,
+      };
     });
 
     const filtered = stockStatus
@@ -80,10 +92,28 @@ const create = async (req, res, next) => {
         dispenseMode: dispenseMode ?? 'REQUISITION_ONLY',
         acquisitionDate: acquisitionDate ? new Date(acquisitionDate) : null,
         createdById: req.user.id,
-        stockLevel: { create: { quantityOnHand: 0 } },
+        stockLevels: {
+          create: [
+            { location: 'ECART', quantityOnHand: 0 },
+            { location: 'CENTRAL', quantityOnHand: 0 },
+          ],
+        },
       },
+      include: { stockLevels: true },
     });
-    res.status(201).json(item);
+
+    const stockLevels = item.stockLevels || [];
+    const ecartQty = stockLevels.find(s => s.location === 'ECART')?.quantityOnHand ?? 0;
+    const centralQty = stockLevels.find(s => s.location === 'CENTRAL')?.quantityOnHand ?? 0;
+    const totalQty = ecartQty + centralQty;
+
+    res.status(201).json({
+      ...item,
+      ecartQty,
+      centralQty,
+      totalQty,
+      quantityOnHand: totalQty,
+    });
   } catch (err) { next(err); }
 };
 
@@ -92,14 +122,26 @@ const getOne = async (req, res, next) => {
     const item = await prisma.item.findUnique({
       where: { id: req.params.id },
       include: {
-        stockLevel: true,
+        stockLevels: true,
         category: { include: { parent: true } },
         supplier: true,
         batches: { where: { quantityRemaining: { gt: 0 } }, orderBy: { expiryDate: 'asc' } },
       },
     });
     if (!item) return res.status(404).json({ error: 'Item not found' });
-    res.json(item);
+
+    const stockLevels = item.stockLevels || [];
+    const ecartQty = stockLevels.find(s => s.location === 'ECART')?.quantityOnHand ?? 0;
+    const centralQty = stockLevels.find(s => s.location === 'CENTRAL')?.quantityOnHand ?? 0;
+    const totalQty = ecartQty + centralQty;
+
+    res.json({
+      ...item,
+      ecartQty,
+      centralQty,
+      totalQty,
+      quantityOnHand: totalQty,
+    });
   } catch (err) { next(err); }
 };
 
@@ -122,8 +164,21 @@ const update = async (req, res, next) => {
     const item = await prisma.item.update({
       where: { id: req.params.id },
       data: { name, categoryId, unit, warningLevel, criticalLevel, supplierId, condition, dispenseMode },
+      include: { stockLevels: true },
     });
-    res.json(item);
+
+    const stockLevels = item.stockLevels || [];
+    const ecartQty = stockLevels.find(s => s.location === 'ECART')?.quantityOnHand ?? 0;
+    const centralQty = stockLevels.find(s => s.location === 'CENTRAL')?.quantityOnHand ?? 0;
+    const totalQty = ecartQty + centralQty;
+
+    res.json({
+      ...item,
+      ecartQty,
+      centralQty,
+      totalQty,
+      quantityOnHand: totalQty,
+    });
   } catch (err) { next(err); }
 };
 
@@ -132,7 +187,7 @@ const toggleArchive = async (req, res, next) => {
     const item = await prisma.item.findUnique({
       where: { id: req.params.id },
       include: {
-        stockLevel: true,
+        stockLevels: true,
         batches: { where: { quantityRemaining: { gt: 0 } } }
       }
     });
@@ -140,12 +195,13 @@ const toggleArchive = async (req, res, next) => {
 
     // Prevent archiving an item with remaining stock
     if (!item.isArchived) {
-      const qtyOnHand = item.stockLevel?.quantityOnHand ?? 0;
+      const stockLevels = item.stockLevels || [];
+      const totalQty = stockLevels.reduce((sum, s) => sum + (s.quantityOnHand || 0), 0);
       const activeBatchesCount = item.batches ? item.batches.length : 0;
 
-      if (qtyOnHand > 0 || activeBatchesCount > 0) {
+      if (totalQty > 0 || activeBatchesCount > 0) {
         return res.status(400).json({
-          error: `Cannot archive item with positive stock on hand (${qtyOnHand} ${item.unit}) or active batch inventory. Discard or transfer remaining stock before archiving.`
+          error: `Cannot archive item with positive stock on hand (${totalQty} ${item.unit}) or active batch inventory. Discard or transfer remaining stock before archiving.`
         });
       }
     }

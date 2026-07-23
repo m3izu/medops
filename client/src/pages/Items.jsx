@@ -34,8 +34,10 @@ const HighlightText = ({ text, search }) => {
   );
 };
 
-const renderSegmentedStockGauge = (item) => {
-  const qty = item.stockLevel?.quantityOnHand ?? 0;
+const renderSegmentedStockGauge = (item, pool = 'ECART') => {
+  let qty = item.ecartQty ?? 0;
+  if (pool === 'CENTRAL') qty = item.centralQty ?? 0;
+  if (pool === 'ALL') qty = item.totalQty ?? ((item.ecartQty ?? 0) + (item.centralQty ?? 0));
   
   // Decide how many blocks to light up (out of 6)
   let litBlocks = 0;
@@ -128,11 +130,13 @@ const Items = () => {
   const [filterItemType, setFilterItemType] = useState('');
   const [filterStockStatus, setFilterStockStatus] = useState('');
   const [filterArchived, setFilterArchived] = useState(false);
+  const [filterLocationPool, setFilterLocationPool] = useState('ECART');
+  const [showZeroStockInLocation, setShowZeroStockInLocation] = useState(false);
 
   // Reset page on filter change
   useEffect(() => {
     setCurrentPage(1);
-  }, [filterSearch, filterCategory, filterItemType, filterStockStatus, filterArchived]);
+  }, [filterSearch, filterCategory, filterItemType, filterStockStatus, filterArchived, filterLocationPool, showZeroStockInLocation]);
 
   // Sorting State
   const [sortBy, setSortBy] = useState('name'); // 'name' | 'sku' | 'qty' | 'category' | 'type'
@@ -147,7 +151,7 @@ const Items = () => {
       `"${item.itemType || ''}"`,
       `"${(item.category?.name || '').replace(/"/g, '""')}"`,
       `"${item.unit || ''}"`,
-      item.stockLevel?.quantityOnHand ?? 0,
+      item.totalQty ?? ((item.ecartQty ?? 0) + (item.centralQty ?? 0)),
       `"${item.stockStatus || 'OK'}"`,
       item.warningLevel,
       item.criticalLevel,
@@ -398,8 +402,17 @@ const Items = () => {
 
   const canManage = hasPermission('manage_items');
 
+  // Filter out ghost 0-stock items when a specific location pool is selected unless explicitly toggled
+  const visibleItems = items.filter((item) => {
+    if (!showZeroStockInLocation) {
+      if (filterLocationPool === 'ECART') return (item.ecartQty ?? 0) > 0;
+      if (filterLocationPool === 'CENTRAL') return (item.centralQty ?? 0) > 0;
+    }
+    return true;
+  });
+
   // Apply Sorting to Items List
-  const sortedItems = [...items].sort((a, b) => {
+  const sortedItems = [...visibleItems].sort((a, b) => {
     let aVal, bVal;
     if (sortBy === 'name') {
       aVal = (a.name || '').toLowerCase();
@@ -408,8 +421,16 @@ const Items = () => {
       aVal = (a.sku || '').toLowerCase();
       bVal = (b.sku || '').toLowerCase();
     } else if (sortBy === 'qty') {
-      aVal = a.stockLevel?.quantityOnHand ?? 0;
-      bVal = b.stockLevel?.quantityOnHand ?? 0;
+      if (filterLocationPool === 'ECART') {
+        aVal = a.ecartQty ?? 0;
+        bVal = b.ecartQty ?? 0;
+      } else if (filterLocationPool === 'CENTRAL') {
+        aVal = a.centralQty ?? 0;
+        bVal = b.centralQty ?? 0;
+      } else {
+        aVal = a.totalQty ?? ((a.ecartQty ?? 0) + (a.centralQty ?? 0));
+        bVal = b.totalQty ?? ((b.ecartQty ?? 0) + (b.centralQty ?? 0));
+      }
     } else if (sortBy === 'category') {
       aVal = (a.category?.name || '').toLowerCase();
       bVal = (b.category?.name || '').toLowerCase();
@@ -491,6 +512,30 @@ const Items = () => {
 
       {/* Filter Bar */}
       <div className="filter-bar">
+        <div className="filter-item" style={{ minWidth: '170px' }}>
+          <label>Inventory Location</label>
+          <select 
+            className="form-control" 
+            value={filterLocationPool}
+            onChange={(e) => setFilterLocationPool(e.target.value)}
+            style={{ fontWeight: '600' }}
+          >
+            <option value="ECART">🛒 eCart Stock (Default)</option>
+            <option value="CENTRAL">🏢 Central Storage</option>
+            <option value="ALL">🌐 All Inventory Locations</option>
+          </select>
+          {filterLocationPool !== 'ALL' && (
+            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', color: 'var(--theme-text-muted)', cursor: 'pointer', marginTop: '4px' }}>
+              <input
+                type="checkbox"
+                checked={showZeroStockInLocation}
+                onChange={(e) => setShowZeroStockInLocation(e.target.checked)}
+              />
+              Show 0-stock items
+            </label>
+          )}
+        </div>
+
         <div className="filter-item" style={{ flexGrow: 1, minWidth: '200px' }}>
           <label>Search name or SKU</label>
           <input 
@@ -598,13 +643,23 @@ const Items = () => {
                     <th onClick={() => handleHeaderSort('category')} style={{ cursor: 'pointer', userSelect: 'none' }}>
                       Category {renderSortIndicator('category')}
                     </th>
-                    <th onClick={() => handleHeaderSort('qty')} style={{ cursor: 'pointer', userSelect: 'none' }}>
-                      In Stock Qty {renderSortIndicator('qty')}
-                    </th>
+                    {filterLocationPool === 'ALL' ? (
+                      <>
+                        <th>eCart Stock</th>
+                        <th>Central Storage</th>
+                        <th onClick={() => handleHeaderSort('qty')} style={{ cursor: 'pointer', userSelect: 'none' }}>
+                          Total Stock {renderSortIndicator('qty')}
+                        </th>
+                      </>
+                    ) : (
+                      <th onClick={() => handleHeaderSort('qty')} style={{ cursor: 'pointer', userSelect: 'none' }}>
+                        {filterLocationPool === 'ECART' ? '🛒 eCart Stock Quantity' : '🏢 Central Storage Quantity'} {renderSortIndicator('qty')}
+                      </th>
+                    )}
                     <th>
                       <span className="tooltip-container" style={{ borderBottom: '1px dotted var(--theme-text-muted)' }}>
                         Thresholds (Warn/Crit)
-                        <span className="tooltip-text">Warn: Quantity level that triggers a warning. Crit: Quantity level that triggers a critical low warning.</span>
+                        <span className="tooltip-text">Warn: Combined level that triggers a warning. Crit: Combined level that triggers a critical low warning.</span>
                       </span>
                     </th>
                     <th>Default Supplier</th>
@@ -643,9 +698,27 @@ const Items = () => {
                         {ITEM_TYPES.find(t => t.value === item.itemType)?.label.split(' (')[0]}
                       </td>
                       <td>{item.category?.name?.replace('— ', '') || <span style={{ color: 'var(--theme-text-muted)', fontSize: '12px' }}>—</span>}</td>
-                      <td>
-                        {renderSegmentedStockGauge(item)}
-                      </td>
+                      {filterLocationPool === 'ALL' ? (
+                        <>
+                          <td>
+                            <span className="badge badge-info" style={{ fontFamily: 'var(--font-mono)', fontWeight: 'bold' }}>
+                              {item.ecartQty ?? 0} {item.unit}
+                            </span>
+                          </td>
+                          <td>
+                            <span className="badge badge-secondary" style={{ fontFamily: 'var(--font-mono)', fontWeight: 'bold' }}>
+                              {item.centralQty ?? 0} {item.unit}
+                            </span>
+                          </td>
+                          <td>
+                            {renderSegmentedStockGauge(item, 'ALL')}
+                          </td>
+                        </>
+                      ) : (
+                        <td>
+                          {renderSegmentedStockGauge(item, filterLocationPool)}
+                        </td>
+                      )}
                       <td style={{ fontSize: '13px' }}>
                         <span style={{ fontWeight: '500' }}>{item.warningLevel}</span> / <span style={{ fontWeight: '500', color: 'var(--color-critical)' }}>{item.criticalLevel}</span>
                       </td>
@@ -927,6 +1000,7 @@ const Items = () => {
                   <thead>
                     <tr>
                       <th>Batch / Lot No</th>
+                      <th>Location</th>
                       <th>Expiration Date</th>
                       <th>Quantity Remaining</th>
                       <th>Status</th>
@@ -941,6 +1015,7 @@ const Items = () => {
                       const diffTime = expDate - today;
                       const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
                       const isExpiringSoon = !isExpired && diffDays <= 90;
+                      const loc = b.location || 'ECART';
                       
                       let badge = <span className="badge badge-success">OK</span>;
                       if (isExpired) {
@@ -952,6 +1027,11 @@ const Items = () => {
                       return (
                         <tr key={b.id} style={{ background: isExpired ? 'var(--color-critical-bg)' : 'transparent' }}>
                           <td><code>{b.batchNo || 'N/A'}</code></td>
+                          <td>
+                            <span className="badge badge-neutral" style={{ fontSize: '11px' }}>
+                              {loc === 'ECART' ? '🛒 eCart' : '🏢 Central'}
+                            </span>
+                          </td>
                           <td>{new Date(b.expiryDate).toLocaleDateString()}</td>
                           <td><strong>{b.quantityRemaining}</strong> {selectedItemUnit}</td>
                           <td>{badge}</td>
