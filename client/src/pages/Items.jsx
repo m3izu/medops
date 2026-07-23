@@ -357,6 +357,8 @@ const Items = () => {
           warningLevel: Number(warningLevel),
           criticalLevel: Number(criticalLevel),
           supplierId: supplierId || null,
+          serialNumber: itemType === 'MEDICAL_EQUIPMENT' ? (serialNumber || null) : undefined,
+          acquisitionDate: itemType === 'MEDICAL_EQUIPMENT' ? (acquisitionDate ? new Date(acquisitionDate).toISOString() : null) : undefined,
           condition: itemType === 'MEDICAL_EQUIPMENT' ? condition : undefined,
           dispenseMode,
         });

@@ -147,7 +147,7 @@ const getOne = async (req, res, next) => {
 
 const update = async (req, res, next) => {
   try {
-    const { name, categoryId, unit, warningLevel, criticalLevel, supplierId, condition, dispenseMode } = req.body;
+    const { name, categoryId, unit, warningLevel, criticalLevel, supplierId, serialNumber, acquisitionDate, condition, dispenseMode } = req.body;
     
     if (warningLevel !== undefined && (typeof warningLevel !== 'number' || warningLevel < 0)) {
       return res.status(400).json({ error: 'Warning level must be a non-negative number' });
@@ -161,9 +161,22 @@ const update = async (req, res, next) => {
       return res.status(400).json({ error: 'Invalid dispenseMode.' });
     }
 
+    let parsedAcquisitionDate = undefined;
+    if (acquisitionDate === null || acquisitionDate === '') {
+      parsedAcquisitionDate = null;
+    } else if (acquisitionDate !== undefined) {
+      parsedAcquisitionDate = new Date(acquisitionDate);
+      if (isNaN(parsedAcquisitionDate.getTime())) {
+        return res.status(400).json({ error: 'Invalid acquisition date format' });
+      }
+    }
+
     const item = await prisma.item.update({
       where: { id: req.params.id },
-      data: { name, categoryId, unit, warningLevel, criticalLevel, supplierId, condition, dispenseMode },
+      data: {
+        name, categoryId, unit, warningLevel, criticalLevel, supplierId,
+        serialNumber, acquisitionDate: parsedAcquisitionDate, condition, dispenseMode
+      },
       include: { stockLevels: true },
     });
 
