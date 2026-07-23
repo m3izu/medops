@@ -418,7 +418,8 @@ const create = async (req, res, next) => {
       'Nurses can only return items they dispensed themselves.',
       'Nurses can only return items they requested themselves.',
       'Original requisition line not found.',
-      'Cannot return items from a requisition line that was not approved.'
+      'Cannot return items from a requisition line that was not approved.',
+      'Cannot return items for an archived item.'
     ];
 
     if (
