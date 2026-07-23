@@ -42,12 +42,13 @@ const createUser = async (req, res, next) => {
       return res.status(400).json({ error: 'Password must be at least 6 characters' });
     }
 
-    const exists = await prisma.user.findUnique({ where: { username } });
+    const cleanUsername = String(username).trim();
+    const exists = await prisma.user.findUnique({ where: { username: cleanUsername } });
     if (exists) return res.status(409).json({ error: 'Username already taken' });
 
     const passwordHash = await bcrypt.hash(password, 12);
     const user = await prisma.user.create({
-      data: { name, username, passwordHash, role, createdBy: req.user.id },
+      data: { name: name.trim(), username: cleanUsername, passwordHash, role, createdBy: req.user.id },
     });
 
     // Create notification for top admin

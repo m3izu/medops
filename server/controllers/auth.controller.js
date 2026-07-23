@@ -11,7 +11,8 @@ const login = async (req, res, next) => {
       return res.status(400).json({ error: 'Username and password are required' });
     }
 
-    const user = await prisma.user.findUnique({ where: { username } });
+    const cleanUsername = String(username).trim();
+    const user = await prisma.user.findUnique({ where: { username: cleanUsername } });
 
     if (!user || user.isDeleted) {
       return res.status(401).json({ error: 'Invalid username or password' });
