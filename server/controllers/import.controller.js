@@ -97,10 +97,11 @@ const importCsv = async (req, res, next) => {
             const parsedCrit = parseInt(row.criticalLevel, 10);
             const criticalLevel = isNaN(parsedCrit) ? 5 : parsedCrit;
 
-            const parsedInit = parseInt(row.initialQty, 10);
-            const initialQty = isNaN(parsedInit) ? 0 : parsedInit;
+            const hasInitialQty = row.initialQty !== undefined && row.initialQty !== null && String(row.initialQty).trim() !== '';
+            const parsedInit = hasInitialQty ? parseInt(row.initialQty, 10) : undefined;
+            const initialQty = parsedInit !== undefined ? (isNaN(parsedInit) ? 0 : parsedInit) : undefined;
 
-            if (initialQty < 0) {
+            if (initialQty !== undefined && initialQty < 0) {
               throw new Error(`Row ${lineNum}: Initial quantity cannot be negative.`);
             }
 
@@ -133,12 +134,14 @@ const importCsv = async (req, res, next) => {
                 }
               });
 
-              // Upsert stock level for ECART and CENTRAL
-              await tx.stockLevel.upsert({
-                where: { itemId_location: { itemId: targetItem.id, location: 'ECART' } },
-                update: { quantityOnHand: initialQty, lastUpdated: new Date() },
-                create: { itemId: targetItem.id, location: 'ECART', quantityOnHand: initialQty, lastUpdated: new Date() }
-              });
+              // Upsert stock level for ECART and CENTRAL (only update ECART if initialQty is explicitly supplied)
+              if (initialQty !== undefined) {
+                await tx.stockLevel.upsert({
+                  where: { itemId_location: { itemId: targetItem.id, location: 'ECART' } },
+                  update: { quantityOnHand: initialQty, lastUpdated: new Date() },
+                  create: { itemId: targetItem.id, location: 'ECART', quantityOnHand: initialQty, lastUpdated: new Date() }
+                });
+              }
 
               await tx.stockLevel.upsert({
                 where: { itemId_location: { itemId: targetItem.id, location: 'CENTRAL' } },
@@ -163,7 +166,7 @@ const importCsv = async (req, res, next) => {
                   createdById: req.user.id,
                   stockLevels: {
                     create: [
-                      { location: 'ECART', quantityOnHand: initialQty, lastUpdated: new Date() },
+                      { location: 'ECART', quantityOnHand: initialQty ?? 0, lastUpdated: new Date() },
                       { location: 'CENTRAL', quantityOnHand: 0, lastUpdated: new Date() },
                     ]
                   }

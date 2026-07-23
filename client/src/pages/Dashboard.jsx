@@ -48,7 +48,7 @@ const Dashboard = () => {
       desc: 'Start physical counts to reconcile inventory levels',
       path: '/stocktake', 
       icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"></path></svg>, 
-      permission: 'initiate_stocktake', 
+      permission: ['initiate_stocktake', 'enter_stocktake_count'], 
       color: 'var(--color-warning)',
       bgColor: 'rgba(245,158,11,0.08)',
       shadowColor: 'rgba(245,158,11,0.15)'
@@ -83,7 +83,7 @@ const Dashboard = () => {
       bgColor: 'rgba(6,182,212,0.08)',
       shadowColor: 'rgba(6,182,212,0.15)'
     }
-  ].filter(action => hasPermission(action.permission));
+  ].filter(action => Array.isArray(action.permission) ? action.permission.some(p => hasPermission(p)) : hasPermission(action.permission));
 
   // Widget metadata
   const WIDGETS = {
