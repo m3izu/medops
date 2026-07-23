@@ -2,7 +2,12 @@ const prisma = require('../lib/prisma');
 
 const list = async (req, res, next) => {
   try {
+    const where = {};
+    if (req.user.role === 'NURSE') {
+      where.status = 'IN_PROGRESS';
+    }
     const stocktakes = await prisma.stocktake.findMany({
+      where,
       include: { initiatedBy: { select: { name: true } } },
       orderBy: { initiatedAt: 'desc' },
     });
@@ -86,6 +91,9 @@ const getOne = async (req, res, next) => {
       },
     });
     if (!st) return res.status(404).json({ error: 'Stocktake not found' });
+    if (req.user.role === 'NURSE' && st.status !== 'IN_PROGRESS') {
+      return res.status(403).json({ error: 'Nurses can only access active in-progress stocktakes.' });
+    }
     res.json(st);
   } catch (err) { next(err); }
 };
