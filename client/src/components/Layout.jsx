@@ -262,7 +262,7 @@ const LayoutInner = ({ children }) => {
           {/* Group 2: Clinical Operations */}
           <div className="sidebar-group">
             <div className="sidebar-group-title">Clinical Operations</div>
-            {hasPermission('manage_patients') && (
+            {(hasPermission('manage_patients') || hasPermission('submit_requisition') || hasPermission('view_inventory_logs')) && (
               <li className="sidebar-item">
                 <NavLink to="/patients" className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`} title="Patients">
                   <span className="sidebar-icon">🩺</span>
@@ -331,12 +331,14 @@ const LayoutInner = ({ children }) => {
                 </NavLink>
               </li>
             )}
-            <li className="sidebar-item">
-              <NavLink to="/stock/transfers" className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`} title="Stock Transfers">
-                <span className="sidebar-icon">🔄</span>
-                <span className="sidebar-link-text">Stock Transfers</span>
-              </NavLink>
-            </li>
+            {(hasPermission('receive_stock') || hasPermission('manage_items') || hasPermission('submit_requisition') || hasPermission('view_inventory_logs')) && (
+              <li className="sidebar-item">
+                <NavLink to="/stock/transfers" className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`} title="Stock Transfers">
+                  <span className="sidebar-icon">🔄</span>
+                  <span className="sidebar-link-text">Stock Transfers</span>
+                </NavLink>
+              </li>
+            )}
             {hasPermission('log_discard') && (
               <li className="sidebar-item">
                 <NavLink to="/discards" className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`} title="Discard Logs">
