@@ -22,7 +22,7 @@ const requireAnyPermission = (permissionsArray) => {
 
 router.get('/', authenticate, requireAnyPermission(['manage_patients', 'submit_requisition', 'view_inventory_logs']), c.list);
 router.post('/', authenticate, requirePermission('manage_patients'), c.create);
-router.get('/:id', authenticate, requirePermission('manage_patients'), c.getOne);
+router.get('/:id', authenticate, requireAnyPermission(['manage_patients', 'submit_requisition', 'view_inventory_logs']), c.getOne);
 router.put('/:id', authenticate, requirePermission('manage_patients'), c.update);
 router.patch('/:id/status', authenticate, requirePermission('manage_patients'), c.toggleStatus);
 
