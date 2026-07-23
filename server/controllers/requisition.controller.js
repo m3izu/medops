@@ -95,6 +95,7 @@ const createBatch = async (req, res, next) => {
         if (!Array.isArray(lines) || lines.length === 0) continue;
 
         // 1. Consolidate lines (aggregate quantities for duplicate item entries in the same column)
+        const lineMap = {};
         const lineLocationMap = {};
         for (const l of lines) {
           if (!l.itemId) continue;

@@ -269,10 +269,10 @@ const getUserProfile = async (req, res, next) => {
         orderBy: { createdAt: 'desc' },
         take: 100,
       }),
-      prisma.requisition.findMany({
-        where: { approvedById: targetUserId },
-        include: { patient: { select: { name: true, chartNumber: true } } },
-        orderBy: { createdAt: 'desc' },
+      prisma.requisitionLine.findMany({
+        where: { reviewedById: targetUserId },
+        include: { requisition: { include: { patient: { select: { name: true, chartNumber: true } } } }, item: { select: { name: true, unit: true } } },
+        orderBy: { updatedAt: 'desc' },
         take: 100,
       }),
       prisma.discardLog.findMany({
@@ -319,20 +319,21 @@ const getUserProfile = async (req, res, next) => {
         id: `req-sub-${r.id}`,
         category: 'REQUISITION',
         timestamp: r.createdAt,
-        action: `Submitted Requisition #${r.formNumber || r.id.substring(0, 8)}`,
-        details: `Patient: ${r.patient?.name || 'N/A'} • Status: ${r.status} • Form Type: ${r.formType}`,
-        location: r.targetLocation || 'ECART',
+        action: `Submitted Requisition #${r.id.substring(0, 8)}`,
+        details: `Patient: ${r.patient?.name || 'N/A'} • Status: ${r.status}`,
+        location: 'ECART',
       });
     });
 
-    requisitionsApproved.forEach(r => {
+    requisitionsApproved.forEach(rl => {
+      const r = rl.requisition;
       activityStream.push({
-        id: `req-app-${r.id}`,
+        id: `req-rev-${rl.id}`,
         category: 'REQUISITION',
-        timestamp: r.updatedAt || r.createdAt,
-        action: `Processed/Approved Requisition #${r.formNumber || r.id.substring(0, 8)}`,
-        details: `Patient: ${r.patient?.name || 'N/A'} • Status: ${r.status}`,
-        location: r.targetLocation || 'ECART',
+        timestamp: rl.updatedAt || rl.createdAt,
+        action: `Reviewed Requisition Line (${rl.item?.name || 'Item'})`,
+        details: `Patient: ${r?.patient?.name || 'N/A'} • Status: ${rl.status}${rl.qtyApproved !== null ? ` • Approved Qty: ${rl.qtyApproved}` : ''}`,
+        location: rl.location || 'ECART',
       });
     });
 
