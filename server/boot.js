@@ -15,7 +15,7 @@ async function main() {
 
   console.log(`[Boot] Ensuring database schema is up-to-date at ${dbPath}...`);
   try {
-    execSync(`npx prisma db push --url "file:${dbPath}"`, { stdio: 'inherit', cwd: __dirname });
+    execSync(`npx prisma db push --accept-data-loss --url "file:${dbPath}"`, { stdio: 'inherit', cwd: __dirname });
   } catch (err) {
     console.error('[Boot] Error running prisma db push:', err);
     process.exit(1);
