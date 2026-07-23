@@ -13,7 +13,7 @@ const requireAnyPermission = (permissionsArray) => {
       if (permissionsArray.some(p => perms[p])) {
         return next();
       }
-      return res.status(403).json({ error: 'You do not have permission to view stock alerts.' });
+      return res.status(403).json({ error: 'You do not have permission to perform this action.' });
     } catch (err) {
       next(err);
     }
@@ -29,6 +29,6 @@ router.post('/transfers/request', authenticate, requireAnyPermission(['receive_s
 router.post('/transfers/:id/approve', authenticate, requireAnyPermission(['receive_stock', 'manage_items']), c.approveTransfer);
 router.post('/transfers/:id/reject', authenticate, requireAnyPermission(['receive_stock', 'manage_items']), c.rejectTransfer);
 router.post('/transfers/:id/cancel', authenticate, requireAnyPermission(['receive_stock', 'manage_items', 'submit_requisition']), c.cancelTransfer);
-router.get('/transfers', authenticate, requireAnyPermission(['view_inventory_logs', 'receive_stock', 'manage_items']), c.getTransfers);
+router.get('/transfers', authenticate, requireAnyPermission(['view_inventory_logs', 'receive_stock', 'manage_items', 'submit_requisition']), c.getTransfers);
 
 module.exports = router;
