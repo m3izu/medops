@@ -284,7 +284,7 @@ const getUserProfile = async (req, res, next) => {
       prisma.stockTransfer.findMany({
         where: { OR: [{ requestedById: targetUserId }, { approvedById: targetUserId }] },
         include: { item: { select: { name: true, unit: true } } },
-        orderBy: { requestedAt: 'desc' },
+        orderBy: { createdAt: 'desc' },
         take: 100,
       }),
       prisma.transactionLog.findMany({
@@ -308,7 +308,7 @@ const getUserProfile = async (req, res, next) => {
         id: `dispense-${d.id}`,
         category: 'DISPENSE',
         timestamp: d.dispensedAt,
-        action: `Dispensed ${d.quantity} ${d.item?.unit || 'unit(s)'} of ${d.item?.name || 'Item'}`,
+        action: `Dispensed ${d.qty} ${d.item?.unit || 'unit(s)'} of ${d.item?.name || 'Item'}`,
         details: `Patient: ${d.patient?.name || 'N/A'} (${d.patient?.chartNumber || 'N/A'}) • Billing: ${d.billingStatus}`,
         location: d.location,
       });
@@ -352,7 +352,7 @@ const getUserProfile = async (req, res, next) => {
       activityStream.push({
         id: `transfer-${tr.id}`,
         category: 'TRANSFER',
-        timestamp: tr.requestedAt,
+        timestamp: tr.createdAt,
         action: isRequester ? `Requested Inter-Facility Transfer (${tr.fromLocation} → ${tr.toLocation})` : `Approved Inter-Facility Transfer (${tr.fromLocation} → ${tr.toLocation})`,
         details: `Item: ${tr.item?.name || 'Item'} • Qty: ${tr.qty} • Status: ${tr.status}`,
         location: tr.fromLocation,
