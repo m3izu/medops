@@ -58,17 +58,13 @@ const Users = () => {
   const [selectedUser, setSelectedUser] = useState(null);
   const [permissionAuditLogs, setPermissionAuditLogs] = useState([]);
   
-  // Pagination
+  // Pagination & Filter States
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
+  const [filterSearch, setFilterSearch] = useState('');
   
   // Navigation tabs inside Users panel
   const [activeTab, setActiveTab] = useState('list'); // 'list' | 'roles' | 'audit'
-
-  // Reset pagination on search
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [filterSearch]);
 
   // Modals state
   const [addUserModal, setAddUserModal] = useState(false);
@@ -84,12 +80,16 @@ const Users = () => {
   const [success, setSuccess] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
-  const [filterSearch, setFilterSearch] = useState('');
   const [loading, setLoading] = useState(true);
 
   // Permission structure
   const [allPermissionKeys, setAllPermissionKeys] = useState([]);
   const [lockedPermissions, setLockedPermissions] = useState([]);
+
+  // Reset pagination on search
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [filterSearch]);
 
   const ROLES = [
     'TOP_ADMIN',
