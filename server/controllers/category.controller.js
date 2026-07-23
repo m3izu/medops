@@ -127,7 +127,7 @@ const remove = async (req, res, next) => {
       where: { id: categoryId },
       include: { 
         children: true, 
-        items: { where: { isArchived: false } }
+        items: true
       },
     });
 
@@ -143,7 +143,7 @@ const remove = async (req, res, next) => {
 
     if (category.items.length > 0) {
       return res.status(400).json({
-        error: 'Cannot delete category because it contains active inventory items. Please reassign or remove them first.'
+        error: 'Cannot delete category because it contains inventory items. Please reassign or remove them first.'
       });
     }
 
