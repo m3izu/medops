@@ -2,12 +2,16 @@ const prisma = require('../lib/prisma');
 
 const getNotifications = async (req, res, next) => {
   try {
-    const notifications = await prisma.notification.findMany({
-      where: { userId: req.user.id },
-      orderBy: { createdAt: 'desc' },
-      take: 50,
-    });
-    const unreadCount = notifications.filter(n => !n.isRead).length;
+    const [notifications, unreadCount] = await Promise.all([
+      prisma.notification.findMany({
+        where: { userId: req.user.id },
+        orderBy: { createdAt: 'desc' },
+        take: 50,
+      }),
+      prisma.notification.count({
+        where: { userId: req.user.id, isRead: false },
+      }),
+    ]);
     res.json({ notifications, unreadCount });
   } catch (err) { next(err); }
 };
