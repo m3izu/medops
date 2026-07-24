@@ -280,9 +280,9 @@ const LayoutInner = ({ children }) => {
             )}
             {hasPermission('dispense_item') && (
               <li className="sidebar-item">
-                <NavLink to="/dispense" className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`} title="Direct Dispense">
+                <NavLink to="/dispense" className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`} title="Direct Dispense(ECART)">
                   <span className="sidebar-icon">💊</span>
-                  <span className="sidebar-link-text">Direct Dispense</span>
+                  <span className="sidebar-link-text">Direct Dispense(ECART)</span>
                 </NavLink>
               </li>
             )}

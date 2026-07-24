@@ -241,12 +241,12 @@ const SearchableItemSelect = ({ items, value, onChange, placeholder = "Type item
                       fontWeight: '600',
                       padding: '2px 8px',
                       borderRadius: '12px',
-                      background: stock > 0 ? 'rgba(16,185,129,0.12)' : 'rgba(239,68,68,0.12)',
-                      color: stock > 0 ? '#10b981' : '#ef4444',
+                      background: ecart > 0 ? 'rgba(16,185,129,0.12)' : 'rgba(239,68,68,0.12)',
+                      color: ecart > 0 ? '#10b981' : '#ef4444',
                       whiteSpace: 'nowrap',
                     }}
                   >
-                    In Stock: {stock} {item.unit}
+                    eCart Stock: {ecart} {item.unit}
                   </span>
                 </div>
               );
@@ -567,7 +567,6 @@ const Dispense = () => {
                           onChange={(e) => handleLineChange(line.id, 'location', e.target.value)}
                           required
                         >
-                          <option value="">-- Choose Location --</option>
                           <option value="ECART">🛒 eCart Inventory Pool</option>
                           <option value="CENTRAL">🏢 Central Storage</option>
                         </select>
