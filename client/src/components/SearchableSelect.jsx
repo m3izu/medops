@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 
 const SearchableSelect = ({
   options = [],
@@ -12,15 +13,51 @@ const SearchableSelect = ({
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
+  const [highlightedIndex, setHighlightedIndex] = useState(0);
+  const [dropdownPos, setDropdownPos] = useState({ top: 0, left: 0, width: 0, openUpward: false });
   const containerRef = useRef(null);
+  const dropdownRef = useRef(null);
+  const itemRefs = useRef([]);
 
   // Find currently selected option object
   const selectedOption = options.find((opt) => String(opt.value) === String(value));
 
+  // Recalculate dropdown position whenever isOpen is true, or on scroll/resize
+  useEffect(() => {
+    if (!isOpen || !containerRef.current) return;
+
+    const updatePosition = () => {
+      if (!containerRef.current) return;
+      const rect = containerRef.current.getBoundingClientRect();
+      const spaceBelow = window.innerHeight - rect.bottom;
+      const dropdownHeight = 240; // Max height of dropdown
+      const openUpward = spaceBelow < dropdownHeight && rect.top > dropdownHeight;
+
+      setDropdownPos({
+        top: openUpward ? rect.top - dropdownHeight - 4 : rect.bottom + 4,
+        left: rect.left,
+        width: rect.width,
+        openUpward,
+      });
+    };
+
+    updatePosition();
+
+    window.addEventListener('resize', updatePosition);
+    window.addEventListener('scroll', updatePosition, true);
+
+    return () => {
+      window.removeEventListener('resize', updatePosition);
+      window.removeEventListener('scroll', updatePosition, true);
+    };
+  }, [isOpen]);
+
   // Close dropdown on click outside
   useEffect(() => {
     const handleClickOutside = (e) => {
-      if (containerRef.current && !containerRef.current.contains(e.target)) {
+      const isInsideContainer = containerRef.current && containerRef.current.contains(e.target);
+      const isInsideDropdown = dropdownRef.current && dropdownRef.current.contains(e.target);
+      if (!isInsideContainer && !isInsideDropdown) {
         setIsOpen(false);
       }
     };
@@ -37,6 +74,18 @@ const SearchableSelect = ({
     return labelMatch || skuMatch;
   });
 
+  // Reset highlightedIndex when search term or isOpen changes
+  useEffect(() => {
+    setHighlightedIndex(0);
+  }, [searchTerm, isOpen]);
+
+  // Scroll active item into view when highlightedIndex changes
+  useEffect(() => {
+    if (isOpen && itemRefs.current[highlightedIndex]) {
+      itemRefs.current[highlightedIndex]?.scrollIntoView({ block: 'nearest' });
+    }
+  }, [highlightedIndex, isOpen]);
+
   const handleSelect = (option) => {
     onChange(option ? option.value : '', option);
     setIsOpen(false);
@@ -47,6 +96,35 @@ const SearchableSelect = ({
     e.stopPropagation();
     onChange('', null);
     setSearchTerm('');
+  };
+
+  const handleKeyDown = (e) => {
+    if (!isOpen) {
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Enter') {
+        if (!disabled) setIsOpen(true);
+      }
+      return;
+    }
+
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setHighlightedIndex((prev) =>
+        filteredOptions.length > 0 ? (prev + 1) % filteredOptions.length : 0
+      );
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setHighlightedIndex((prev) =>
+        filteredOptions.length > 0 ? (prev - 1 + filteredOptions.length) % filteredOptions.length : 0
+      );
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      if (filteredOptions.length > 0 && highlightedIndex < filteredOptions.length) {
+        handleSelect(filteredOptions[highlightedIndex]);
+      }
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      setIsOpen(false);
+    }
   };
 
   return (
@@ -75,6 +153,7 @@ const SearchableSelect = ({
           onFocus={() => {
             if (!disabled) setIsOpen(true);
           }}
+          onKeyDown={handleKeyDown}
           disabled={disabled}
           required={required && !value}
           style={{
@@ -122,21 +201,21 @@ const SearchableSelect = ({
       </div>
 
       {/* Options Popup */}
-      {isOpen && !disabled && (
+      {isOpen && !disabled && createPortal(
         <div
+          ref={dropdownRef}
           style={{
-            position: 'absolute',
-            top: '100%',
-            left: 0,
-            right: 0,
-            zIndex: 1000,
-            marginTop: '4px',
+            position: 'fixed',
+            top: `${dropdownPos.top}px`,
+            left: `${dropdownPos.left}px`,
+            width: `${dropdownPos.width}px`,
+            zIndex: 99999,
             maxHeight: '240px',
             overflowY: 'auto',
             backgroundColor: 'var(--theme-card-bg)',
             border: '1px solid var(--theme-border)',
             borderRadius: 'var(--border-radius-md)',
-            boxShadow: 'var(--theme-shadow-md)',
+            boxShadow: 'var(--shadow-lg), 0 10px 25px -5px rgba(0,0,0,0.3)',
           }}
         >
           {filteredOptions.length === 0 ? (
@@ -151,30 +230,28 @@ const SearchableSelect = ({
               No matching items found
             </div>
           ) : (
-            filteredOptions.map((opt) => {
+            filteredOptions.map((opt, index) => {
               const isSelected = String(opt.value) === String(value);
+              const isHighlighted = index === highlightedIndex;
               return (
                 <div
                   key={opt.value}
+                  ref={(el) => (itemRefs.current[index] = el)}
                   onClick={() => handleSelect(opt)}
                   style={{
                     padding: '8px 12px',
                     fontSize: '13px',
                     cursor: 'pointer',
-                    backgroundColor: isSelected ? 'var(--theme-primary-bg)' : 'transparent',
+                    backgroundColor: isHighlighted || isSelected ? 'var(--theme-primary-bg)' : 'transparent',
                     color: isSelected ? 'var(--theme-primary)' : 'var(--theme-text)',
                     fontWeight: isSelected ? '600' : 'normal',
+                    borderLeft: isHighlighted ? '3px solid var(--theme-primary)' : '3px solid transparent',
                     borderBottom: '1px solid var(--theme-border-subtle)',
                     display: 'flex',
                     justifyContent: 'space-between',
                     alignItems: 'center',
                   }}
-                  onMouseEnter={(e) => {
-                    if (!isSelected) e.currentTarget.style.backgroundColor = 'var(--theme-bg-hover)';
-                  }}
-                  onMouseLeave={(e) => {
-                    if (!isSelected) e.currentTarget.style.backgroundColor = 'transparent';
-                  }}
+                  onMouseEnter={() => setHighlightedIndex(index)}
                 >
                   <span>{opt.label}</span>
                   {opt.sublabel && (
@@ -186,7 +263,8 @@ const SearchableSelect = ({
               );
             })
           )}
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );

@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { Link, useSearchParams } from 'react-router-dom';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
+import { useToast } from '../context/ToastContext';
 import EmptyState from '../components/EmptyState';
 
 const BILLING_STATUS_BADGE = {
@@ -15,7 +17,11 @@ const BILLING_STATUS_BADGE = {
 const SearchableItemSelect = ({ items, value, onChange, placeholder = "Type item name or SKU..." }) => {
   const [query, setQuery] = useState('');
   const [isOpen, setIsOpen] = useState(false);
+  const [highlightedIndex, setHighlightedIndex] = useState(0);
+  const [dropdownPos, setDropdownPos] = useState({ top: 0, left: 0, width: 0, openUpward: false });
   const containerRef = useRef(null);
+  const dropdownRef = useRef(null);
+  const itemRefs = useRef([]);
 
   const selectedItem = items.find(i => i.id === value);
 
@@ -28,10 +34,42 @@ const SearchableItemSelect = ({ items, value, onChange, placeholder = "Type item
     }
   }, [selectedItem, isOpen]);
 
+  // Recalculate dropdown position whenever isOpen is true, or on scroll/resize
+  useEffect(() => {
+    if (!isOpen || !containerRef.current) return;
+
+    const updatePosition = () => {
+      if (!containerRef.current) return;
+      const rect = containerRef.current.getBoundingClientRect();
+      const spaceBelow = window.innerHeight - rect.bottom;
+      const dropdownHeight = 260; // Max height of item dropdown
+      const openUpward = spaceBelow < dropdownHeight && rect.top > dropdownHeight;
+
+      setDropdownPos({
+        top: openUpward ? rect.top - dropdownHeight - 4 : rect.bottom + 4,
+        left: rect.left,
+        width: rect.width,
+        openUpward,
+      });
+    };
+
+    updatePosition();
+
+    window.addEventListener('resize', updatePosition);
+    window.addEventListener('scroll', updatePosition, true);
+
+    return () => {
+      window.removeEventListener('resize', updatePosition);
+      window.removeEventListener('scroll', updatePosition, true);
+    };
+  }, [isOpen]);
+
   // Click outside to close dropdown
   useEffect(() => {
     const handleClickOutside = (e) => {
-      if (containerRef.current && !containerRef.current.contains(e.target)) {
+      const isInsideContainer = containerRef.current && containerRef.current.contains(e.target);
+      const isInsideDropdown = dropdownRef.current && dropdownRef.current.contains(e.target);
+      if (!isInsideContainer && !isInsideDropdown) {
         setIsOpen(false);
         if (selectedItem) {
           setQuery(selectedItem.name);
@@ -52,6 +90,54 @@ const SearchableItemSelect = ({ items, value, onChange, placeholder = "Type item
     return nameMatch || skuMatch;
   });
 
+  // Reset highlightedIndex when search term or isOpen changes
+  useEffect(() => {
+    setHighlightedIndex(0);
+  }, [query, isOpen]);
+
+  // Scroll active item into view when highlightedIndex changes
+  useEffect(() => {
+    if (isOpen && itemRefs.current[highlightedIndex]) {
+      itemRefs.current[highlightedIndex]?.scrollIntoView({ block: 'nearest' });
+    }
+  }, [highlightedIndex, isOpen]);
+
+  const handleSelect = (item) => {
+    onChange(item ? item.id : '');
+    setQuery(item ? item.name : '');
+    setIsOpen(false);
+  };
+
+  const handleKeyDown = (e) => {
+    if (!isOpen) {
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Enter') {
+        setIsOpen(true);
+      }
+      return;
+    }
+
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setHighlightedIndex((prev) =>
+        filteredItems.length > 0 ? (prev + 1) % filteredItems.length : 0
+      );
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setHighlightedIndex((prev) =>
+        filteredItems.length > 0 ? (prev - 1 + filteredItems.length) % filteredItems.length : 0
+      );
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      if (filteredItems.length > 0 && highlightedIndex < filteredItems.length) {
+        handleSelect(filteredItems[highlightedIndex]);
+      }
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      setIsOpen(false);
+      if (selectedItem) setQuery(selectedItem.name);
+    }
+  };
+
   return (
     <div className="searchable-select-container" ref={containerRef} style={{ position: 'relative', width: '100%' }}>
       <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
@@ -66,6 +152,7 @@ const SearchableItemSelect = ({ items, value, onChange, placeholder = "Type item
             setIsOpen(true);
             if (value) onChange(''); // Clear selection if typing
           }}
+          onKeyDown={handleKeyDown}
           style={{ paddingRight: value ? '32px' : '12px' }}
         />
         {value && (
@@ -94,21 +181,21 @@ const SearchableItemSelect = ({ items, value, onChange, placeholder = "Type item
       </div>
 
       {/* Dropdown Options */}
-      {isOpen && (
+      {isOpen && createPortal(
         <div
+          ref={dropdownRef}
           style={{
-            position: 'absolute',
-            top: '100%',
-            left: 0,
-            right: 0,
-            marginTop: '4px',
+            position: 'fixed',
+            top: `${dropdownPos.top}px`,
+            left: `${dropdownPos.left}px`,
+            width: `${dropdownPos.width}px`,
             background: 'var(--theme-card-bg)',
             border: '1px solid var(--theme-border)',
             borderRadius: 'var(--border-radius-md)',
-            boxShadow: 'var(--shadow-lg)',
+            boxShadow: 'var(--shadow-lg), 0 10px 25px -5px rgba(0,0,0,0.3)',
             maxHeight: '260px',
             overflowY: 'auto',
-            zIndex: 9999,
+            zIndex: 99999,
           }}
         >
           {filteredItems.length === 0 ? (
@@ -116,31 +203,29 @@ const SearchableItemSelect = ({ items, value, onChange, placeholder = "Type item
               No matching items found
             </div>
           ) : (
-            filteredItems.map((item) => {
+            filteredItems.map((item, index) => {
               const ecart = item.ecartQty ?? (item.stockLevels || []).find(s => s.location === 'ECART')?.quantityOnHand ?? 0;
               const central = item.centralQty ?? (item.stockLevels || []).find(s => s.location === 'CENTRAL')?.quantityOnHand ?? 0;
               const stock = ecart + central;
               const isSelected = item.id === value;
+              const isHighlighted = index === highlightedIndex;
               return (
                 <div
                   key={item.id}
-                  onClick={() => {
-                    onChange(item.id);
-                    setQuery(item.name);
-                    setIsOpen(false);
-                  }}
+                  ref={(el) => (itemRefs.current[index] = el)}
+                  onClick={() => handleSelect(item)}
                   style={{
                     padding: '10px 14px',
                     cursor: 'pointer',
-                    background: isSelected ? 'var(--theme-primary-bg)' : 'transparent',
+                    background: isHighlighted || isSelected ? 'var(--theme-primary-bg)' : 'transparent',
+                    borderLeft: isHighlighted ? '3px solid var(--theme-primary)' : '3px solid transparent',
                     borderBottom: '1px solid var(--theme-border)',
                     display: 'flex',
                     justifyContent: 'space-between',
                     alignItems: 'center',
                     transition: 'background-color 0.15s ease',
                   }}
-                  onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--theme-primary-bg)')}
-                  onMouseLeave={(e) => (e.currentTarget.style.background = isSelected ? 'var(--theme-primary-bg)' : 'transparent')}
+                  onMouseEnter={() => setHighlightedIndex(index)}
                 >
                   <div>
                     <div style={{ fontWeight: '600', fontSize: '13px', color: 'var(--theme-text-bold)' }}>
@@ -167,13 +252,15 @@ const SearchableItemSelect = ({ items, value, onChange, placeholder = "Type item
               );
             })
           )}
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );
 };
 
 const Dispense = () => {
+  const toast = useToast();
   const [searchParams] = useSearchParams();
   const initialPatientId = searchParams.get('patientId') || '';
 
@@ -184,7 +271,7 @@ const Dispense = () => {
 
   // Multi-item rows state
   const [lines, setLines] = useState([
-    { id: 1, itemId: '', location: '', qty: 1, notes: '' },
+    { id: 1, itemId: '', location: 'ECART', qty: 1, notes: '' },
   ]);
 
   const [formError, setFormError] = useState('');
@@ -238,7 +325,7 @@ const Dispense = () => {
   const handleAddLine = () => {
     setLines((prev) => [
       ...prev,
-      { id: Date.now() + Math.random(), itemId: '', location: '', qty: 1, notes: '' },
+      { id: Date.now() + Math.random(), itemId: '', location: 'ECART', qty: 1, notes: '' },
     ]);
   };
 
@@ -259,7 +346,9 @@ const Dispense = () => {
     setFormSuccess('');
 
     if (!patientId) {
-      setFormError('Please select a patient.');
+      const err = 'Please select a patient.';
+      setFormError(err);
+      toast.error(err);
       return;
     }
 
@@ -267,23 +356,29 @@ const Dispense = () => {
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
       if (!line.itemId) {
-        setFormError(`Row #${i + 1}: Please search and select an item.`);
+        const err = `Row #${i + 1}: Please search and select an item.`;
+        setFormError(err);
+        toast.error(err);
         return;
       }
       if (!line.location) {
-        setFormError(`Row #${i + 1}: Please explicitly select a source location (eCart or Central Storage).`);
+        const err = `Row #${i + 1}: Please explicitly select a source location (eCart or Central Storage).`;
+        setFormError(err);
+        toast.error(err);
         return;
       }
       if (!line.qty || Number(line.qty) <= 0) {
-        setFormError(`Row #${i + 1}: Quantity must be a positive number.`);
+        const err = `Row #${i + 1}: Quantity must be a positive number.`;
+        setFormError(err);
+        toast.error(err);
         return;
       }
       const itemObj = dispensableItems.find((item) => item.id === line.itemId);
       const avail = line.location === 'ECART' ? (itemObj?.ecartQty ?? 0) : (itemObj?.centralQty ?? 0);
       if (avail < Number(line.qty)) {
-        setFormError(
-          `Row #${i + 1} (${itemObj?.name || 'Item'}): Insufficient stock in ${line.location}. Available: ${avail} ${itemObj?.unit || ''}.`
-        );
+        const err = `Row #${i + 1} (${itemObj?.name || 'Item'}): Insufficient stock in ${line.location}. Available: ${avail} ${itemObj?.unit || ''}.`;
+        setFormError(err);
+        toast.error(err);
         return;
       }
     }
@@ -303,17 +398,19 @@ const Dispense = () => {
       const res = await api.post('/dispense', payload);
       const count = res.data?.count || 1;
 
-      setFormSuccess(
-        `Successfully dispensed ${count} item${count > 1 ? 's' : ''} to patient. Cashier has been notified.`
-      );
+      const successMsg = `Successfully dispensed ${count} item${count > 1 ? 's' : ''} to patient. Cashier has been notified.`;
+      setFormSuccess(successMsg);
+      toast.success(successMsg);
 
       // Reset form
       setPatientId('');
-      setLines([{ id: Date.now(), itemId: '', qty: 1, notes: '' }]);
+      setLines([{ id: Date.now(), itemId: '', location: 'ECART', qty: 1, notes: '' }]);
       fetchHistory();
       fetchDispensableItems();
     } catch (err) {
-      setFormError(err.response?.data?.error || 'Failed to dispense items.');
+      const errMsg = err.response?.data?.error || 'Failed to dispense items.';
+      setFormError(errMsg);
+      toast.error(errMsg);
     } finally {
       setIsSubmitting(false);
     }
@@ -466,7 +563,7 @@ const Dispense = () => {
                         <label className="form-label">Source Location *</label>
                         <select
                           className="form-control"
-                          value={line.location || ''}
+                          value={line.location || 'ECART'}
                           onChange={(e) => handleLineChange(line.id, 'location', e.target.value)}
                           required
                         >
