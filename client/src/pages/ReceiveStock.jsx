@@ -52,7 +52,8 @@ const ReceiveStock = () => {
   }, []);
 
   const selectedItem = items.find(i => i.id === selectedItemId);
-  const isBatchControlled = selectedItem?.itemType === 'MEDICATION' || (selectedItem?.category?.hasBatchControl ?? false);
+  const isEquipment = selectedItem?.itemType === 'MEDICAL_EQUIPMENT';
+  const isBatchControlled = selectedItem?.itemType === 'MEDICATION' || isEquipment || (selectedItem?.category?.hasBatchControl ?? false);
 
   // Automatically pre-populate default supplier when item changes
   useEffect(() => {
@@ -258,20 +259,20 @@ const ReceiveStock = () => {
                   </div>
                 </div>
 
-                {/* Conditional Batch Fields */}
+                {/* Conditional Batch / Equipment Fields */}
                 {isBatchControlled && (
                   <div style={{ background: 'var(--theme-bg)', padding: '20px', borderRadius: 'var(--border-radius-lg)', border: '1px solid var(--theme-border)' }}>
                     <h4 style={{ fontSize: '13px', textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--theme-primary)', marginBottom: '16px' }}>
-                      💊 Batch & Expiry Control (FIFO Enforced)
+                      {isEquipment ? '⚙️ Equipment Serial & Warranty Control' : '💊 Batch & Expiry Control (FIFO Enforced)'}
                     </h4>
                     
                     <div className="form-row">
                       <div className="form-group">
-                        <label className="form-label">Batch / Lot Number *</label>
+                        <label className="form-label">{isEquipment ? 'Serial / Asset Number *' : 'Batch / Lot Number *'}</label>
                         <input 
                           type="text" 
                           className="form-control" 
-                          placeholder="e.g. LOT-AB12"
+                          placeholder={isEquipment ? 'e.g. SN-987123' : 'e.g. LOT-AB12'}
                           value={batchNo}
                           onChange={(e) => setBatchNo(e.target.value)}
                           required
@@ -279,7 +280,7 @@ const ReceiveStock = () => {
                       </div>
 
                       <div className="form-group">
-                        <label className="form-label">Expiry Date *</label>
+                        <label className="form-label">{isEquipment ? 'Acquisition / Warranty Date *' : 'Expiry Date *'}</label>
                         <input 
                           type="date" 
                           className="form-control" 

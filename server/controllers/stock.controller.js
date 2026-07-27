@@ -96,13 +96,14 @@ const receiveStock = async (req, res, next) => {
         throw new Error('Cannot receive stock for an archived item');
       }
 
-      const isBatch = item.itemType === 'MEDICATION' || (item.category?.hasBatchControl ?? false);
+      const isEquipment = item.itemType === 'MEDICAL_EQUIPMENT';
+      const isBatch = item.itemType === 'MEDICATION' || isEquipment || (item.category?.hasBatchControl ?? false);
       if (isBatch) {
         if (!batchNo || !batchNo.trim()) {
-          throw new Error('Batch / Lot number is required for batch-controlled items.');
+          throw new Error(isEquipment ? 'Serial / Asset number is required for equipment intake.' : 'Batch / Lot number is required for batch-controlled items.');
         }
         if (!expiryDate) {
-          throw new Error('Expiry date is required for batch-controlled items.');
+          throw new Error(isEquipment ? 'Acquisition / Warranty date is required for equipment intake.' : 'Expiry date is required for batch-controlled items.');
         }
       }
 
@@ -192,8 +193,8 @@ const receiveStock = async (req, res, next) => {
     if (
       err.message === 'Cannot receive stock for an archived item' ||
       err.message === 'Medication batch cannot be registered with a past expiry date.' ||
-      err.message === 'Batch / Lot number is required for batch-controlled items.' ||
-      err.message === 'Expiry date is required for batch-controlled items.'
+      err.message.includes('number is required') ||
+      err.message.includes('date is required')
     ) {
       return res.status(400).json({ error: err.message });
     }

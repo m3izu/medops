@@ -904,53 +904,6 @@ const Items = () => {
                   </div>
                 </div>
 
-                {/* Conditional fields for MEDICAL_EQUIPMENT */}
-                {itemType === 'MEDICAL_EQUIPMENT' && (
-                  <div style={{ background: 'var(--theme-bg)', padding: '16px', borderRadius: 'var(--border-radius-lg)', marginTop: '8px', border: '1px solid var(--theme-border)' }}>
-                    <h4 style={{ fontSize: '13px', textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--theme-primary)', marginBottom: '12px' }}>
-                      ⚙️ Equipment Specifications
-                    </h4>
-                    
-                    <div className="form-row">
-                      <div className="form-group">
-                        <label className="form-label">Serial Number</label>
-                        <input 
-                          type="text" 
-                          className="form-control" 
-                          placeholder="e.g. SN-987123"
-                          value={serialNumber}
-                          onChange={(e) => setSerialNumber(e.target.value)}
-                          disabled={modalMode === 'edit'}
-                        />
-                      </div>
-
-                      <div className="form-group">
-                        <label className="form-label">Acquisition Date</label>
-                        <input 
-                          type="date" 
-                          className="form-control" 
-                          value={acquisitionDate}
-                          onChange={(e) => setAcquisitionDate(e.target.value)}
-                          disabled={modalMode === 'edit'}
-                        />
-                      </div>
-                    </div>
-
-                    <div className="form-group">
-                      <label className="form-label">Operating Condition</label>
-                      <select 
-                        className="form-control" 
-                        value={condition}
-                        onChange={(e) => setCondition(e.target.value)}
-                      >
-                        {CONDITIONS.map(c => (
-                          <option key={c} value={c}>{c}</option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-                )}
-
                 {/* Dispense Mode */}
                 <div className="form-group" style={{ marginTop: '16px' }}>
                   <label className="form-label">Dispense Pathway</label>
