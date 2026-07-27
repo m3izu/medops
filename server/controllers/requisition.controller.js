@@ -51,6 +51,7 @@ const create = async (req, res, next) => {
         lines: {
           create: lines.map(l => ({
             itemId: l.itemId,
+            location: l.location || 'CENTRAL',
             qtyRequested: l.quantity,
             reason: l.reason,
           })),
@@ -103,7 +104,7 @@ const createBatch = async (req, res, next) => {
           if (!Number.isInteger(qty) || qty <= 0) {
             throw new Error(`Invalid requested quantity "${l.quantity}" for item.`);
           }
-          const loc = l.location || itemReq.location || 'ECART';
+          const loc = l.location || itemReq.location || 'CENTRAL';
           if (!['ECART', 'CENTRAL'].includes(loc)) {
             throw new Error(`Invalid location "${loc}". Must be ECART or CENTRAL.`);
           }
@@ -165,7 +166,7 @@ const createBatch = async (req, res, next) => {
             lines: {
               create: consolidatedItems.map(itemId => ({
                 itemId,
-                location: lineLocationMap[itemId] || 'ECART',
+                location: lineLocationMap[itemId] || 'CENTRAL',
                 qtyRequested: lineMap[itemId],
                 reason: notes?.trim() || 'Grid Requisition sheet entry'
               }))
@@ -327,7 +328,7 @@ const approveLine = async (req, res, next) => {
         throw new Error('Cannot approve requisition line for an inactive patient.');
       }
 
-      const targetLocation = lineDb.location || 'ECART';
+      const targetLocation = lineDb.location || 'CENTRAL';
       const item = await tx.item.findUnique({
         where: { id: lineDb.itemId },
         include: { 
@@ -451,7 +452,7 @@ const approveLine = async (req, res, next) => {
       'Concurrent modification detected: Insufficient batch quantity.',
       'Concurrent modification detected: Insufficient stock level.'
     ];
-    if (knownErrors.includes(err.message) || err.message.startsWith('Insufficient stock for this quantity')) {
+    if (knownErrors.includes(err.message) || err.message.includes('Insufficient stock')) {
       return res.status(400).json({ error: err.message });
     }
     next(err);
@@ -533,6 +534,7 @@ const resubmitLine = async (req, res, next) => {
         itemId: itemId || originalLine.itemId,
         qtyRequested: (quantity !== undefined && quantity !== null) ? quantity : originalLine.qtyRequested,
         reason: reason || originalLine.reason,
+        location: originalLine.location || 'CENTRAL',
         isResubmission: true,
         originalLineId: originalLine.id,
       },

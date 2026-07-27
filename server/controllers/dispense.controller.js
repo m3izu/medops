@@ -217,7 +217,15 @@ const create = async (req, res, next) => {
       'Concurrent modification detected: Insufficient stock level.',
       'Insufficient batch quantities remaining to fulfill this dispense.',
     ];
-    if (knownErrors.includes(err.message) || err.message.startsWith('Insufficient stock.')) {
+    if (
+      knownErrors.includes(err.message) ||
+      err.message.includes('Insufficient stock') ||
+      err.message.includes('Cannot dispense') ||
+      err.message.includes('requires a formal requisition') ||
+      err.message.includes('Item not found') ||
+      err.message.includes('Concurrent modification') ||
+      err.message.includes('Location must be')
+    ) {
       return res.status(400).json({ error: err.message });
     }
     next(err);

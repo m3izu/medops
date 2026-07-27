@@ -145,7 +145,7 @@ const complete = async (req, res, next) => {
 
       for (const line of lines) {
         if (line.physicalQty !== null && line.discrepancy !== 0) {
-          const loc = line.location || 'ECART';
+          const loc = line.location || 'CENTRAL';
           // Update StockLevel for location
           await tx.stockLevel.upsert({
             where: { itemId_location: { itemId: line.itemId, location: loc } },

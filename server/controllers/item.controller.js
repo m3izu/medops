@@ -73,6 +73,8 @@ const create = async (req, res, next) => {
       return res.status(400).json({ error: 'Critical level must be a non-negative number' });
     }
 
+    // LEGACY NOTE: REQUISITION_ONLY and DIRECT_DISPENSE are legacy modes from 1-pool architecture.
+    // New items default to FLEXIBLE for the 2-pool architecture (CENTRAL and ECART).
     const validModes = ['REQUISITION_ONLY', 'DIRECT_DISPENSE', 'FLEXIBLE'];
     if (dispenseMode && !validModes.includes(dispenseMode)) {
       return res.status(400).json({ error: 'Invalid dispenseMode. Must be REQUISITION_ONLY, DIRECT_DISPENSE, or FLEXIBLE.' });
@@ -89,7 +91,7 @@ const create = async (req, res, next) => {
         warningLevel: warningLevel ?? 10,
         criticalLevel: criticalLevel ?? 5,
         supplierId, serialNumber, condition,
-        dispenseMode: dispenseMode ?? 'REQUISITION_ONLY',
+        dispenseMode: dispenseMode ?? 'FLEXIBLE',
         acquisitionDate: acquisitionDate ? new Date(acquisitionDate) : null,
         createdById: req.user.id,
         stockLevels: {

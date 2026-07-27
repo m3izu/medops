@@ -8,11 +8,22 @@ const checkAndFireAlerts = async (itemId) => {
   });
   if (!item || !item.stockLevels) return;
 
-  const qty = item.stockLevels.reduce((sum, s) => sum + (s.quantityOnHand || 0), 0);
+  const stockLevels = item.stockLevels || [];
+  const centralQty = stockLevels.find(s => s.location === 'CENTRAL')?.quantityOnHand ?? 0;
+  const totalQty = stockLevels.reduce((sum, s) => sum + (s.quantityOnHand || 0), 0);
   let alertLevel = null;
+  let alertReason = '';
 
-  if (qty <= item.criticalLevel) alertLevel = 'CRITICAL';
-  else if (qty <= item.warningLevel) alertLevel = 'WARNING';
+  if (centralQty === 0 || totalQty === 0) {
+    alertLevel = 'CRITICAL';
+    alertReason = centralQty === 0 ? `Central Storage out of stock (${centralQty} ${item.unit})` : `Out of stock (${totalQty} ${item.unit})`;
+  } else if (centralQty <= item.criticalLevel || totalQty <= item.criticalLevel) {
+    alertLevel = 'CRITICAL';
+    alertReason = centralQty <= item.criticalLevel ? `Central Storage stock critical (${centralQty} ${item.unit})` : `Total stock critical (${totalQty} ${item.unit})`;
+  } else if (centralQty <= item.warningLevel || totalQty <= item.warningLevel) {
+    alertLevel = 'WARNING';
+    alertReason = centralQty <= item.warningLevel ? `Central Storage stock low (${centralQty} ${item.unit})` : `Total stock low (${totalQty} ${item.unit})`;
+  }
 
   if (!alertLevel) return;
 
@@ -26,7 +37,7 @@ const checkAndFireAlerts = async (itemId) => {
 
   const eventType = `STOCK_${alertLevel}`;
   const link = `/items/${itemId}`;
-  const message = `${alertLevel} stock alert: ${item.name} has ${qty} ${item.unit} remaining (Combined Total)`;
+  const message = `${alertLevel} stock alert: ${item.name} — ${alertReason}`;
 
   const notificationsToCreate = [];
   for (const recipient of recipients) {
@@ -582,10 +593,11 @@ const getAlerts = async (req, res, next) => {
     const stockAlerts = items
       .map(i => {
         const stockLevels = i.stockLevels || [];
+        const centralQty = stockLevels.find(s => s.location === 'CENTRAL')?.quantityOnHand ?? 0;
         const totalQty = stockLevels.reduce((sum, s) => sum + (s.quantityOnHand || 0), 0);
-        if (totalQty === 0) return { ...i, alertLevel: 'OUT_OF_STOCK', totalQty };
-        if (totalQty <= i.criticalLevel) return { ...i, alertLevel: 'CRITICAL', totalQty };
-        if (totalQty <= i.warningLevel) return { ...i, alertLevel: 'WARNING', totalQty };
+        if (totalQty === 0 || centralQty === 0) return { ...i, alertLevel: 'OUT_OF_STOCK', centralQty, totalQty };
+        if (totalQty <= i.criticalLevel || centralQty <= i.criticalLevel) return { ...i, alertLevel: 'CRITICAL', centralQty, totalQty };
+        if (totalQty <= i.warningLevel || centralQty <= i.warningLevel) return { ...i, alertLevel: 'WARNING', centralQty, totalQty };
         return null;
       })
       .filter(Boolean);

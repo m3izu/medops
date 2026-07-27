@@ -16,9 +16,9 @@ const ITEM_TYPES = [
 const CONDITIONS = ['GOOD', 'FAIR', 'DAMAGED', 'DECOMMISSIONED'];
 
 const DISPENSE_MODES = [
-  { value: 'REQUISITION_ONLY', label: '🔒 Requisition Only — Requires formal approval' },
-  { value: 'DIRECT_DISPENSE', label: '⚡ Direct Dispense — Default to direct patient dispense' },
-  { value: 'FLEXIBLE', label: '🔄 Flexible — Nurse chooses each time' },
+  { value: 'FLEXIBLE', label: '🔄 Flexible (Default) — Recommended for 2-pool architecture' },
+  { value: 'REQUISITION_ONLY', label: '🔒 Requisition Only (Legacy — 1-pool architecture)' },
+  { value: 'DIRECT_DISPENSE', label: '⚡ Direct Dispense (Legacy — 1-pool architecture)' },
 ];
 
 const HighlightText = ({ text, search }) => {
@@ -189,7 +189,7 @@ const Items = () => {
   
   const [formError, setFormError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [dispenseMode, setDispenseMode] = useState('REQUISITION_ONLY');
+  const [dispenseMode, setDispenseMode] = useState('FLEXIBLE');
 
   // Batches Modal State
   const [batchesModalOpen, setBatchesModalOpen] = useState(false);
@@ -285,7 +285,7 @@ const Items = () => {
     setSerialNumber('');
     setAcquisitionDate('');
     setCondition('GOOD');
-    setDispenseMode('REQUISITION_ONLY');
+    setDispenseMode('FLEXIBLE');
     setFormError('');
     setIsModalOpen(true);
   };

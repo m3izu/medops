@@ -116,6 +116,10 @@ const importCsv = async (req, res, next) => {
 
             let targetItem;
 
+            const rowLoc = row.location?.trim().toUpperCase();
+            const targetLocation = ['ECART', 'CENTRAL'].includes(rowLoc) ? rowLoc : 'CENTRAL';
+            const otherLocation = targetLocation === 'CENTRAL' ? 'ECART' : 'CENTRAL';
+
             if (existingSku) {
               // UPSERT / UPDATE existing item
               targetItem = await tx.item.update({
@@ -134,104 +138,106 @@ const importCsv = async (req, res, next) => {
                 }
               });
 
-              // Upsert stock level for ECART and CENTRAL (only update ECART if initialQty is explicitly supplied)
+              // Upsert stock level for target location (only update if initialQty is explicitly supplied)
               if (initialQty !== undefined) {
                 await tx.stockLevel.upsert({
-                  where: { itemId_location: { itemId: targetItem.id, location: 'ECART' } },
+                  where: { itemId_location: { itemId: targetItem.id, location: targetLocation } },
                   update: { quantityOnHand: initialQty, lastUpdated: new Date() },
-                  create: { itemId: targetItem.id, location: 'ECART', quantityOnHand: initialQty, lastUpdated: new Date() }
+                  create: { itemId: targetItem.id, location: targetLocation, quantityOnHand: initialQty, lastUpdated: new Date() }
                 });
               }
 
               await tx.stockLevel.upsert({
-                where: { itemId_location: { itemId: targetItem.id, location: 'CENTRAL' } },
+                where: { itemId_location: { itemId: targetItem.id, location: otherLocation } },
                 update: {},
-                create: { itemId: targetItem.id, location: 'CENTRAL', quantityOnHand: 0, lastUpdated: new Date() }
+                create: { itemId: targetItem.id, location: otherLocation, quantityOnHand: 0, lastUpdated: new Date() }
               });
             } else {
-              // CREATE new item and stock levels
-              targetItem = await tx.item.create({
-                data: {
-                  name: row.name.trim(),
-                  sku: row.sku.trim(),
-                  itemType,
-                  unit: row.unit.trim(),
-                  categoryId,
-                  supplierId,
-                  warningLevel,
-                  criticalLevel,
-                  serialNumber: row.serialNumber?.trim() || null,
-                  acquisitionDate,
-                  condition: row.condition?.trim() || 'GOOD',
-                  createdById: req.user.id,
-                  stockLevels: {
-                    create: [
-                      { location: 'ECART', quantityOnHand: initialQty ?? 0, lastUpdated: new Date() },
-                      { location: 'CENTRAL', quantityOnHand: 0, lastUpdated: new Date() },
-                    ]
-                  }
-                }
-              });
-            }
-
-            // Create or update batch for medications/batch-controlled items with initial quantity
-            let batchId = null;
-            const isBatchControlled = itemType === 'MEDICATION' || (cat?.hasBatchControl ?? false);
-            if (isBatchControlled && initialQty > 0) {
-              const importBatchNo = row.batchNo?.trim() || `IMPORT-${row.sku.trim()}`;
-              
-              let importExpiryDate = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000);
-              if (row.expiryDate) {
-                const parsedExpiry = new Date(row.expiryDate);
-                if (isNaN(parsedExpiry.getTime())) {
-                  throw new Error(`Row ${lineNum}: Invalid expiry date format.`);
-                }
-                importExpiryDate = parsedExpiry;
-              }
-              
-              // Check if batch already exists for this item & batchNo
-              const existingBatch = await tx.itemBatch.findFirst({
-                where: { itemId: targetItem.id, batchNo: importBatchNo }
-              });
-
-              if (existingBatch) {
-                const updatedBatch = await tx.itemBatch.update({
-                  where: { id: existingBatch.id },
+                // CREATE new item and stock levels
+                targetItem = await tx.item.create({
                   data: {
-                    quantityRemaining: initialQty,
-                    expiryDate: importExpiryDate
+                    name: row.name.trim(),
+                    sku: row.sku.trim(),
+                    itemType,
+                    unit: row.unit.trim(),
+                    categoryId,
+                    supplierId,
+                    warningLevel,
+                    criticalLevel,
+                    serialNumber: row.serialNumber?.trim() || null,
+                    acquisitionDate,
+                    condition: row.condition?.trim() || 'GOOD',
+                    createdById: req.user.id,
+                    stockLevels: {
+                      create: [
+                        { location: targetLocation, quantityOnHand: initialQty ?? 0, lastUpdated: new Date() },
+                        { location: otherLocation, quantityOnHand: 0, lastUpdated: new Date() },
+                      ]
+                    }
                   }
                 });
-                batchId = updatedBatch.id;
-              } else {
-                const batch = await tx.itemBatch.create({
+              }
+
+              // Create or update batch for medications/batch-controlled items with initial quantity
+              let batchId = null;
+              const isBatchControlled = itemType === 'MEDICATION' || (cat?.hasBatchControl ?? false);
+              if (isBatchControlled && initialQty > 0) {
+                const importBatchNo = row.batchNo?.trim() || `IMPORT-${row.sku.trim()}`;
+                
+                let importExpiryDate = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000);
+                if (row.expiryDate) {
+                  const parsedExpiry = new Date(row.expiryDate);
+                  if (isNaN(parsedExpiry.getTime())) {
+                    throw new Error(`Row ${lineNum}: Invalid expiry date format.`);
+                  }
+                  importExpiryDate = parsedExpiry;
+                }
+                
+                // Check if batch already exists for this item, batchNo & location
+                const existingBatch = await tx.itemBatch.findFirst({
+                  where: { itemId: targetItem.id, batchNo: importBatchNo, location: targetLocation }
+                });
+
+                if (existingBatch) {
+                  const updatedBatch = await tx.itemBatch.update({
+                    where: { id: existingBatch.id },
+                    data: {
+                      quantityRemaining: initialQty,
+                      expiryDate: importExpiryDate
+                    }
+                  });
+                  batchId = updatedBatch.id;
+                } else {
+                  const batch = await tx.itemBatch.create({
+                    data: {
+                      itemId: targetItem.id,
+                      location: targetLocation,
+                      batchNo: importBatchNo,
+                      expiryDate: importExpiryDate,
+                      quantityRemaining: initialQty,
+                      supplierId
+                    }
+                  });
+                  batchId = batch.id;
+                }
+              }
+
+              // Log transaction if there is initial qty
+              if (initialQty > 0) {
+                await tx.transactionLog.create({
                   data: {
                     itemId: targetItem.id,
-                    batchNo: importBatchNo,
-                    expiryDate: importExpiryDate,
-                    quantityRemaining: initialQty,
-                    supplierId
+                    location: targetLocation,
+                    batchId,
+                    type: 'INBOUND',
+                    qty: initialQty,
+                    userId: req.user.id,
+                    notes: existingSku 
+                      ? `Stock count updated via CSV bulk import (Upsert - ${targetLocation})`
+                      : `Initial stock intake from CSV bulk import (${targetLocation})`
                   }
                 });
-                batchId = batch.id;
               }
-            }
-
-            // Log transaction if there is initial qty
-            if (initialQty > 0) {
-              await tx.transactionLog.create({
-                data: {
-                  itemId: targetItem.id,
-                  batchId,
-                  type: 'INBOUND',
-                  qty: initialQty,
-                  userId: req.user.id,
-                  notes: existingSku 
-                    ? 'Stock count updated via CSV bulk import (Upsert)'
-                    : 'Initial stock intake from CSV bulk import'
-                }
-              });
-            }
           });
           rowsSuccess++;
 

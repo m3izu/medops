@@ -262,7 +262,7 @@ const create = async (req, res, next) => {
               today.setHours(0, 0, 0, 0);
               const isExpired = batch.expiryDate && new Date(batch.expiryDate) < today;
 
-              const reqLocation = reqLine.location || 'ECART';
+              const reqLocation = reqLine.location || 'CENTRAL';
 
               if (!isExpired) {
                 // Update StockLevel (upsert in case stockLevel record was deleted or is missing)
@@ -333,7 +333,7 @@ const create = async (req, res, next) => {
                 });
               }
             } else {
-              const reqLocation = reqLine.location || 'ECART';
+              const reqLocation = reqLine.location || 'CENTRAL';
               // No batchId (non-batch controlled) - upsert stockLevel
               await tx.stockLevel.upsert({
                 where: { itemId_location: { itemId, location: reqLocation } },
@@ -362,7 +362,7 @@ const create = async (req, res, next) => {
             throw new Error('Could not allocate returned quantity to original batches.');
           }
         } else {
-          const reqLocation = reqLine.location || 'ECART';
+          const reqLocation = reqLine.location || 'CENTRAL';
           // Non-batch controlled: single TransactionLog
           await tx.stockLevel.upsert({
             where: { itemId_location: { itemId, location: reqLocation } },

@@ -152,7 +152,8 @@ model Item {
   supplierId   String?      @map("supplier_id")
   isArchived   Boolean      @default(false) @map("is_archived")
   // Dispense mode controls whether this item bypasses formal requisition
-  dispenseMode  String       @default("REQUISITION_ONLY") @map("dispense_mode") // REQUISITION_ONLY | DIRECT_DISPENSE | FLEXIBLE
+  // LEGACY FEATURE: REQUISITION_ONLY and DIRECT_DISPENSE are retained for backward compatibility with 1-pool records. New items default to FLEXIBLE in 2-pool architecture.
+  dispenseMode  String       @default("FLEXIBLE") @map("dispense_mode") // REQUISITION_ONLY | DIRECT_DISPENSE | FLEXIBLE
   // Equipment-specific
   serialNumber  String?     @map("serial_number")
   acquisitionDate DateTime? @map("acquisition_date")

@@ -103,7 +103,12 @@ const logDiscard = async (req, res, next) => {
       'Concurrent modification detected: Insufficient batch quantity.',
       'Concurrent modification detected: Insufficient stock level.'
     ];
-    if (knownErrors.includes(err.message) || err.message.startsWith('Insufficient stock on hand') || err.message.startsWith('Insufficient quantity in selected batch')) {
+    if (
+      knownErrors.includes(err.message) ||
+      err.message.startsWith('Insufficient stock on hand') ||
+      err.message.startsWith('Insufficient quantity in selected batch') ||
+      err.message.includes('Selected batch is located in')
+    ) {
       return res.status(400).json({ error: err.message });
     }
     next(err);

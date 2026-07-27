@@ -3,6 +3,7 @@ import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import Pagination from '../components/Pagination';
+import SearchableSelect from '../components/SearchableSelect';
 
 const STATUS_COLORS = {
   PENDING: 'badge-warning',
@@ -154,13 +155,16 @@ const Requisitions = () => {
         map[dateKey].patientIds.add(r.patientId);
       }
       r.lines?.forEach(l => {
-        if (l.itemId) map[dateKey].itemIds.add(l.itemId);
+        const catalogItem = items.find(i => i.id === l.itemId);
+        if (l.itemId && catalogItem && !catalogItem.isArchived) {
+          map[dateKey].itemIds.add(l.itemId);
+        }
       });
       map[dateKey].requisitions.push(r);
     });
 
     return Object.values(map).sort((a, b) => new Date(b.dateKey) - new Date(a.dateKey));
-  }, [requisitions]);
+  }, [requisitions, items]);
 
   const handleLoadPreset = (dateKey, copyQuantities = true) => {
     if (!dateKey) return;
@@ -288,7 +292,7 @@ const Requisitions = () => {
       sheetItemIds.forEach(itemId => {
         const qty = gridQuantities[`${col.patientId}_${itemId}`];
         if (qty && qty > 0) {
-          colLines.push({ itemId, quantity: qty, reason: col.notes || 'Grid Requisition entry' });
+          colLines.push({ itemId, quantity: qty, location: 'CENTRAL', reason: col.notes || 'Grid Requisition entry' });
         }
       });
       return {
@@ -674,8 +678,6 @@ const Requisitions = () => {
                                     setApproveLine(line);
                                     setApproveQty(String(line.qtyRequested));
                                   }}
-                                  disabled={line.item?.itemType === 'MEDICATION' && !line.coVerifiedById}
-                                  title={line.item?.itemType === 'MEDICATION' && !line.coVerifiedById ? "Medication co-verification is required before approval." : ""}
                                 >
                                   Approve
                                 </button>
@@ -944,95 +946,22 @@ const Requisitions = () => {
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                               <span>{cls.label} ({clsSheetItemIds.length} added)</span>
 
-                              {/* Quick Search & Picker specifically for this classification */}
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', position: 'relative' }}>
-                                {/* Quick Search Box */}
-                                <input
-                                  type="text"
-                                  className="form-control"
-                                  placeholder={`Quick search ${cls.label.toLowerCase()}...`}
-                                  value={searchQuery[cls.key] || ''}
-                                  onChange={e => setSearchQuery(prev => ({ ...prev, [cls.key]: e.target.value }))}
-                                  style={{ fontSize: '11px', padding: '3px 8px', height: '28px', width: '220px' }}
-                                />
-
-                                {/* Popover Search Results */}
-                                {searchQuery[cls.key]?.trim() && (
-                                  <div
-                                    style={{
-                                      position: 'absolute',
-                                      top: '32px',
-                                      right: 0,
-                                      width: '320px',
-                                      maxHeight: '220px',
-                                      overflowY: 'auto',
-                                      background: 'var(--theme-card-bg)',
-                                      border: '1px solid var(--theme-border)',
-                                      borderRadius: 'var(--border-radius-md)',
-                                      boxShadow: '0 6px 16px rgba(0,0,0,0.18)',
-                                      zIndex: 100,
-                                      padding: '4px',
-                                    }}
-                                  >
-                                    {clsCatalogItems.filter(it =>
-                                      it.name?.toLowerCase().includes(searchQuery[cls.key].toLowerCase()) ||
-                                      it.sku?.toLowerCase().includes(searchQuery[cls.key].toLowerCase())
-                                    ).length === 0 ? (
-                                      <div style={{ padding: '8px', fontSize: '11px', color: 'var(--theme-text-muted)', textAlign: 'center' }}>
-                                        No matching items found.
-                                      </div>
-                                    ) : (
-                                      clsCatalogItems.filter(it =>
-                                        it.name?.toLowerCase().includes(searchQuery[cls.key].toLowerCase()) ||
-                                        it.sku?.toLowerCase().includes(searchQuery[cls.key].toLowerCase())
-                                      ).map(it => (
-                                        <div
-                                          key={it.id}
-                                          onClick={() => {
-                                            addItemToSheet(it.id);
-                                            setSearchQuery(prev => ({ ...prev, [cls.key]: '' }));
-                                          }}
-                                          style={{
-                                            padding: '6px 10px',
-                                            fontSize: '11px',
-                                            cursor: 'pointer',
-                                            borderRadius: '4px',
-                                            display: 'flex',
-                                            justify: 'space-between',
-                                            alignItems: 'center',
-                                            borderBottom: '1px solid var(--theme-border)',
-                                            background: 'var(--theme-card-bg)',
-                                          }}
-                                        >
-                                          <div>
-                                            <strong style={{ display: 'block', color: 'var(--theme-text-bold)' }}>{it.name}</strong>
-                                            <span style={{ fontSize: '10px', color: 'var(--theme-text-muted)' }}>[{it.sku}] • {it.unit}</span>
-                                          </div>
-                                          <span style={{ fontSize: '10px', fontWeight: '700', color: ((it.stockLevels || []).reduce((sum, s) => sum + (s.quantityOnHand || 0), 0)) < 10 ? 'var(--color-critical)' : 'var(--color-success)' }}>
-                                            Stock: {(it.stockLevels || []).reduce((sum, s) => sum + (s.quantityOnHand || 0), 0)}
-                                          </span>
-                                        </div>
-                                      ))
-                                    )}
-                                  </div>
-                                )}
-
-                                {/* Fallback Dropdown Selector */}
-                                <select
-                                  className="form-control"
-                                  onChange={e => {
-                                    addItemToSheet(e.target.value);
-                                    e.target.value = '';
+                              {/* Single Searchable Dropdown Picker per classification for Central Storage items */}
+                              <div style={{ minWidth: '260px', width: '280px' }}>
+                                <SearchableSelect
+                                  options={clsCatalogItems
+                                    .filter(it => (it.centralQty ?? 0) > 0)
+                                    .map(it => ({
+                                      value: it.id,
+                                      label: `${it.name} (${it.sku})`,
+                                      sublabel: `Unit: ${it.unit}`,
+                                    }))}
+                                  value=""
+                                  onChange={(val) => {
+                                    if (val) addItemToSheet(val);
                                   }}
-                                  style={{ fontSize: '11px', padding: '3px 8px', height: '28px', minWidth: '160px' }}
-                                >
-                                  <option value="">Select from list...</option>
-                                  {clsCatalogItems.map(it => (
-                                    <option key={it.id} value={it.id}>
-                                      {it.name} (Stock: {(it.stockLevels || []).reduce((sum, s) => sum + (s.quantityOnHand || 0), 0)})
-                                    </option>
-                                  ))}
-                                </select>
+                                  placeholder={`🔍 Add ${cls.label.toLowerCase()}...`}
+                                />
                               </div>
                             </div>
                           </td>
@@ -1053,9 +982,9 @@ const Requisitions = () => {
                             const item = items.find(i => i.id === itemId);
                             if (!item) return null;
 
-                            const availStock = (item.stockLevels || []).reduce((sum, s) => sum + (s.quantityOnHand || 0), 0);
+                            const centralStock = item.centralQty ?? (item.stockLevels || []).find(s => s.location === 'CENTRAL')?.quantityOnHand ?? 0;
                             const rowTotal = calculateRowTotal(item.id);
-                            const isLowStock = rowTotal > availStock;
+                            const isLowStock = rowTotal > centralStock;
 
                             return (
                               <tr key={item.id} style={{ borderBottom: '1px solid var(--theme-border)' }}>
@@ -1075,7 +1004,7 @@ const Requisitions = () => {
                                     <div>
                                       <div style={{ fontWeight: '600', color: 'var(--theme-text-bold)' }}>{item.name}</div>
                                       <div style={{ fontSize: '10px', color: 'var(--theme-text-muted)' }}>
-                                        Unit: {item.unit} | Stock: <span style={{ fontWeight: '700', color: availStock < 10 ? 'var(--color-critical)' : 'var(--color-success)' }}>{availStock}</span>
+                                        SKU: {item.sku} | Unit: {item.unit}
                                       </div>
                                     </div>
                                     <button
