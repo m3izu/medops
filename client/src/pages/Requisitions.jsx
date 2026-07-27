@@ -786,8 +786,28 @@ const Requisitions = () => {
                 )}
               </div>
 
-              {/* Patient Selector from Patients Registry */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              {/* Top Toolbar Action Pickers */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                {/* Global Catalog Item Search Dropdown */}
+                <div style={{ width: '300px' }}>
+                  <SearchableSelect
+                    options={items.map(it => {
+                      const clsObj = CLASSIFICATIONS.find(c => c.key === (it.itemType || 'MEDICAL_CONSUMABLE'));
+                      return {
+                        value: it.id,
+                        label: `[${clsObj?.label || 'Item'}] ${it.name} (${it.sku})`,
+                        sublabel: `Unit: ${it.unit}`,
+                      };
+                    })}
+                    value=""
+                    onChange={(val) => {
+                      if (val) addItemToSheet(val);
+                    }}
+                    placeholder="🔍 + Add Item to Sheet..."
+                  />
+                </div>
+
+                {/* Patient Selector from Patients Registry */}
                 <select
                   className="form-control"
                   value={selectedPatientPicker}
