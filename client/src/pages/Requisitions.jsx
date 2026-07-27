@@ -640,7 +640,7 @@ const Requisitions = () => {
 
                           <div style={{ fontSize: '12px', color: 'var(--theme-text-muted)', marginBottom: '8px' }}>
                             <div>
-                              Target Pool: <span className="badge badge-neutral" style={{ fontSize: '10px', padding: '1px 6px' }}>{lineLoc === 'ECART' ? '🛒 eCart' : '🏢 Central'}</span> • Requested: <strong>{line.qtyRequested}</strong> {line.item?.unit} | Pool Stock: <strong>{availableStock}</strong>
+                              Target Pool: <span className="badge badge-neutral" style={{ fontSize: '10px', padding: '1px 6px' }}>{lineLoc === 'ECART' ? '🛒 eCart' : '🏢 Central'}</span> • Requested: <strong>{line.qtyRequested}</strong> {line.item?.unit}{canApprove && <> | Pool Stock: <strong>{availableStock}</strong></>}
                             </div>
                             <div>Notes/Reason: <em>"{line.reason}"</em></div>
                             {line.qtyApproved && (
@@ -950,7 +950,6 @@ const Requisitions = () => {
                               <div style={{ minWidth: '260px', width: '280px' }}>
                                 <SearchableSelect
                                   options={clsCatalogItems
-                                    .filter(it => (it.centralQty ?? 0) > 0)
                                     .map(it => ({
                                       value: it.id,
                                       label: `${it.name} (${it.sku})`,
