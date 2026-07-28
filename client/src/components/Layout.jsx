@@ -163,7 +163,7 @@ const LayoutInner = ({ children }) => {
     if (path.startsWith('/stock/transactions')) return 'Inventory Transaction Logs';
     if (path.startsWith('/mgmt/audit')) return 'MedOPS Audit Feed';
     if (path.startsWith('/stocktake')) return 'Stocktake & Reconciliation';
-    if (path.startsWith('/reports')) return 'Monthly Report Archive';
+    if (path.startsWith('/reports')) return 'Reports & Analytics';
     if (path.startsWith('/import')) return 'CSV Bulk Import';
     if (path.startsWith('/dispense')) return 'Direct Item Dispensing';
     if (path.startsWith('/returns')) return 'Item Returns';
@@ -376,7 +376,7 @@ const LayoutInner = ({ children }) => {
                 </NavLink>
               </li>
             )}
-            {hasPermission('generate_reports') && (
+            {hasPermission('view_reports') && (
               <li className="sidebar-item">
                 <NavLink to="/reports" className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`} title="Reports">
                   <span className="sidebar-icon">📈</span>

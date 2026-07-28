@@ -19,7 +19,7 @@ const MENU_ITEMS = [
 
   { path: '/users', label: 'Staff Accounts & Roles', category: 'Management & System', icon: '👥', description: 'Configure staff logins, roles & permissions' },
   { path: '/suppliers', label: 'Suppliers Directory', category: 'Management & System', icon: '🏢', description: 'Manage medical vendor contacts and lead times' },
-  { path: '/reports', label: 'Reports & Analytics', category: 'Management & System', icon: '📈', description: 'Monthly analytics, consumption & financial reports' },
+  { path: '/reports', label: 'Reports & Analytics', category: 'Management & System', icon: '📈', description: 'Real-time reports, operational stats & trend analytics' },
   { path: '/import', label: 'CSV Bulk Import', category: 'Management & System', icon: '📤', description: 'Import catalog CSV datasets' },
   { path: '/stock/transactions', label: 'Audit Feed & Logs', category: 'Management & System', icon: '📜', description: 'Full system audit logs of stock movements' },
 ];

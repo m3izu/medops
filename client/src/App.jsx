@@ -233,7 +233,7 @@ function App() {
               <Route
                 path="/reports"
                 element={
-                  <PrivateRoute requiredPermission="generate_reports">
+                  <PrivateRoute requiredPermission="view_reports">
                     <Reports />
                   </PrivateRoute>
                 }

@@ -36,8 +36,7 @@ const PERMISSION_DESCS = {
   view_own_forms: "Allows viewing personal requisition submission history.",
   comment_on_logs: "Allows adding management comments on inventory audit logs.",
   manage_patients: "Allows registering and updating patient records.",
-  generate_reports: "Permits building and printing consumption analysis reports.",
-  trigger_monthly_report: "Allows manually triggering monthly inventory summary reports.",
+  view_reports: "Permits accessing live analytics, section stats, trend graphs, and CSV export.",
   view_archived_items: "Grants access to toggle and view archived catalog items.",
   dispense_item: "Allows dispensing supplies directly to patient records.",
   record_billing: "Allows recording financial billing items for patient dispenses.",
@@ -45,7 +44,6 @@ const PERMISSION_DESCS = {
   return_item: "Allows processing returned items back into active inventory.",
   create_users: "Allows creating, editing, resetting, and deactivating staff logins.",
   configure_session: "Allows configuring system idle session timeout limits.",
-  configure_report_schedule: "Allows configuring automated monthly report email schedules.",
   bulk_import: "Allows bulk importing catalog items via CSV files.",
   manage_permissions: "Allows modifying role permission defaults and user overrides.",
 };

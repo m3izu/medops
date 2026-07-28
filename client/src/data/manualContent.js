@@ -318,14 +318,14 @@ const MANUAL_SECTIONS = [
   // ─── REPORTS & ADMIN ───
   {
     id: 'generate-reports',
-    permission: 'generate_reports',
+    permission: 'view_reports',
     category: 'Reports & Administration',
-    title: 'Generating Reports',
+    title: 'Reports & Live Analytics',
     icon: '📈',
     route: '/reports',
     quickHelp: [
-      'View and download monthly inventory reports.',
-      'Reports include stock summaries, consumption trends, and expiry alerts.',
+      'View real-time inventory metrics, section stats, and trend analytics.',
+      'Filter by custom date ranges and export section records as CSV or print.',
     ],
     fullGuide: [
       'The Reports page provides access to monthly inventory summary reports for the clinic.',

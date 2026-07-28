@@ -1,133 +1,297 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import BackupManager from '../components/BackupManager';
+import Sparkline from '../components/Sparkline';
 
-const DAYS = Array.from({ length: 28 }, (_, i) => i + 1);
+const PRESETS = [
+  { label: 'Today', getValue: () => {
+    const d = new Date().toISOString().split('T')[0];
+    return { from: d, to: d };
+  }},
+  { label: 'Last 7 Days', getValue: () => {
+    const to = new Date().toISOString().split('T')[0];
+    const from = new Date(Date.now() - 6 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+    return { from, to };
+  }},
+  { label: 'Last 30 Days', getValue: () => {
+    const to = new Date().toISOString().split('T')[0];
+    const from = new Date(Date.now() - 29 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+    return { from, to };
+  }},
+  { label: 'This Month', getValue: () => {
+    const now = new Date();
+    const from = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
+    const to = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().split('T')[0];
+    return { from, to };
+  }},
+  { label: 'This Year', getValue: () => {
+    const now = new Date();
+    const from = `${now.getFullYear()}-01-01`;
+    const to = `${now.getFullYear()}-12-31`;
+    return { from, to };
+  }},
+];
 
-const REPORT_SECTIONS = [
-  'Stock Inventory Summary (all items, current QoH)',
-  'Items Below Warning / Critical Level',
-  'Expiring Medication Batches (within 90 days)',
-  'Inbound Deliveries & Received Stock',
-  'Clinical Dispensing (OUTBOUND) Log',
-  'Waste & Discard Log',
-  'Stocktake Adjustments',
-  'Requisition Activity Summary (per patient / per nurse)',
+const SECTIONS_CONFIG = [
+  { 
+    key: 'inventory', 
+    title: 'Stock Inventory Summary', 
+    icon: (
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
+        <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
+        <line x1="12" y1="22.08" x2="12" y2="12"></line>
+      </svg>
+    ), 
+    color: 'var(--theme-primary, #0d9488)', 
+    accentBg: 'rgba(13, 148, 136, 0.1)',
+    desc: 'Current catalog snapshot across E-Cart & Central storage' 
+  },
+  { 
+    key: 'low-stock', 
+    title: 'Low & Critical Stock Alerts', 
+    icon: (
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"></path>
+        <line x1="12" y1="9" x2="12" y2="13"></line>
+        <line x1="12" y1="17" x2="12.01" y2="17"></line>
+      </svg>
+    ), 
+    color: '#ef4444', 
+    accentBg: 'rgba(239, 68, 68, 0.1)',
+    desc: 'Items reaching or below warning and critical limits' 
+  },
+  { 
+    key: 'expiring', 
+    title: 'Expiring Medication Batches', 
+    icon: (
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="12" cy="12" r="10"></circle>
+        <polyline points="12 6 12 12 16 14"></polyline>
+      </svg>
+    ), 
+    color: '#f59e0b', 
+    accentBg: 'rgba(245, 158, 11, 0.1)',
+    desc: 'Batches expiring within 90 days or already expired' 
+  },
+  { 
+    key: 'inbound', 
+    title: 'Inbound Deliveries & Received Stock', 
+    icon: (
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="1" y="3" width="15" height="13"></rect>
+        <polygon points="16 8 20 8 23 11 23 16 16 16 16 8"></polygon>
+        <circle cx="5.5" cy="18.5" r="2.5"></circle>
+        <circle cx="18.5" cy="18.5" r="2.5"></circle>
+      </svg>
+    ), 
+    color: '#10b981', 
+    accentBg: 'rgba(16, 185, 129, 0.1)',
+    desc: 'Registered supplier shipments and inbound stock logs' 
+  },
+  { 
+    key: 'outbound', 
+    title: 'Clinical Dispensing & Outbound Log', 
+    icon: (
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M22 12h-4l-3 9L9 3l-3 9H2"></path>
+      </svg>
+    ), 
+    color: '#3b82f6', 
+    accentBg: 'rgba(59, 130, 246, 0.1)',
+    desc: 'Medication dispensing and outbound transaction logs' 
+  },
+  { 
+    key: 'discards', 
+    title: 'Waste & Discard Log', 
+    icon: (
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <polyline points="3 6 5 6 21 6"></polyline>
+        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+      </svg>
+    ), 
+    color: '#ec4899', 
+    accentBg: 'rgba(236, 72, 153, 0.1)',
+    desc: 'Expired, damaged, or recalled items discarded' 
+  },
+  { 
+    key: 'adjustments', 
+    title: 'Stocktake Adjustments', 
+    icon: (
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"></path>
+      </svg>
+    ), 
+    color: '#8b5cf6', 
+    accentBg: 'rgba(139, 92, 246, 0.1)',
+    desc: 'Physical stock count reconciliation variances' 
+  },
+  { 
+    key: 'requisitions', 
+    title: 'Requisition Activity', 
+    icon: (
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+        <polyline points="14 2 14 8 20 8"></polyline>
+        <line x1="16" y1="13" x2="8" y2="13"></line>
+        <line x1="16" y1="17" x2="8" y2="17"></line>
+      </svg>
+    ), 
+    color: '#6366f1', 
+    accentBg: 'rgba(99, 102, 241, 0.1)',
+    desc: 'Clinic requisition submissions and sign-off status' 
+  },
+  { 
+    key: 'returns', 
+    title: 'Item Returns Log', 
+    icon: (
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <polyline points="9 14 4 9 9 4"></polyline>
+        <path d="M20 20v-7a4 4 0 0 0-4-4H4"></path>
+      </svg>
+    ), 
+    color: '#14b8a6', 
+    accentBg: 'rgba(20, 184, 166, 0.1)',
+    desc: 'Unused supplies returned back to active inventory' 
+  },
+  { 
+    key: 'transfers', 
+    title: 'Stock Transfers', 
+    icon: (
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <polyline points="17 1 21 5 17 9"></polyline>
+        <path d="M3 11V9a4 4 0 0 1 4-4h14"></path>
+        <polyline points="7 23 3 19 7 15"></polyline>
+        <path d="M21 13v2a4 4 0 0 1-4 4H3"></path>
+      </svg>
+    ), 
+    color: '#06b6d4', 
+    accentBg: 'rgba(6, 182, 212, 0.1)',
+    desc: 'Inter-location movements between E-Cart and Central' 
+  },
+  { 
+    key: 'dispense', 
+    title: 'Direct Dispense & Cashier Billing', 
+    icon: (
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="m10.5 20.5 10-10a4.95 4.95 0 1 0-7-7l-10 10a4.95 4.95 0 1 0 7 7Z"></path>
+        <path d="m8.5 8.5 7 7"></path>
+      </svg>
+    ), 
+    color: '#84cc16', 
+    accentBg: 'rgba(132, 204, 22, 0.1)',
+    desc: 'Nurse direct dispensing and cashier billing status' 
+  },
 ];
 
 const Reports = () => {
   const { user } = useAuth();
   const toast = useToast();
-
-  const [reports,      setReports]      = useState([]);
-  const [schedule,     setSchedule]     = useState({ dayOfMonth: 1, isActive: true });
-  const [loading,      setLoading]      = useState(true);
-  const [schedLoading, setSchedLoading] = useState(true);
-  const [error,        setError]        = useState('');
-
-  // Generate report
-  const [generating,   setGenerating]   = useState(false);
-  const [genSuccess,   setGenSuccess]   = useState('');
-
-  // Schedule editing
-  const [editDay,      setEditDay]      = useState(1);
-  const [editActive,   setEditActive]   = useState(true);
-  const [savingSched,  setSavingSched]  = useState(false);
-  const [schedSaved,   setSchedSaved]   = useState(false);
-
-  // Selected report detail modal
-  const [selectedReport, setSelectedReport] = useState(null);
-  const [detailsLoading, setDetailsLoading] = useState(false);
-
   const isTopAdmin = user?.role === 'TOP_ADMIN';
 
-  const fetchReports = async () => {
-    try {
-      setLoading(true);
-      const res = await api.get('/reports');
-      setReports(res.data || []);
-      setError('');
-    } catch (err) {
-      console.error(err);
-      setError('Failed to load report archive.');
-    } finally {
-      setLoading(false);
-    }
-  };
+  // Date range state
+  const defaultMonth = PRESETS[3].getValue();
+  const [dateRange, setDateRange] = useState(defaultMonth);
+  const [activePreset, setActivePreset] = useState('This Month');
+  const [customFrom, setCustomFrom] = useState(defaultMonth.from);
+  const [customTo, setCustomTo] = useState(defaultMonth.to);
 
-  const fetchSchedule = async () => {
-    if (!isTopAdmin) return;
+  // Live Summary state
+  const [summaryData, setSummaryData] = useState(null);
+  const [loadingSummary, setLoadingSummary] = useState(true);
+  const [summaryError, setSummaryError] = useState('');
+
+  // Active section drill-down state
+  const [activeSection, setActiveSection] = useState(null);
+  const [sectionData, setSectionData] = useState(null);
+  const [loadingSection, setLoadingSection] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [page, setPage] = useState(1);
+
+  // Fetch live summary dashboard data
+  const fetchSummary = useCallback(async () => {
     try {
-      setSchedLoading(true);
-      const res = await api.get('/reports/schedule');
-      setSchedule(res.data);
-      setEditDay(res.data.dayOfMonth);
-      setEditActive(res.data.isActive);
+      setLoadingSummary(true);
+      setSummaryError('');
+      const res = await api.get(`/reports/live/summary?from=${dateRange.from}&to=${dateRange.to}`);
+      setSummaryData(res.data);
     } catch (err) {
-      console.error(err);
+      console.error('Failed to fetch report summary:', err);
+      setSummaryError('Failed to load real-time analytics summary.');
+      toast.error('Failed to fetch live report data.');
     } finally {
-      setSchedLoading(false);
+      setLoadingSummary(false);
     }
-  };
+  }, [dateRange, toast]);
+
+  // Fetch detailed records for active section drill-down
+  const fetchSectionDetail = useCallback(async () => {
+    if (!activeSection) return;
+    try {
+      setLoadingSection(true);
+      const res = await api.get(
+        `/reports/live/${activeSection.key}?from=${dateRange.from}&to=${dateRange.to}&page=${page}&limit=25&search=${encodeURIComponent(searchQuery)}`
+      );
+      setSectionData(res.data);
+    } catch (err) {
+      console.error('Failed to fetch section detail:', err);
+      toast.error(`Failed to load ${activeSection.title} records.`);
+    } finally {
+      setLoadingSection(false);
+    }
+  }, [activeSection, dateRange, page, searchQuery, toast]);
 
   useEffect(() => {
-    fetchReports();
-    fetchSchedule();
-  }, []);
+    fetchSummary();
+  }, [fetchSummary]);
 
-  const handleGenerate = async () => {
-    if (!confirm('Manually generate a monthly report now? This will compile all 8 report sections for the current period.')) return;
-    try {
-      setGenerating(true);
-      setGenSuccess('');
-      const res = await api.post('/reports/generate');
-      const r = res.data;
-      const msg = `Report generated for period ${new Date(r.periodStart).toLocaleDateString()} – ${new Date(r.periodEnd).toLocaleDateString()}`;
-      setGenSuccess(msg);
-      toast.success(msg);
-      await fetchReports();
-    } catch (err) {
-      console.error(err);
-      const errMsg = err.response?.data?.error || 'Failed to generate report.';
-      alert(errMsg);
-      toast.error(errMsg);
-    } finally {
-      setGenerating(false);
+  useEffect(() => {
+    if (activeSection) {
+      fetchSectionDetail();
     }
+  }, [fetchSectionDetail, activeSection]);
+
+  const handleApplyPreset = (preset) => {
+    setActivePreset(preset.label);
+    const val = preset.getValue();
+    setCustomFrom(val.from);
+    setCustomTo(val.to);
+    setDateRange(val);
+    setPage(1);
   };
 
-  const handleSaveSchedule = async (e) => {
+  const handleCustomDateSubmit = (e) => {
     e.preventDefault();
-    try {
-      setSavingSched(true);
-      setSchedSaved(false);
-      await api.put('/reports/schedule', { dayOfMonth: editDay, isActive: editActive });
-      setSchedule({ dayOfMonth: editDay, isActive: editActive });
-      setSchedSaved(true);
-      toast.success('Automated report email schedule updated!');
-      setTimeout(() => setSchedSaved(false), 3000);
-    } catch (err) {
-      console.error(err);
-      const errMsg = err.response?.data?.error || 'Failed to update schedule.';
-      alert(errMsg);
-      toast.error(errMsg);
-    } finally {
-      setSavingSched(false);
+    if (!customFrom || !customTo) return;
+    if (new Date(customFrom) > new Date(customTo)) {
+      toast.error('"From" date cannot be later than "To" date.');
+      return;
     }
+    setActivePreset('Custom');
+    setDateRange({ from: customFrom, to: customTo });
+    setPage(1);
   };
 
-  const handleViewDetails = async (reportId) => {
+  const handleExportCSV = async () => {
+    if (!activeSection) return;
     try {
-      setDetailsLoading(true);
-      const res = await api.get(`/reports/${reportId}`);
-      setSelectedReport(res.data);
+      const response = await api.get(
+        `/reports/live/${activeSection.key}/export?from=${dateRange.from}&to=${dateRange.to}`,
+        { responseType: 'blob' }
+      );
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `MedOPS_${activeSection.key}_${dateRange.from}_to_${dateRange.to}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      toast.success(`Exported ${activeSection.title} CSV successfully!`);
     } catch (err) {
-      console.error(err);
-      alert('Failed to load report details.');
-    } finally {
-      setDetailsLoading(false);
+      console.error('Export error:', err);
+      toast.error('Failed to download CSV export.');
     }
   };
 
@@ -135,611 +299,699 @@ const Reports = () => {
     window.print();
   };
 
-  const formatPeriod = (start, end) =>
-    `${new Date(start).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })} – ${new Date(end).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}`;
+  const formattedRangeStr = `${new Date(dateRange.from).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })} – ${new Date(dateRange.to).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}`;
+
+  const sections = summaryData?.sections || {};
 
   return (
     <div className="page-container">
+      {/* Header bar */}
       <div className="page-header">
         <div>
-          <h2>Monthly Report Archive</h2>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <h2 style={{ margin: 0 }}>Reports & Live Analytics</h2>
+            <span className="badge badge-success" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '4px 10px' }}>
+              <span style={{ width: '7px', height: '7px', borderRadius: '50%', background: 'var(--color-success)', display: 'inline-block', boxShadow: '0 0 8px var(--color-success)' }}></span>
+              Real-Time Feed
+            </span>
+          </div>
           <p className="page-title-desc">
-            View generated monthly inventory reports. Top Admins can manually trigger report generation and configure the automatic report schedule.
+            Live metric tracking, departmental breakdown, and transaction audit trails across MedOPS modules.
           </p>
         </div>
-        {isTopAdmin && (
-          <button
-            className="btn btn-primary"
-            onClick={handleGenerate}
-            disabled={generating}
-          >
-            {generating ? '⏳ Generating...' : '⚡ Generate Report Now'}
-          </button>
-        )}
+
+        <button className="btn btn-secondary" onClick={fetchSummary} disabled={loadingSummary} style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+          {loadingSummary ? '⏳ Refreshing...' : '↻ Sync Data'}
+        </button>
       </div>
 
-      {error    && <div className="login-error" style={{ margin: 0 }}>{error}</div>}
-      {genSuccess && (
-        <div style={{ padding: '12px 16px', background: 'var(--color-success-bg)', color: 'var(--color-success)', borderRadius: 'var(--border-radius-md)', fontSize: '13px', fontWeight: '500', marginBottom: '4px' }}>
-          ✓ {genSuccess}
+      {/* Top Highlight KPI Bar (Dashboard View Only) */}
+      {!activeSection && (
+        <div className="dashboard-grid" style={{ marginBottom: '24px' }}>
+          <div className="metric-card neon-teal">
+            <div className="metric-header">
+              <span>Total Active QoH</span>
+              <span style={{ fontSize: '18px' }}>📦</span>
+            </div>
+            <div className="metric-value">{(sections.inventory?.totalQoH ?? 0).toLocaleString()}</div>
+            <div className="metric-desc">Catalog items: {sections.inventory?.totalItems ?? 0}</div>
+          </div>
+
+          <div className="metric-card neon-warning">
+            <div className="metric-header">
+              <span>Low & Critical Stock</span>
+              <span style={{ fontSize: '18px' }}>⚠️</span>
+            </div>
+            <div className="metric-value">{sections['low-stock']?.totalLowStock ?? 0}</div>
+            <div className="metric-desc">Critical: {sections['low-stock']?.criticalCount ?? 0} | Out: {sections['low-stock']?.outOfStockCount ?? 0}</div>
+          </div>
+
+          <div className="metric-card neon-critical">
+            <div className="metric-header">
+              <span>Expiring Batches</span>
+              <span style={{ fontSize: '18px' }}>⏳</span>
+            </div>
+            <div className="metric-value">{sections.expiring?.totalExpiring ?? 0}</div>
+            <div className="metric-desc">Expired: {sections.expiring?.expired ?? 0} | ≤30d: {sections.expiring?.within30 ?? 0}</div>
+          </div>
+
+          <div className="metric-card neon-purple">
+            <div className="metric-header">
+              <span>Requisitions Queue</span>
+              <span style={{ fontSize: '18px' }}>📋</span>
+            </div>
+            <div className="metric-value">{sections.requisitions?.count ?? 0}</div>
+            <div className="metric-desc">Approved: {sections.requisitions?.status?.APPROVED ?? 0} | Pending: {sections.requisitions?.status?.PENDING ?? 0}</div>
+          </div>
         </div>
       )}
 
-      <div style={{ display: 'grid', gridTemplateColumns: isTopAdmin ? '1fr 360px' : '1fr', gap: '24px' }}>
+      {/* Timeframe Filter Bar */}
+      <div className="filter-bar" style={{ marginBottom: '24px', padding: '14px 20px', borderRadius: 'var(--border-radius-lg)', display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: '16px' }}>
+        
+        {/* Presets */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+          <span style={{ fontSize: '13px', fontWeight: '600', color: 'var(--theme-text-muted)', marginRight: '4px' }}>Range:</span>
+          {PRESETS.map((p) => (
+            <button
+              key={p.label}
+              className={`btn btn-sm ${activePreset === p.label ? 'btn-primary' : 'btn-secondary'}`}
+              onClick={() => handleApplyPreset(p)}
+              style={{ borderRadius: '20px', fontSize: '12px', padding: '4px 14px' }}
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
 
-        {/* Main: Report Archive List */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+        {/* Custom Date Inputs */}
+        <form onSubmit={handleCustomDateSubmit} style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <label style={{ fontSize: '12px', color: 'var(--theme-text-muted)' }}>From:</label>
+            <input
+              type="date"
+              className="form-control"
+              style={{ padding: '4px 8px', fontSize: '12px', width: '135px' }}
+              value={customFrom}
+              onChange={(e) => setCustomFrom(e.target.value)}
+            />
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <label style={{ fontSize: '12px', color: 'var(--theme-text-muted)' }}>To:</label>
+            <input
+              type="date"
+              className="form-control"
+              style={{ padding: '4px 8px', fontSize: '12px', width: '135px' }}
+              value={customTo}
+              onChange={(e) => setCustomTo(e.target.value)}
+            />
+          </div>
+          <button type="submit" className="btn btn-secondary btn-sm" style={{ padding: '5px 12px' }}>
+            Apply
+          </button>
+        </form>
+      </div>
 
-          {/* Report archive */}
-          <div className="widget-card">
-            <div className="widget-header">
-              <span className="widget-title">Generated Report Archive</span>
-              <span style={{ fontSize: '13px', color: 'var(--theme-text-muted)' }}>
-                {reports.length} report(s) on record
-              </span>
+      {summaryError && <div className="login-error" style={{ marginBottom: '20px' }}>{summaryError}</div>}
+
+      {/* DASHBOARD GRID vs DRILL-DOWN VIEW */}
+      {!activeSection ? (
+        <div>
+          {loadingSummary ? (
+            <div style={{ padding: '60px', textAlign: 'center', color: 'var(--theme-text-muted)' }}>
+              <div style={{ fontSize: '32px', marginBottom: '12px' }}>🩺</div>
+              <p style={{ fontWeight: '500' }}>Compiling live data across 11 clinical sections...</p>
             </div>
+          ) : (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(350px, 1fr))', gap: '20px' }}>
+              {SECTIONS_CONFIG.map((cfg) => {
+                const s = sections[cfg.key] || {};
+                
+                let primaryVal = 0;
+                let primaryLabel = 'Total Logs';
+                let secondaryInfo = null;
+
+                if (cfg.key === 'inventory') {
+                  primaryVal = s.totalQoH ?? 0;
+                  primaryLabel = 'Total Quantity on Hand';
+                  secondaryInfo = `Catalog: ${s.totalItems ?? 0} | ECART: ${s.ecartQoH ?? 0} | CENTRAL: ${s.centralQoH ?? 0}`;
+                } else if (cfg.key === 'low-stock') {
+                  primaryVal = s.totalLowStock ?? 0;
+                  primaryLabel = 'Items At or Below Warning Level';
+                  secondaryInfo = `Critical: ${s.criticalCount ?? 0} | Warning: ${s.warningCount ?? 0} | Out: ${s.outOfStockCount ?? 0}`;
+                } else if (cfg.key === 'expiring') {
+                  primaryVal = s.totalExpiring ?? 0;
+                  primaryLabel = 'Batches Expiring (≤90 Days)';
+                  secondaryInfo = `Expired: ${s.expired ?? 0} | ≤30d: ${s.within30 ?? 0} | ≤60d: ${s.within60 ?? 0}`;
+                } else if (cfg.key === 'inbound') {
+                  primaryVal = s.totalQty ?? 0;
+                  primaryLabel = 'Total Units Received';
+                  secondaryInfo = `Shipment Logs: ${s.count ?? 0}`;
+                } else if (cfg.key === 'outbound') {
+                  primaryVal = s.totalQty ?? 0;
+                  primaryLabel = 'Total Units Dispensed / Outbound';
+                  secondaryInfo = `Transaction Logs: ${s.count ?? 0}`;
+                } else if (cfg.key === 'discards') {
+                  primaryVal = s.totalQty ?? 0;
+                  primaryLabel = 'Total Units Discarded';
+                  secondaryInfo = `Expired: ${s.reasons?.EXPIRED ?? 0} | Damaged: ${s.reasons?.DAMAGED ?? 0} | Recalled: ${s.reasons?.RECALLED ?? 0}`;
+                } else if (cfg.key === 'adjustments') {
+                  primaryVal = s.netQty ?? 0;
+                  primaryLabel = 'Net Quantity Variance';
+                  secondaryInfo = `Reconciliation Logs: ${s.count ?? 0}`;
+                } else if (cfg.key === 'requisitions') {
+                  primaryVal = s.count ?? 0;
+                  primaryLabel = 'Requisition Forms Submitted';
+                  secondaryInfo = `Approved: ${s.status?.APPROVED ?? 0} | Pending: ${s.status?.PENDING ?? 0} | Rejected: ${s.status?.REJECTED ?? 0}`;
+                } else if (cfg.key === 'returns') {
+                  primaryVal = s.totalQty ?? 0;
+                  primaryLabel = 'Total Units Returned to Stock';
+                  secondaryInfo = `Return Logs: ${s.count ?? 0}`;
+                } else if (cfg.key === 'transfers') {
+                  primaryVal = s.count ?? 0;
+                  primaryLabel = 'Stock Transfer Requests';
+                  secondaryInfo = `Approved: ${s.status?.APPROVED ?? 0} | Pending: ${s.status?.PENDING ?? 0}`;
+                } else if (cfg.key === 'dispense') {
+                  primaryVal = s.totalQty ?? 0;
+                  primaryLabel = 'Units Dispensed to Patients';
+                  secondaryInfo = `Direct Dispenses: ${s.count ?? 0} | Pending Billing: ${s.pendingBillingCount ?? 0}`;
+                }
+
+                return (
+                  <div
+                    key={cfg.key}
+                    className="widget-card"
+                    style={{
+                      cursor: 'pointer',
+                      transition: 'transform var(--transition-fast), box-shadow var(--transition-fast), border-color var(--transition-fast)',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      justifyContent: 'space-between',
+                      padding: '20px',
+                      position: 'relative',
+                    }}
+                    onClick={() => {
+                      setActiveSection(cfg);
+                      setPage(1);
+                      setSearchQuery('');
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.transform = 'translateY(-3px)';
+                      e.currentTarget.style.boxShadow = 'var(--shadow-md)';
+                      e.currentTarget.style.borderColor = cfg.color;
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.transform = 'none';
+                      e.currentTarget.style.boxShadow = 'var(--shadow-sm)';
+                      e.currentTarget.style.borderColor = 'var(--theme-card-border)';
+                    }}
+                  >
+                    <div>
+                      {/* Top bar with styled icon & action link */}
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                          <div style={{
+                            width: '40px',
+                            height: '40px',
+                            borderRadius: 'var(--border-radius-md)',
+                            background: cfg.accentBg,
+                            color: cfg.color,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            flexShrink: 0,
+                          }}>
+                            {cfg.icon}
+                          </div>
+                          <div>
+                            <h4 style={{ margin: 0, fontSize: '15px', fontWeight: '700', color: 'var(--theme-text-bold)' }}>{cfg.title}</h4>
+                            <span style={{ fontSize: '11px', color: 'var(--theme-text-muted)' }}>{cfg.desc}</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Primary Value */}
+                      <div style={{ marginBottom: '14px' }}>
+                        <div style={{ fontSize: '30px', fontWeight: '800', color: 'var(--theme-text-bold)', lineHeight: '1' }}>
+                          {primaryVal.toLocaleString()}
+                        </div>
+                        <div style={{ fontSize: '12px', color: 'var(--theme-text-muted)', marginTop: '4px', fontWeight: '500' }}>
+                          {primaryLabel}
+                        </div>
+                      </div>
+
+                      {/* Secondary Info Pill */}
+                      <div style={{
+                        fontSize: '12px',
+                        color: 'var(--theme-text)',
+                        background: 'var(--theme-bg)',
+                        border: '1px solid var(--theme-border)',
+                        padding: '8px 12px',
+                        borderRadius: 'var(--border-radius-sm)',
+                        marginBottom: '16px',
+                        fontWeight: '500',
+                      }}>
+                        {secondaryInfo}
+                      </div>
+                    </div>
+
+                    {/* Sparkline & View Drill-down Footer */}
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingTop: '12px', borderTop: '1px solid var(--theme-border)' }}>
+                      <span style={{ fontSize: '12px', fontWeight: '600', color: cfg.color, display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                        Explore Section →
+                      </span>
+                      <Sparkline
+                        data={s.sparkline || []}
+                        width={130}
+                        height={28}
+                        color={cfg.color}
+                        type={cfg.key === 'inventory' || cfg.key === 'low-stock' || cfg.key === 'expiring' ? 'bar' : 'line'}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      ) : (
+        /* DRILL-DOWN SUB-VIEW FOR SELECTED SECTION */
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+          
+          {/* Header Bar */}
+          <div className="widget-card" style={{ padding: '16px 20px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '16px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+                <button
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => setActiveSection(null)}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                >
+                  ← Back to Dashboard
+                </button>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  <div style={{
+                    width: '42px',
+                    height: '42px',
+                    borderRadius: 'var(--border-radius-md)',
+                    background: activeSection.accentBg,
+                    color: activeSection.color,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}>
+                    {activeSection.icon}
+                  </div>
+                  <div>
+                    <h3 style={{ margin: 0, fontSize: '18px', fontWeight: '700', color: 'var(--theme-text-bold)' }}>{activeSection.title}</h3>
+                    <span style={{ fontSize: '12px', color: 'var(--theme-text-muted)' }}>{activeSection.desc}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Action Toolbar */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <button className="btn btn-secondary btn-sm" onClick={handleTriggerPrint}>
+                  🖨️ Print View
+                </button>
+                <button className="btn btn-primary btn-sm" onClick={handleExportCSV}>
+                  📥 Export CSV
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Data Table Widget */}
+          <div className="widget-card">
+            <div className="widget-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <span className="widget-title">Detailed Record Audit ({sectionData?.pagination?.total || 0})</span>
+                <span className="badge badge-neutral">{formattedRangeStr}</span>
+              </div>
+              
+              {/* Search input for inventory section */}
+              {activeSection.key === 'inventory' && (
+                <input
+                  type="text"
+                  placeholder="Search item name or SKU..."
+                  className="form-control"
+                  style={{ width: '240px', padding: '5px 12px', fontSize: '13px' }}
+                  value={searchQuery}
+                  onChange={(e) => {
+                    setSearchQuery(e.target.value);
+                    setPage(1);
+                  }}
+                />
+              )}
+            </div>
+
             <div className="widget-body" style={{ padding: 0 }}>
-              {loading ? (
-                <p style={{ padding: '24px', color: 'var(--theme-text-muted)' }}>Loading report archive...</p>
-              ) : reports.length === 0 ? (
-                <div style={{ padding: '40px', textAlign: 'center', color: 'var(--theme-text-muted)' }}>
-                  <div style={{ fontSize: '36px', marginBottom: '12px' }}>📋</div>
-                  <p style={{ fontWeight: '500', marginBottom: '6px' }}>No reports generated yet.</p>
-                  {isTopAdmin && (
-                    <p style={{ fontSize: '13px' }}>
-                      Use the <strong>"Generate Report Now"</strong> button to create the first monthly inventory report.
-                    </p>
-                  )}
+              {loadingSection ? (
+                <p style={{ padding: '40px', color: 'var(--theme-text-muted)', textAlign: 'center' }}>
+                  Loading {activeSection.title} records...
+                </p>
+              ) : !sectionData?.data || sectionData.data.length === 0 ? (
+                <div style={{ padding: '50px', textAlign: 'center', color: 'var(--theme-text-muted)' }}>
+                  <div style={{ fontSize: '36px', marginBottom: '10px' }}>📭</div>
+                  <p style={{ margin: 0, fontWeight: '500', fontSize: '14px' }}>No records found for the selected time period.</p>
                 </div>
               ) : (
-                <table className="table">
-                  <thead>
-                    <tr>
-                      <th>#</th>
-                      <th>Report Period</th>
-                      <th>Generated By</th>
-                      <th>Generated At</th>
-                      <th>Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {reports.map((r, idx) => (
-                      <tr key={r.id}>
-                        <td style={{ color: 'var(--theme-text-muted)', fontSize: '12px' }}>
-                          #{reports.length - idx}
-                        </td>
-                        <td>
-                          <strong>{formatPeriod(r.periodStart, r.periodEnd)}</strong>
-                        </td>
-                        <td style={{ fontSize: '13px' }}>
-                          {r.generatedBy.name}
-                        </td>
-                        <td style={{ fontSize: '12px', color: 'var(--theme-text-muted)' }}>
-                          {new Date(r.generatedAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}
-                        </td>
-                        <td>
-                          <button 
-                            className="btn btn-secondary btn-sm"
-                            onClick={() => handleViewDetails(r.id)}
-                            disabled={detailsLoading}
-                          >
-                            {detailsLoading ? 'Loading...' : '🔍 Open & Download'}
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                <div style={{ overflowX: 'auto' }}>
+                  <table className="table">
+                    <thead>
+                      {activeSection.key === 'inventory' && (
+                        <tr>
+                          <th>Item Name</th>
+                          <th>SKU</th>
+                          <th>Classification</th>
+                          <th>Category</th>
+                          <th>E-Cart Qty</th>
+                          <th>Central Qty</th>
+                          <th style={{ textAlign: 'right' }}>Total Quantity</th>
+                        </tr>
+                      )}
+                      {activeSection.key === 'low-stock' && (
+                        <tr>
+                          <th>Item Name</th>
+                          <th>SKU</th>
+                          <th>Category</th>
+                          <th style={{ textAlign: 'right' }}>Total Qty</th>
+                          <th style={{ textAlign: 'right' }}>Warning Level</th>
+                          <th style={{ textAlign: 'right' }}>Critical Level</th>
+                          <th style={{ textAlign: 'center' }}>Alert Status</th>
+                        </tr>
+                      )}
+                      {activeSection.key === 'expiring' && (
+                        <tr>
+                          <th>Item Name</th>
+                          <th>SKU</th>
+                          <th>Batch Number</th>
+                          <th>Storage Location</th>
+                          <th>Expiry Date</th>
+                          <th style={{ textAlign: 'right' }}>Remaining Qty</th>
+                        </tr>
+                      )}
+                      {activeSection.key === 'inbound' && (
+                        <tr>
+                          <th>Timestamp</th>
+                          <th>Item Name</th>
+                          <th>SKU</th>
+                          <th>Batch No</th>
+                          <th>Location</th>
+                          <th style={{ textAlign: 'right' }}>Qty Received</th>
+                          <th>Logged By</th>
+                        </tr>
+                      )}
+                      {activeSection.key === 'outbound' && (
+                        <tr>
+                          <th>Timestamp</th>
+                          <th>Item Name</th>
+                          <th>SKU</th>
+                          <th>Type</th>
+                          <th>Location</th>
+                          <th style={{ textAlign: 'right' }}>Qty Dispensed</th>
+                          <th>Logged By</th>
+                        </tr>
+                      )}
+                      {activeSection.key === 'discards' && (
+                        <tr>
+                          <th>Timestamp</th>
+                          <th>Item Name</th>
+                          <th>SKU</th>
+                          <th>Reason</th>
+                          <th>Location</th>
+                          <th style={{ textAlign: 'right' }}>Qty Discarded</th>
+                          <th>Logged By</th>
+                        </tr>
+                      )}
+                      {activeSection.key === 'adjustments' && (
+                        <tr>
+                          <th>Timestamp</th>
+                          <th>Item Name</th>
+                          <th>SKU</th>
+                          <th>Location</th>
+                          <th style={{ textAlign: 'right' }}>Quantity Variance</th>
+                          <th>Notes</th>
+                          <th>Logged By</th>
+                        </tr>
+                      )}
+                      {activeSection.key === 'requisitions' && (
+                        <tr>
+                          <th>Submitted At</th>
+                          <th>Patient Name</th>
+                          <th>Chart #</th>
+                          <th>Submitted By</th>
+                          <th>Status</th>
+                          <th>Requested Items</th>
+                        </tr>
+                      )}
+                      {activeSection.key === 'returns' && (
+                        <tr>
+                          <th>Timestamp</th>
+                          <th>Item Name</th>
+                          <th>SKU</th>
+                          <th>Location</th>
+                          <th style={{ textAlign: 'right' }}>Qty Returned</th>
+                          <th>Notes</th>
+                          <th>Logged By</th>
+                        </tr>
+                      )}
+                      {activeSection.key === 'transfers' && (
+                        <tr>
+                          <th>Requested At</th>
+                          <th>Item Name</th>
+                          <th>SKU</th>
+                          <th>Transfer Route</th>
+                          <th style={{ textAlign: 'right' }}>Qty</th>
+                          <th>Status</th>
+                          <th>Requested By</th>
+                        </tr>
+                      )}
+                      {activeSection.key === 'dispense' && (
+                        <tr>
+                          <th>Dispensed At</th>
+                          <th>Patient Name</th>
+                          <th>Item Name</th>
+                          <th style={{ textAlign: 'right' }}>Qty</th>
+                          <th>Dispensed By (Nurse)</th>
+                          <th>Billing Status</th>
+                          <th>Cashier Recorded By</th>
+                        </tr>
+                      )}
+                    </thead>
+
+                    <tbody>
+                      {sectionData.data.map((row) => (
+                        <tr key={row.id}>
+                          {activeSection.key === 'inventory' && (
+                            <>
+                              <td><strong>{row.name}</strong></td>
+                              <td><code>{row.sku}</code></td>
+                              <td>{row.itemType}</td>
+                              <td>{row.category}</td>
+                              <td>{row.ecartQty} {row.unit}</td>
+                              <td>{row.centralQty} {row.unit}</td>
+                              <td style={{ textAlign: 'right', fontWeight: '700' }}>{row.totalQty} {row.unit}</td>
+                            </>
+                          )}
+                          {activeSection.key === 'low-stock' && (
+                            <>
+                              <td><strong>{row.name}</strong></td>
+                              <td><code>{row.sku}</code></td>
+                              <td>{row.category}</td>
+                              <td style={{ textAlign: 'right', fontWeight: '700' }}>{row.totalQty} {row.unit}</td>
+                              <td style={{ textAlign: 'right' }}>{row.warningLevel}</td>
+                              <td style={{ textAlign: 'right' }}>{row.criticalLevel}</td>
+                              <td style={{ textAlign: 'center' }}>
+                                <span className={`badge ${row.alertType === 'CRITICAL' || row.alertType === 'OUT_OF_STOCK' ? 'badge-critical' : 'badge-warning'}`}>
+                                  {row.alertType}
+                                </span>
+                              </td>
+                            </>
+                          )}
+                          {activeSection.key === 'expiring' && (
+                            <>
+                              <td><strong>{row.itemName}</strong></td>
+                              <td><code>{row.sku}</code></td>
+                              <td><code>{row.batchNo}</code></td>
+                              <td>{row.location}</td>
+                              <td style={{ fontWeight: '500', color: new Date(row.expiryDate) <= new Date() ? 'var(--color-critical)' : 'inherit' }}>
+                                {new Date(row.expiryDate).toLocaleDateString()}
+                              </td>
+                              <td style={{ textAlign: 'right', fontWeight: '700' }}>{row.quantityRemaining} {row.unit}</td>
+                            </>
+                          )}
+                          {activeSection.key === 'inbound' && (
+                            <>
+                              <td style={{ fontSize: '12px', color: 'var(--theme-text-muted)' }}>{new Date(row.timestamp).toLocaleString()}</td>
+                              <td><strong>{row.itemName}</strong></td>
+                              <td><code>{row.sku}</code></td>
+                              <td><code>{row.batchNo}</code></td>
+                              <td>{row.location}</td>
+                              <td style={{ textAlign: 'right', color: 'var(--color-success)', fontWeight: '700' }}>+{row.qty} {row.unit}</td>
+                              <td>{row.loggedBy}</td>
+                            </>
+                          )}
+                          {activeSection.key === 'outbound' && (
+                            <>
+                              <td style={{ fontSize: '12px', color: 'var(--theme-text-muted)' }}>{new Date(row.timestamp).toLocaleString()}</td>
+                              <td><strong>{row.itemName}</strong></td>
+                              <td><code>{row.sku}</code></td>
+                              <td><span className="badge badge-neutral">{row.type}</span></td>
+                              <td>{row.location}</td>
+                              <td style={{ textAlign: 'right', fontWeight: '700' }}>-{row.qty} {row.unit}</td>
+                              <td>{row.loggedBy}</td>
+                            </>
+                          )}
+                          {activeSection.key === 'discards' && (
+                            <>
+                              <td style={{ fontSize: '12px', color: 'var(--theme-text-muted)' }}>{new Date(row.timestamp).toLocaleString()}</td>
+                              <td><strong>{row.itemName}</strong></td>
+                              <td><code>{row.sku}</code></td>
+                              <td><span className="badge badge-critical">{row.reason}</span></td>
+                              <td>{row.location}</td>
+                              <td style={{ textAlign: 'right', color: 'var(--color-critical)', fontWeight: '700' }}>-{row.qty} {row.unit}</td>
+                              <td>{row.loggedBy}</td>
+                            </>
+                          )}
+                          {activeSection.key === 'adjustments' && (
+                            <>
+                              <td style={{ fontSize: '12px', color: 'var(--theme-text-muted)' }}>{new Date(row.timestamp).toLocaleString()}</td>
+                              <td><strong>{row.itemName}</strong></td>
+                              <td><code>{row.sku}</code></td>
+                              <td>{row.location}</td>
+                              <td style={{ textAlign: 'right', fontWeight: '700', color: row.qty > 0 ? 'var(--color-success)' : 'var(--color-critical)' }}>
+                                {row.qty > 0 ? `+${row.qty}` : row.qty} {row.unit}
+                              </td>
+                              <td>{row.notes}</td>
+                              <td>{row.loggedBy}</td>
+                            </>
+                          )}
+                          {activeSection.key === 'requisitions' && (
+                            <>
+                              <td style={{ fontSize: '12px', color: 'var(--theme-text-muted)' }}>{new Date(row.createdAt).toLocaleString()}</td>
+                              <td><strong>{row.patientName}</strong></td>
+                              <td><code>{row.chartNumber}</code></td>
+                              <td>{row.submittedBy}</td>
+                              <td>
+                                <span className={`badge ${row.status.includes('APPROVED') ? 'badge-success' : row.status === 'REJECTED' ? 'badge-critical' : 'badge-warning'}`}>
+                                  {row.status}
+                                </span>
+                              </td>
+                              <td style={{ fontSize: '12px' }}>{row.itemSummary}</td>
+                            </>
+                          )}
+                          {activeSection.key === 'returns' && (
+                            <>
+                              <td style={{ fontSize: '12px', color: 'var(--theme-text-muted)' }}>{new Date(row.timestamp).toLocaleString()}</td>
+                              <td><strong>{row.itemName}</strong></td>
+                              <td><code>{row.sku}</code></td>
+                              <td>{row.location}</td>
+                              <td style={{ textAlign: 'right', color: 'var(--color-success)', fontWeight: '700' }}>+{row.qty} {row.unit}</td>
+                              <td>{row.notes}</td>
+                              <td>{row.loggedBy}</td>
+                            </>
+                          )}
+                          {activeSection.key === 'transfers' && (
+                            <>
+                              <td style={{ fontSize: '12px', color: 'var(--theme-text-muted)' }}>{new Date(row.createdAt).toLocaleString()}</td>
+                              <td><strong>{row.itemName}</strong></td>
+                              <td><code>{row.sku}</code></td>
+                              <td><span className="badge badge-neutral">{row.route}</span></td>
+                              <td style={{ textAlign: 'right', fontWeight: '700' }}>{row.qty} {row.unit}</td>
+                              <td>
+                                <span className={`badge ${row.status === 'APPROVED' ? 'badge-success' : row.status === 'REJECTED' ? 'badge-critical' : 'badge-warning'}`}>
+                                  {row.status}
+                                </span>
+                              </td>
+                              <td>{row.requestedBy}</td>
+                            </>
+                          )}
+                          {activeSection.key === 'dispense' && (
+                            <>
+                              <td style={{ fontSize: '12px', color: 'var(--theme-text-muted)' }}>{new Date(row.dispensedAt).toLocaleString()}</td>
+                              <td><strong>{row.patientName}</strong> (<code>{row.chartNumber}</code>)</td>
+                              <td>{row.itemName}</td>
+                              <td style={{ textAlign: 'right', fontWeight: '700' }}>{row.qty} {row.unit}</td>
+                              <td>{row.dispensedBy}</td>
+                              <td>
+                                <span className={`badge ${row.billingStatus === 'RECORDED' ? 'badge-success' : 'badge-warning'}`}>
+                                  {row.billingStatus}
+                                </span>
+                              </td>
+                              <td>{row.recordedBy}</td>
+                            </>
+                          )}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {/* Pagination controls */}
+              {sectionData?.pagination && sectionData.pagination.totalPages > 1 && (
+                <div style={{ padding: '14px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderTop: '1px solid var(--theme-border)', background: 'rgba(0,0,0,0.01)' }}>
+                  <span style={{ fontSize: '13px', color: 'var(--theme-text-muted)' }}>
+                    Page {sectionData.pagination.page} of {sectionData.pagination.totalPages} ({sectionData.pagination.total} records total)
+                  </span>
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <button
+                      className="btn btn-secondary btn-sm"
+                      disabled={page <= 1}
+                      onClick={() => setPage((p) => Math.max(p - 1, 1))}
+                    >
+                      ← Previous
+                    </button>
+                    <button
+                      className="btn btn-secondary btn-sm"
+                      disabled={page >= sectionData.pagination.totalPages}
+                      onClick={() => setPage((p) => p + 1)}
+                    >
+                      Next →
+                    </button>
+                  </div>
+                </div>
               )}
             </div>
           </div>
-
-          {/* Report Sections Reference */}
-          <div className="widget-card">
-            <div className="widget-header">
-              <span className="widget-title">📑 Monthly Report Contents</span>
-              <span className="badge badge-neutral">8 Sections</span>
-            </div>
-            <div className="widget-body">
-              <p style={{ fontSize: '13px', color: 'var(--theme-text-muted)', marginBottom: '16px' }}>
-                Each generated monthly report compiles the following 8 sections covering the full reporting period:
-              </p>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '10px' }}>
-                {REPORT_SECTIONS.map((section, i) => (
-                  <div
-                    key={i}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'flex-start',
-                      gap: '10px',
-                      padding: '10px 14px',
-                      background: 'var(--theme-bg)',
-                      borderRadius: 'var(--border-radius-md)',
-                      fontSize: '13px',
-                    }}
-                  >
-                    <span style={{
-                      minWidth: '24px',
-                      height: '24px',
-                      borderRadius: '50%',
-                      background: 'var(--theme-primary)',
-                      color: 'white',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      fontSize: '11px',
-                      fontWeight: '700',
-                      flexShrink: 0,
-                    }}>
-                      {i + 1}
-                    </span>
-                    <span style={{ color: 'var(--theme-text)', lineHeight: '1.4' }}>{section}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
         </div>
+      )}
 
-        {/* Right column: Top Admin controls */}
-        {isTopAdmin && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-
-            {/* Auto-schedule config */}
-            <div className="widget-card" style={{ alignSelf: 'start' }}>
-              <div className="widget-header">
-                <span className="widget-title">⏰ Auto-Schedule Config</span>
-                {schedule.isActive ? (
-                  <span className="badge badge-success">Active</span>
-                ) : (
-                  <span className="badge badge-neutral">Paused</span>
-                )}
-              </div>
-              <div className="widget-body">
-                <p style={{ fontSize: '13px', color: 'var(--theme-text-muted)', marginBottom: '16px' }}>
-                  Configure the day of month when a monthly report is automatically generated by the system scheduler.
-                </p>
-
-                {schedLoading ? (
-                  <p style={{ color: 'var(--theme-text-muted)', fontSize: '13px' }}>Loading schedule...</p>
-                ) : (
-                  <form onSubmit={handleSaveSchedule} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-                    <div className="form-group">
-                      <label className="form-label">Day of Month</label>
-                      <select
-                        className="form-control"
-                        value={editDay}
-                        onChange={e => setEditDay(Number(e.target.value))}
-                      >
-                        {DAYS.map(d => (
-                          <option key={d} value={d}>
-                            {d}{d === 1 ? 'st' : d === 2 ? 'nd' : d === 3 ? 'rd' : 'th'} of each month
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div className="form-group">
-                      <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', userSelect: 'none' }}>
-                        <input
-                          type="checkbox"
-                          checked={editActive}
-                          onChange={e => setEditActive(e.target.checked)}
-                        />
-                        <span style={{ fontSize: '14px' }}>
-                          Enable automatic report generation
-                        </span>
-                      </label>
-                    </div>
-
-                    {schedSaved && (
-                      <div style={{ padding: '8px 12px', background: 'var(--color-success-bg)', color: 'var(--color-success)', borderRadius: 'var(--border-radius-sm)', fontSize: '12px', fontWeight: '500' }}>
-                        ✓ Schedule saved successfully
-                      </div>
-                    )}
-
-                    <button
-                      type="submit"
-                      className="btn btn-primary"
-                      disabled={savingSched}
-                      style={{ width: '100%' }}
-                    >
-                      {savingSched ? 'Saving...' : 'Save Schedule'}
-                    </button>
-                  </form>
-                )}
-              </div>
-            </div>
-
-            {/* Quick stats */}
-            <div className="widget-card" style={{ alignSelf: 'start' }}>
-              <div className="widget-header">
-                <span className="widget-title">Report Stats</span>
-              </div>
-              <div className="widget-body" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px' }}>
-                  <span style={{ color: 'var(--theme-text-muted)' }}>Total Reports Generated</span>
-                  <strong>{reports.length}</strong>
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px' }}>
-                  <span style={{ color: 'var(--theme-text-muted)' }}>Last Report</span>
-                  <strong>
-                    {reports.length > 0
-                      ? new Date(reports[0].generatedAt).toLocaleDateString()
-                      : '—'}
-                  </strong>
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px' }}>
-                  <span style={{ color: 'var(--theme-text-muted)' }}>Auto-Schedule</span>
-                  <strong style={{ color: schedule.isActive ? 'var(--color-success)' : 'var(--theme-text-muted)' }}>
-                    {schedule.isActive ? `Day ${schedule.dayOfMonth} of month` : 'Disabled'}
-                  </strong>
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px' }}>
-                  <span style={{ color: 'var(--theme-text-muted)' }}>Report Sections</span>
-                  <strong>8</strong>
-                </div>
-              </div>
-            </div>
-
+      {/* Printable Area when print is triggered */}
+      {activeSection && sectionData?.data && (
+        <div id="printable-report-area">
+          <div style={{ textAlign: 'center', marginBottom: '20px', borderBottom: '2px solid #cbd5e1', paddingBottom: '12px' }}>
+            <h2 style={{ margin: '0 0 4px 0', color: '#0d9488' }}>HEALING HANDS CENTER — {activeSection.title.toUpperCase()}</h2>
+            <p style={{ margin: 0, fontSize: '13px', color: '#64748b' }}>Period: {formattedRangeStr}</p>
           </div>
-        )}
-      </div>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11px' }}>
+            <thead>
+              <tr style={{ background: '#f8fafc', borderBottom: '1px solid #cbd5e1' }}>
+                <th style={{ padding: '6px', textAlign: 'left' }}>Item / Record</th>
+                <th style={{ padding: '6px', textAlign: 'left' }}>Detail</th>
+                <th style={{ padding: '6px', textAlign: 'right' }}>Quantity</th>
+                <th style={{ padding: '6px', textAlign: 'left' }}>User / Logged By</th>
+                <th style={{ padding: '6px', textAlign: 'left' }}>Date / Time</th>
+              </tr>
+            </thead>
+            <tbody>
+              {sectionData.data.map((row) => (
+                <tr key={row.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                  <td style={{ padding: '6px' }}>{row.name || row.itemName || row.patientName || row.id}</td>
+                  <td style={{ padding: '6px' }}>{row.sku || row.reason || row.route || row.status || '—'}</td>
+                  <td style={{ padding: '6px', textAlign: 'right', fontWeight: 'bold' }}>{row.totalQty || row.qty || row.quantityRemaining || '—'}</td>
+                  <td style={{ padding: '6px' }}>{row.loggedBy || row.submittedBy || row.dispensedBy || row.requestedBy || '—'}</td>
+                  <td style={{ padding: '6px' }}>{new Date(row.timestamp || row.createdAt || row.dispensedAt || Date.now()).toLocaleDateString()}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       {/* Database Backup & Rollback Manager (Top Admin Only) */}
       {isTopAdmin && <BackupManager />}
-
-      {/* Selected report details modal */}
-      {selectedReport && (
-        <div className="modal-overlay" onClick={() => setSelectedReport(null)}>
-          <div className="modal-content" style={{ maxWidth: '800px', width: '90%' }} onClick={e => e.stopPropagation()}>
-            <div className="modal-header">
-              <span className="modal-title">Monthly Report Overview</span>
-              <button className="modal-close" onClick={() => setSelectedReport(null)}>✕</button>
-            </div>
-            
-            <div className="modal-body" style={{ maxHeight: '60vh', overflowY: 'auto' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', background: 'var(--theme-bg)', padding: '16px', borderRadius: 'var(--border-radius-md)', marginBottom: '20px' }}>
-                <div>
-                  <strong>Report ID:</strong> <code style={{ fontSize: '12px' }}>{selectedReport.report.id}</code><br/>
-                  <strong>Period:</strong> {formatPeriod(selectedReport.report.periodStart, selectedReport.report.periodEnd)}
-                </div>
-                <div style={{ textAlign: 'right' }}>
-                  <strong>Generated By:</strong> {selectedReport.report.generatedBy.name}<br/>
-                  <strong>Generated At:</strong> {new Date(selectedReport.report.generatedAt).toLocaleString()}
-                </div>
-              </div>
-
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                <h4 style={{ fontWeight: '600' }}>Sections Data Tally:</h4>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', fontSize: '13px' }}>
-                  <div style={{ padding: '10px', background: 'var(--theme-bg)', borderRadius: 'var(--border-radius-md)', display: 'flex', justifyContent: 'space-between' }}>
-                    <span>1. Inventory Snapshot Catalog count:</span>
-                    <strong>{selectedReport.data.inventorySummary?.length || 0} items</strong>
-                  </div>
-                  <div style={{ padding: '10px', background: 'var(--theme-bg)', borderRadius: 'var(--border-radius-md)', display: 'flex', justifyContent: 'space-between' }}>
-                    <span>2. Items Below Reorder Warning:</span>
-                    <strong>{selectedReport.data.lowStockItems?.length ?? (selectedReport.data.inventorySummary || []).filter(i => (i.totalQty ?? i.quantityOnHand ?? 0) <= i.warningLevel).length} items</strong>
-                  </div>
-                  <div style={{ padding: '10px', background: 'var(--theme-bg)', borderRadius: 'var(--border-radius-md)', display: 'flex', justifyContent: 'space-between' }}>
-                    <span>3. Expiring Medication Batches:</span>
-                    <strong>{selectedReport.data.expiringBatches?.length || 0} batches</strong>
-                  </div>
-                  <div style={{ padding: '10px', background: 'var(--theme-bg)', borderRadius: 'var(--border-radius-md)', display: 'flex', justifyContent: 'space-between' }}>
-                    <span>4. Inbound Deliveries Logged:</span>
-                    <strong>{selectedReport.data.inboundLogs?.length || 0} logs</strong>
-                  </div>
-                  <div style={{ padding: '10px', background: 'var(--theme-bg)', borderRadius: 'var(--border-radius-md)', display: 'flex', justifyContent: 'space-between' }}>
-                    <span>5. Clinical Dispensing (OUTBOUND):</span>
-                    <strong>{selectedReport.data.outboundLogs?.length || 0} logs</strong>
-                  </div>
-                  <div style={{ padding: '10px', background: 'var(--theme-bg)', borderRadius: 'var(--border-radius-md)', display: 'flex', justifyContent: 'space-between' }}>
-                    <span>6. Discards / Waste Logs:</span>
-                    <strong>{selectedReport.data.discardLogs?.length || 0} logs</strong>
-                  </div>
-                  <div style={{ padding: '10px', background: 'var(--theme-bg)', borderRadius: 'var(--border-radius-md)', display: 'flex', justifyContent: 'space-between' }}>
-                    <span>7. Stocktake Adjustments:</span>
-                    <strong>{selectedReport.data.adjustmentLogs?.length || 0} logs</strong>
-                  </div>
-                  <div style={{ padding: '10px', background: 'var(--theme-bg)', borderRadius: 'var(--border-radius-md)', display: 'flex', justifyContent: 'space-between' }}>
-                    <span>8. Requisition Requests:</span>
-                    <strong>{selectedReport.data.requisitions?.length || 0} forms</strong>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div className="modal-footer" style={{ borderTop: '1px solid var(--theme-border)' }}>
-              <button className="btn btn-secondary" onClick={() => setSelectedReport(null)}>
-                Close
-              </button>
-              <button 
-                className="btn btn-primary"
-                onClick={handleTriggerPrint}
-              >
-                🖨️ Download PDF / Print Report
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Hidden print container. Rendered whenever selectedReport is loaded */}
-      {selectedReport && (
-        <div id="printable-report-area">
-          <div className="print-header" style={{ textAlign: 'center', marginBottom: '30px', borderBottom: '2px solid #e2e8f0', paddingBottom: '15px' }}>
-            <h1 style={{ color: '#0d9488', fontSize: '24px', margin: '0 0 6px 0' }}>HEALING HANDS CENTER — MONTHLY INVENTORY REPORT</h1>
-            <p style={{ color: '#64748b', fontSize: '13px', margin: 0 }}>MedOPS Analytics & Compliance Archive</p>
-          </div>
-          
-          <div className="print-metadata" style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '25px', fontSize: '12px', color: '#475569' }}>
-            <div>
-              <strong>Report ID:</strong> {selectedReport.report.id}<br/>
-              <strong>Period:</strong> {formatPeriod(selectedReport.report.periodStart, selectedReport.report.periodEnd)}
-            </div>
-            <div style={{ textAlign: 'right' }}>
-              <strong>Generated By:</strong> {selectedReport.report.generatedBy.name}<br/>
-              <strong>Generated At:</strong> {new Date(selectedReport.report.generatedAt).toLocaleString()}
-            </div>
-          </div>
-
-          {/* 1. Inventory Summary Snapshot */}
-          <div className="print-section" style={{ marginBottom: '30px' }}>
-            <h3 style={{ fontSize: '14px', fontWeight: '700', borderBottom: '1px solid #cbd5e1', paddingBottom: '4px', textTransform: 'uppercase' }}>1. Stock Inventory Summary (Current QoH)</h3>
-            {!selectedReport.data.inventorySummary || selectedReport.data.inventorySummary.length === 0 ? (
-              <p style={{ fontStyle: 'italic', fontSize: '12px', color: '#94a3b8' }}>No items registered in catalog.</p>
-            ) : (
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11px', marginTop: '8px' }}>
-                <thead>
-                  <tr style={{ background: '#f8fafc' }}>
-                    <th style={{ borderBottom: '1px solid #cbd5e1', padding: '6px', textAlign: 'left' }}>Item Name</th>
-                    <th style={{ borderBottom: '1px solid #cbd5e1', padding: '6px', textAlign: 'left' }}>SKU</th>
-                    <th style={{ borderBottom: '1px solid #cbd5e1', padding: '6px', textAlign: 'left' }}>Classification</th>
-                    <th style={{ borderBottom: '1px solid #cbd5e1', padding: '6px', textAlign: 'left' }}>Unit</th>
-                    <th style={{ borderBottom: '1px solid #cbd5e1', padding: '6px', textAlign: 'right' }}>Quantity On Hand</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {selectedReport.data.inventorySummary.map(item => (
-                    <tr key={item.id}>
-                      <td style={{ borderBottom: '1px solid #f1f5f9', padding: '6px' }}><strong>{item.name}</strong></td>
-                      <td style={{ borderBottom: '1px solid #f1f5f9', padding: '6px' }}><code>{item.sku}</code></td>
-                      <td style={{ borderBottom: '1px solid #f1f5f9', padding: '6px' }}>{item.itemType}</td>
-                      <td style={{ borderBottom: '1px solid #f1f5f9', padding: '6px' }}>{item.unit}</td>
-                      <td style={{ borderBottom: '1px solid #f1f5f9', padding: '6px', textAlign: 'right' }}>{item.totalQty ?? item.quantityOnHand ?? 0}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </div>
-
-          {/* 2. Items below warning/critical */}
-          <div className="print-section" style={{ marginBottom: '30px' }}>
-            <h3 style={{ fontSize: '14px', fontWeight: '700', borderBottom: '1px solid #cbd5e1', paddingBottom: '4px', textTransform: 'uppercase' }}>2. Items Below Warning / Critical Levels</h3>
-            {(!selectedReport.data.lowStockItems || selectedReport.data.lowStockItems.length === 0) && (!selectedReport.data.inventorySummary || selectedReport.data.inventorySummary.filter(item => (item.totalQty ?? item.quantityOnHand ?? 0) <= item.warningLevel).length === 0) ? (
-              <p style={{ fontStyle: 'italic', fontSize: '12px', color: '#94a3b8' }}>All items currently within safe operating limits.</p>
-            ) : (
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11px', marginTop: '8px' }}>
-                <thead>
-                  <tr style={{ background: '#f8fafc' }}>
-                    <th style={{ borderBottom: '1px solid #cbd5e1', padding: '6px', textAlign: 'left' }}>Item Name</th>
-                    <th style={{ borderBottom: '1px solid #cbd5e1', padding: '6px', textAlign: 'left' }}>SKU</th>
-                    <th style={{ borderBottom: '1px solid #cbd5e1', padding: '6px', textAlign: 'right' }}>Current Quantity</th>
-                    <th style={{ borderBottom: '1px solid #cbd5e1', padding: '6px', textAlign: 'right' }}>Warning Level</th>
-                    <th style={{ borderBottom: '1px solid #cbd5e1', padding: '6px', textAlign: 'right' }}>Critical Level</th>
-                    <th style={{ borderBottom: '1px solid #cbd5e1', padding: '6px', textAlign: 'center' }}>Alert Level</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {(selectedReport.data.lowStockItems || selectedReport.data.inventorySummary.filter(item => (item.totalQty ?? item.quantityOnHand ?? 0) <= item.warningLevel)).map(item => {
-                    const qty = item.totalQty ?? item.quantityOnHand ?? 0;
-                    const isCritical = qty <= item.criticalLevel;
-                    return (
-                      <tr key={item.id}>
-                        <td style={{ borderBottom: '1px solid #f1f5f9', padding: '6px' }}><strong>{item.name}</strong></td>
-                        <td style={{ borderBottom: '1px solid #f1f5f9', padding: '6px' }}><code>{item.sku}</code></td>
-                        <td style={{ borderBottom: '1px solid #f1f5f9', padding: '6px', textAlign: 'right' }}>{qty} {item.unit}</td>
-                        <td style={{ borderBottom: '1px solid #f1f5f9', padding: '6px', textAlign: 'right' }}>{item.warningLevel}</td>
-                        <td style={{ borderBottom: '1px solid #f1f5f9', padding: '6px', textAlign: 'right' }}>{item.criticalLevel}</td>
-                        <td style={{ borderBottom: '1px solid #f1f5f9', padding: '6px', textAlign: 'center', fontWeight: 'bold', color: isCritical ? '#ef4444' : '#f59e0b' }}>
-                          {isCritical ? 'CRITICAL' : 'WARNING'}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            )}
-          </div>
-
-          {/* 3. Expiring Medication Batches */}
-          <div className="print-section" style={{ marginBottom: '30px' }}>
-            <h3 style={{ fontSize: '14px', fontWeight: '700', borderBottom: '1px solid #cbd5e1', paddingBottom: '4px', textTransform: 'uppercase' }}>3. Expiring Medication Batches (Within 90 Days)</h3>
-            {!selectedReport.data.expiringBatches || selectedReport.data.expiringBatches.length === 0 ? (
-              <p style={{ fontStyle: 'italic', fontSize: '12px', color: '#94a3b8' }}>No medication batches are expiring within 90 days.</p>
-            ) : (
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11px', marginTop: '8px' }}>
-                <thead>
-                  <tr style={{ background: '#f8fafc' }}>
-                    <th style={{ borderBottom: '1px solid #cbd5e1', padding: '6px', textAlign: 'left' }}>Medication Name</th>
-                    <th style={{ borderBottom: '1px solid #cbd5e1', padding: '6px', textAlign: 'left' }}>Batch Number</th>
-                    <th style={{ borderBottom: '1px solid #cbd5e1', padding: '6px', textAlign: 'left' }}>Expiry Date</th>
-                    <th style={{ borderBottom: '1px solid #cbd5e1', padding: '6px', textAlign: 'right' }}>Remaining Quantity</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {selectedReport.data.expiringBatches.map(batch => (
-                    <tr key={batch.id}>
-                      <td style={{ borderBottom: '1px solid #f1f5f9', padding: '6px' }}><strong>{batch.item.name}</strong></td>
-                      <td style={{ borderBottom: '1px solid #f1f5f9', padding: '6px' }}><code>{batch.batchNo || 'N/A'}</code></td>
-                      <td style={{ borderBottom: '1px solid #f1f5f9', padding: '6px' }}>{new Date(batch.expiryDate).toLocaleDateString()}</td>
-                      <td style={{ borderBottom: '1px solid #f1f5f9', padding: '6px', textAlign: 'right' }}>{batch.quantityRemaining} pcs</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </div>
-
-          {/* 4. Inbound Deliveries */}
-          <div className="print-section" style={{ marginBottom: '30px' }}>
-            <h3 style={{ fontSize: '14px', fontWeight: '700', borderBottom: '1px solid #cbd5e1', paddingBottom: '4px', textTransform: 'uppercase' }}>4. Inbound Deliveries & Received Stock</h3>
-            {!selectedReport.data.inboundLogs || selectedReport.data.inboundLogs.length === 0 ? (
-              <p style={{ fontStyle: 'italic', fontSize: '12px', color: '#94a3b8' }}>No inbound stock deliveries logged in this period.</p>
-            ) : (
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11px', marginTop: '8px' }}>
-                <thead>
-                  <tr style={{ background: '#f8fafc' }}>
-                    <th style={{ borderBottom: '1px solid #cbd5e1', padding: '6px', textAlign: 'left' }}>Time Logged</th>
-                    <th style={{ borderBottom: '1px solid #cbd5e1', padding: '6px', textAlign: 'left' }}>Item Name</th>
-                    <th style={{ borderBottom: '1px solid #cbd5e1', padding: '6px', textAlign: 'right' }}>Quantity Received</th>
-                    <th style={{ borderBottom: '1px solid #cbd5e1', padding: '6px', textAlign: 'left' }}>Logged By</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {selectedReport.data.inboundLogs.map(log => (
-                    <tr key={log.id}>
-                      <td style={{ borderBottom: '1px solid #f1f5f9', padding: '6px' }}>{new Date(log.timestamp).toLocaleString()}</td>
-                      <td style={{ borderBottom: '1px solid #f1f5f9', padding: '6px' }}><strong>{log.item.name}</strong></td>
-                      <td style={{ borderBottom: '1px solid #f1f5f9', padding: '6px', textAlign: 'right', color: '#10b981', fontWeight: 'bold' }}>+{log.qty}</td>
-                      <td style={{ borderBottom: '1px solid #f1f5f9', padding: '6px' }}>{log.user.name}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </div>
-
-          {/* 5. Clinical Dispensing Log */}
-          <div className="print-section" style={{ marginBottom: '30px' }}>
-            <h3 style={{ fontSize: '14px', fontWeight: '700', borderBottom: '1px solid #cbd5e1', paddingBottom: '4px', textTransform: 'uppercase' }}>5. Clinical Dispensing (OUTBOUND) Log</h3>
-            {!selectedReport.data.outboundLogs || selectedReport.data.outboundLogs.length === 0 ? (
-              <p style={{ fontStyle: 'italic', fontSize: '12px', color: '#94a3b8' }}>No clinical dispensing transactions logged in this period.</p>
-            ) : (
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11px', marginTop: '8px' }}>
-                <thead>
-                  <tr style={{ background: '#f8fafc' }}>
-                    <th style={{ borderBottom: '1px solid #cbd5e1', padding: '6px', textAlign: 'left' }}>Time Logged</th>
-                    <th style={{ borderBottom: '1px solid #cbd5e1', padding: '6px', textAlign: 'left' }}>Item Name</th>
-                    <th style={{ borderBottom: '1px solid #cbd5e1', padding: '6px', textAlign: 'right' }}>Quantity Dispensed</th>
-                    <th style={{ borderBottom: '1px solid #cbd5e1', padding: '6px', textAlign: 'left' }}>Logged By</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {selectedReport.data.outboundLogs.map(log => (
-                    <tr key={log.id}>
-                      <td style={{ borderBottom: '1px solid #f1f5f9', padding: '6px' }}>{new Date(log.timestamp).toLocaleString()}</td>
-                      <td style={{ borderBottom: '1px solid #f1f5f9', padding: '6px' }}><strong>{log.item.name}</strong></td>
-                      <td style={{ borderBottom: '1px solid #f1f5f9', padding: '6px', textAlign: 'right', fontWeight: 'bold' }}>-{log.qty}</td>
-                      <td style={{ borderBottom: '1px solid #f1f5f9', padding: '6px' }}>{log.user.name}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </div>
-
-          {/* 6. Waste & Discard Log */}
-          <div className="print-section" style={{ marginBottom: '30px' }}>
-            <h3 style={{ fontSize: '14px', fontWeight: '700', borderBottom: '1px solid #cbd5e1', paddingBottom: '4px', textTransform: 'uppercase' }}>6. Waste & Discard Log</h3>
-            {!selectedReport.data.discardLogs || selectedReport.data.discardLogs.length === 0 ? (
-              <p style={{ fontStyle: 'italic', fontSize: '12px', color: '#94a3b8' }}>No discards logged in this period.</p>
-            ) : (
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11px', marginTop: '8px' }}>
-                <thead>
-                  <tr style={{ background: '#f8fafc' }}>
-                    <th style={{ borderBottom: '1px solid #cbd5e1', padding: '6px', textAlign: 'left' }}>Time Logged</th>
-                    <th style={{ borderBottom: '1px solid #cbd5e1', padding: '6px', textAlign: 'left' }}>Item Name</th>
-                    <th style={{ borderBottom: '1px solid #cbd5e1', padding: '6px', textAlign: 'right' }}>Quantity Discarded</th>
-                    <th style={{ borderBottom: '1px solid #cbd5e1', padding: '6px', textAlign: 'left' }}>Reason</th>
-                    <th style={{ borderBottom: '1px solid #cbd5e1', padding: '6px', textAlign: 'left' }}>Notes</th>
-                    <th style={{ borderBottom: '1px solid #cbd5e1', padding: '6px', textAlign: 'left' }}>Logged By</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {selectedReport.data.discardLogs.map(log => (
-                    <tr key={log.id}>
-                      <td style={{ borderBottom: '1px solid #f1f5f9', padding: '6px' }}>{new Date(log.timestamp).toLocaleString()}</td>
-                      <td style={{ borderBottom: '1px solid #f1f5f9', padding: '6px' }}><strong>{log.item.name}</strong></td>
-                      <td style={{ borderBottom: '1px solid #f1f5f9', padding: '6px', textAlign: 'right', color: '#ef4444', fontWeight: 'bold' }}>-{log.qty}</td>
-                      <td style={{ borderBottom: '1px solid #f1f5f9', padding: '6px' }}>{log.reason}</td>
-                      <td style={{ borderBottom: '1px solid #f1f5f9', padding: '6px' }}>{log.notes || '—'}</td>
-                      <td style={{ borderBottom: '1px solid #f1f5f9', padding: '6px' }}>{log.loggedBy.name}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </div>
-
-          {/* 7. Stocktake Adjustments */}
-          <div className="print-section" style={{ marginBottom: '30px' }}>
-            <h3 style={{ fontSize: '14px', fontWeight: '700', borderBottom: '1px solid #cbd5e1', paddingBottom: '4px', textTransform: 'uppercase' }}>7. Stocktake Adjustments</h3>
-            {!selectedReport.data.adjustmentLogs || selectedReport.data.adjustmentLogs.length === 0 ? (
-              <p style={{ fontStyle: 'italic', fontSize: '12px', color: '#94a3b8' }}>No stocktake adjustments applied in this period.</p>
-            ) : (
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11px', marginTop: '8px' }}>
-                <thead>
-                  <tr style={{ background: '#f8fafc' }}>
-                    <th style={{ borderBottom: '1px solid #cbd5e1', padding: '6px', textAlign: 'left' }}>Time Logged</th>
-                    <th style={{ borderBottom: '1px solid #cbd5e1', padding: '6px', textAlign: 'left' }}>Item Name</th>
-                    <th style={{ borderBottom: '1px solid #cbd5e1', padding: '6px', textAlign: 'right' }}>Quantity Adjusted</th>
-                    <th style={{ borderBottom: '1px solid #cbd5e1', padding: '6px', textAlign: 'left' }}>Notes</th>
-                    <th style={{ borderBottom: '1px solid #cbd5e1', padding: '6px', textAlign: 'left' }}>Logged By</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {selectedReport.data.adjustmentLogs.map(log => (
-                    <tr key={log.id}>
-                      <td style={{ borderBottom: '1px solid #f1f5f9', padding: '6px' }}>{new Date(log.timestamp).toLocaleString()}</td>
-                      <td style={{ borderBottom: '1px solid #f1f5f9', padding: '6px' }}><strong>{log.item.name}</strong></td>
-                      <td style={{ borderBottom: '1px solid #f1f5f9', padding: '6px', textAlign: 'right', fontWeight: 'bold', color: log.qty > 0 ? '#10b981' : '#ef4444' }}>
-                        {log.qty > 0 ? `+${log.qty}` : log.qty}
-                      </td>
-                      <td style={{ borderBottom: '1px solid #f1f5f9', padding: '6px' }}>{log.notes || '—'}</td>
-                      <td style={{ borderBottom: '1px solid #f1f5f9', padding: '6px' }}>{log.user.name}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </div>
-
-          {/* 8. Requisition Activity */}
-          <div className="print-section" style={{ marginBottom: '30px' }}>
-            <h3 style={{ fontSize: '14px', fontWeight: '700', borderBottom: '1px solid #cbd5e1', paddingBottom: '4px', textTransform: 'uppercase' }}>8. Requisition Activity Summary</h3>
-            {!selectedReport.data.requisitions || selectedReport.data.requisitions.length === 0 ? (
-              <p style={{ fontStyle: 'italic', fontSize: '12px', color: '#94a3b8' }}>No requisitions submitted in this period.</p>
-            ) : (
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11px', marginTop: '8px' }}>
-                <thead>
-                  <tr style={{ background: '#f8fafc' }}>
-                    <th style={{ borderBottom: '1px solid #cbd5e1', padding: '6px', textAlign: 'left' }}>Time Submitted</th>
-                    <th style={{ borderBottom: '1px solid #cbd5e1', padding: '6px', textAlign: 'left' }}>Patient</th>
-                    <th style={{ borderBottom: '1px solid #cbd5e1', padding: '6px', textAlign: 'left' }}>Submitted By</th>
-                    <th style={{ borderBottom: '1px solid #cbd5e1', padding: '6px', textAlign: 'center' }}>Status</th>
-                    <th style={{ borderBottom: '1px solid #cbd5e1', padding: '6px', textAlign: 'left' }}>Requested Items</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {selectedReport.data.requisitions.map(req => (
-                    <tr key={req.id}>
-                      <td style={{ borderBottom: '1px solid #f1f5f9', padding: '6px' }}>{new Date(req.createdAt).toLocaleString()}</td>
-                      <td style={{ borderBottom: '1px solid #f1f5f9', padding: '6px' }}><strong>{req.patient.name}</strong> ({req.patient.chartNumber})</td>
-                      <td style={{ borderBottom: '1px solid #f1f5f9', padding: '6px' }}>{req.submittedBy.name}</td>
-                      <td style={{ borderBottom: '1px solid #f1f5f9', padding: '6px', textAlign: 'center', fontWeight: 'bold' }}>{req.status}</td>
-                      <td style={{ borderBottom: '1px solid #f1f5f9', padding: '6px' }}>
-                        {req.lines.map(line => `• ${line.item.name} (Qty requested: ${line.qtyRequested}, approved: ${line.qtyApproved || 0})`).join(', ')}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </div>
-        </div>
-      )}
     </div>
   );
 };

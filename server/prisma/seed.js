@@ -27,14 +27,7 @@ async function main() {
     create: { id: 1, timeoutMinutes: 30 },
   });
 
-  // 2. Report schedule
-  await prisma.reportSchedule.upsert({
-    where: { id: 1 },
-    update: {},
-    create: { id: 1, dayOfMonth: 1, isActive: true },
-  });
-
-  // 3. Seed default role permissions
+  // 2. Seed default role permissions
   const allPermKeys = Object.values(PERMISSIONS);
   for (const [role, enabledPerms] of Object.entries(DEFAULT_ROLE_PERMISSIONS)) {
     for (const key of allPermKeys) {

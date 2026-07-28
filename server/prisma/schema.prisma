@@ -35,7 +35,6 @@ model User {
   discardLogs         DiscardLog[]
   stocktakesInitiated Stocktake[]
   stocktakeApprovals  StocktakeLine[]
-  monthlyReports      MonthlyReport[]
   mgmtComments        MgmtComment[]
   notifications       Notification[]
   dashboardPrefs      UserDashboardPref[]
@@ -385,30 +384,6 @@ model StocktakeLine {
   approvedBy User?     @relation(fields: [approvedById], references: [id])
 
   @@map("stocktake_lines")
-}
-
-// ─── Reports ──────────────────────────────────────────────────────────────────
-
-model MonthlyReport {
-  id          String   @id @default(cuid())
-  periodStart DateTime @map("period_start")
-  periodEnd   DateTime @map("period_end")
-  generatedById String @map("generated_by_id")
-  generatedAt DateTime @default(now()) @map("generated_at")
-  pdfPath     String?  @map("pdf_path")
-  reportData  String?  @map("report_data")
-
-  generatedBy User @relation(fields: [generatedById], references: [id])
-
-  @@map("monthly_reports")
-}
-
-model ReportSchedule {
-  id         Int     @id @default(1)
-  dayOfMonth Int     @default(1) @map("day_of_month")
-  isActive   Boolean @default(true) @map("is_active")
-
-  @@map("report_schedule")
 }
 
 // ─── Notifications ────────────────────────────────────────────────────────────
