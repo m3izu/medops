@@ -22,6 +22,41 @@ const CLASSIFICATIONS = [
   { key: 'OFFICE_SUPPLY', label: 'Office & Clinic Supplies', color: '#334155', bgColor: '#F8FAFC' },
 ];
 
+const getExpiryStatus = (expiryDateStr) => {
+  if (!expiryDateStr) return { text: 'No Expiry', color: '#4B5563', bg: '#F3F4F6', border: '#D1D5DB' };
+  const exp = new Date(expiryDateStr);
+  const now = new Date();
+  const diffDays = Math.ceil((exp - now) / (1000 * 60 * 60 * 24));
+  if (diffDays <= 0) return { text: `EXPIRED (${Math.abs(diffDays)}d ago)`, color: '#991B1B', bg: '#FEE2E2', border: '#FCA5A5' };
+  if (diffDays <= 30) return { text: `Critical (${diffDays}d left)`, color: '#991B1B', bg: '#FEE2E2', border: '#FCA5A5' };
+  if (diffDays <= 90) return { text: `Warning (${diffDays}d left)`, color: '#92400E', bg: '#FEF3C7', border: '#FDE68A' };
+  return { text: `Optimal (${diffDays}d left)`, color: '#065F46', bg: '#D1FAE5', border: '#A7F3D0' };
+};
+
+const calculateFifoAllocation = (line, customQty) => {
+  if (!line || !line.item) return [];
+  const targetQty = Number(customQty) || line.qtyRequested || 0;
+  const targetLoc = line.location || 'CENTRAL';
+  const activeBatches = (line.item.batches || []).filter(b => (!b.location || b.location === targetLoc) && b.quantityRemaining > 0);
+  
+  let remaining = targetQty;
+  const allocations = [];
+  for (const batch of activeBatches) {
+    if (remaining <= 0) break;
+    const take = Math.min(batch.quantityRemaining, remaining);
+    allocations.push({
+      batchId: batch.id,
+      batchNumber: batch.batchNumber,
+      expiryDate: batch.expiryDate,
+      location: batch.location || targetLoc,
+      qtyAllocated: take,
+      quantityRemaining: batch.quantityRemaining,
+    });
+    remaining -= take;
+  }
+  return allocations;
+};
+
 const Requisitions = () => {
   const { user, hasPermission } = useAuth();
   const toast = useToast();
@@ -649,6 +684,54 @@ const Requisitions = () => {
                             {line.rejectionReason && (
                               <div style={{ color: 'var(--color-critical)', fontWeight: '600' }}>Rejected: {line.rejectionReason}</div>
                             )}
+
+                            {/* FIFO Lot Picking Preview for Pending Lines */}
+                            {line.status === 'PENDING' && (line.item?.itemType === 'MEDICATION' || line.item?.category?.hasBatchControl) && (() => {
+                              const pendingFifo = calculateFifoAllocation(line);
+                              if (pendingFifo.length === 0) return (
+                                <div style={{ marginTop: '6px', fontSize: '11px', color: 'var(--color-critical)', fontWeight: '600' }}>
+                                  ⚠️ No active unexpired batches available in {lineLoc === 'ECART' ? 'eCart' : 'Central Storage'} for FIFO allocation!
+                                </div>
+                              );
+                              return (
+                                <div style={{ marginTop: '6px', padding: '6px 10px', background: '#F0F9FF', border: '1px solid #BAE6FD', borderRadius: '4px', fontSize: '11px' }}>
+                                  <div style={{ fontWeight: '700', color: '#0369A1', marginBottom: '4px' }}>
+                                    📦 FIFO Pick-List Cues (Physical Shelf Location):
+                                  </div>
+                                  <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                                    {pendingFifo.map((p, pIdx) => {
+                                      const st = getExpiryStatus(p.expiryDate);
+                                      return (
+                                        <div key={p.batchId || pIdx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                          <span>
+                                            Pick <strong style={{ fontFamily: 'monospace' }}>Lot #{p.batchNumber}</strong> ({p.location}): <strong>{p.qtyAllocated}</strong> {line.item?.unit}
+                                          </span>
+                                          <span style={{ fontSize: '9px', fontWeight: '600', padding: '1px 5px', borderRadius: '3px', color: st.color, background: st.bg, border: `1px solid ${st.border}` }}>
+                                            {st.text}
+                                          </span>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              );
+                            })()}
+
+                            {/* Actual Dispensed Lots for Approved Lines */}
+                            {line.status === 'APPROVED' && line.transactionLogs && line.transactionLogs.length > 0 && (
+                              <div style={{ marginTop: '6px', padding: '6px 10px', background: '#ECFDF5', border: '1px solid #A7F3D0', borderRadius: '4px', fontSize: '11px' }}>
+                                <div style={{ fontWeight: '700', color: '#065F46', marginBottom: '2px' }}>
+                                  ✅ Dispensed Lot Numbers (Audit Recorded):
+                                </div>
+                                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                                  {line.transactionLogs.map((log, lIdx) => (
+                                    <span key={log.id || lIdx} style={{ fontFamily: 'monospace', fontWeight: '600', background: '#D1FAE5', color: '#065F46', padding: '2px 6px', borderRadius: '3px' }}>
+                                      Lot #{log.batch?.batchNumber || 'N/A'} ({log.qty} {line.item?.unit})
+                                    </span>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
                           </div>
 
                           {/* Line Action Buttons */}
@@ -1153,6 +1236,9 @@ const Requisitions = () => {
                 const lineLoc = approveLine.location || 'ECART';
                 const stockLevels = approveLine.item?.stockLevels || [];
                 const availStock = stockLevels.find(s => s.location === lineLoc)?.quantityOnHand ?? 0;
+                const isMedOrBatch = approveLine.item?.itemType === 'MEDICATION' || approveLine.item?.category?.hasBatchControl;
+                const fifoSplits = calculateFifoAllocation(approveLine, approveQty);
+
                 return (
                   <>
                     <p style={{ fontSize: '13px', color: 'var(--theme-text-muted)' }}>
@@ -1169,6 +1255,44 @@ const Requisitions = () => {
                         onChange={e => setApproveQty(e.target.value)}
                       />
                     </div>
+
+                    {isMedOrBatch && fifoSplits.length > 0 && (
+                      <div style={{ padding: '10px 12px', background: 'var(--theme-bg)', border: '1px solid var(--theme-border)', borderRadius: 'var(--border-radius-md)' }}>
+                        <div style={{ fontSize: '12px', fontWeight: '700', color: 'var(--theme-text-bold)', marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <span>📦 FIFO Lot Allocation Preview</span>
+                          <span style={{ fontSize: '10px', fontWeight: 'normal', color: 'var(--theme-text-muted)' }}>(Oldest unexpired batches first)</span>
+                        </div>
+                        <table style={{ width: '100%', fontSize: '11px', borderCollapse: 'collapse' }}>
+                          <thead>
+                            <tr style={{ background: 'var(--theme-card-bg)', textTransform: 'uppercase', color: 'var(--theme-text-muted)', fontSize: '10px' }}>
+                              <th style={{ padding: '4px 6px', textAlign: 'left' }}>Lot / Batch #</th>
+                              <th style={{ padding: '4px 6px', textAlign: 'left' }}>Expiry Status</th>
+                              <th style={{ padding: '4px 6px', textAlign: 'right' }}>Deduct Qty</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {fifoSplits.map((alloc, idx) => {
+                              const expStatus = getExpiryStatus(alloc.expiryDate);
+                              return (
+                                <tr key={alloc.batchId || idx} style={{ borderTop: '1px solid var(--theme-border)' }}>
+                                  <td style={{ padding: '5px 6px', fontWeight: '600', fontFamily: 'monospace' }}>
+                                    {alloc.batchNumber} {idx === 0 && <span style={{ fontSize: '9px', background: '#DBEAFE', color: '#1E40AF', padding: '1px 4px', borderRadius: '3px', marginLeft: '4px' }}>FIFO #1</span>}
+                                  </td>
+                                  <td style={{ padding: '5px 6px' }}>
+                                    <span style={{ fontSize: '9px', fontWeight: '600', padding: '2px 5px', borderRadius: '3px', color: expStatus.color, background: expStatus.bg, border: `1px solid ${expStatus.border}` }}>
+                                      {expStatus.text}
+                                    </span>
+                                  </td>
+                                  <td style={{ padding: '5px 6px', textAlign: 'right', fontWeight: '700', color: '#0369A1' }}>
+                                    {alloc.qtyAllocated} {approveLine.item?.unit}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
                   </>
                 );
               })()}

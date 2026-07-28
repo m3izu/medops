@@ -365,15 +365,17 @@ const sectionDetail = async (req, res, next) => {
       }
 
       case 'expiring': {
-        const in90 = new Date(); in90.setDate(in90.getDate() + 90);
+        const days = req.query.days ? parseInt(req.query.days, 10) : 200;
+        const maxExpDate = new Date();
+        maxExpDate.setDate(maxExpDate.getDate() + days);
         const where = {
-          expiryDate: { lte: in90, not: null },
+          expiryDate: { lte: maxExpDate, not: null },
           quantityRemaining: { gt: 0 },
         };
         const [batches, count] = await Promise.all([
           prisma.itemBatch.findMany({
             where,
-            include: { item: { select: { name: true, sku: true, unit: true } } },
+            include: { item: { select: { name: true, sku: true, unit: true, supplier: { select: { name: true } } } } },
             orderBy: { expiryDate: 'asc' },
             skip,
             take: limitNum,
@@ -381,16 +383,32 @@ const sectionDetail = async (req, res, next) => {
           prisma.itemBatch.count({ where }),
         ]);
 
-        data = batches.map(b => ({
-          id: b.id,
-          itemName: b.item.name,
-          sku: b.item.sku,
-          batchNo: b.batchNo || 'N/A',
-          location: b.location,
-          expiryDate: b.expiryDate,
-          quantityRemaining: b.quantityRemaining,
-          unit: b.item.unit,
-        }));
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+
+        data = batches.map(b => {
+          const exp = new Date(b.expiryDate);
+          const diffDays = Math.ceil((exp - today) / (1000 * 60 * 60 * 24));
+          let categoryTag = 'OPTIMAL';
+          if (diffDays <= 0) categoryTag = 'EXPIRED';
+          else if (diffDays <= 30) categoryTag = 'CRITICAL_EXPIRY';
+          else if (diffDays <= 90) categoryTag = 'NEAR_EXPIRY';
+          else if (diffDays <= 200) categoryTag = 'SUPPLIER_RETURN_WARNING';
+
+          return {
+            id: b.id,
+            itemName: b.item.name,
+            sku: b.item.sku,
+            batchNo: b.batchNo || 'N/A',
+            location: b.location,
+            expiryDate: b.expiryDate,
+            daysRemaining: diffDays,
+            categoryTag,
+            supplierName: b.item.supplier?.name || 'N/A',
+            quantityRemaining: b.quantityRemaining,
+            unit: b.item.unit,
+          };
+        });
         total = count;
         break;
       }

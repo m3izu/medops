@@ -229,6 +229,11 @@ const getOne = async (req, res, next) => {
                 } 
               },
             },
+            transactionLogs: {
+              include: {
+                batch: { select: { id: true, batchNumber: true, expiryDate: true, location: true } }
+              }
+            }
           },
         },
       },

@@ -210,3 +210,28 @@ Verification results:
 - **Requisition Cancellation**: Blocked from cancelling requisitions with approved lines.
 - **Auto-Discard of Expired Returns**: Verified that returning an expired medication logs both the return transaction and an immediate auto-discard transaction, preserving net stock at zero and correctly registering physical waste.
 - **Deleted Batch Return**: Succeeded without crashing when batch is missing.
+
+---
+
+### 18. 200-Day Supplier Return Warning for Batch-Tracked Items
+* **Status**: ✅ Implemented
+* **Files Modified**:
+  * [Items.jsx](file:///c:/medops/medops/client/src/pages/Items.jsx)
+  * [report.controller.js](file:///c:/medops/medops/server/controllers/report.controller.js)
+  * [Reports.jsx](file:///c:/medops/medops/client/src/pages/Reports.jsx)
+* **Changes**:
+  * **Inventory Batches Modal**: Added a dedicated `📦 Supplier Return Warning (X days left)` status badge for active batches with $\le$ 200 days remaining before expiration.
+  * **Supplier Return Report Integration**: Expanded backend expiring report query in `report.controller.js` to cover the 200-day supplier return window and attached supplier names and days remaining.
+  * **Report Drill-Down Display**: Updated `Reports.jsx` to render Default Supplier, Storage Location, and Return Window Status tags (`EXPIRED`, `Critical`, `Expiring`, `Supplier Return Warning`, `OK`).
+
+---
+
+### 19. Atomic Stock Transfer Deductions & Batch Expiry Preservation (Bug #1 & Bug #4)
+* **Status**: ✅ Fixed
+* **Files Modified**:
+  * [stock.controller.js](file:///c:/medops/medops/server/controllers/stock.controller.js)
+* **Changes**:
+  * **Bug #1 (Atomic Deductions)**: Replaced raw `.update()` calls in `approveTransfer` with atomic `.updateMany({ where: { quantityOnHand: { gte: qty } } })` and `{ quantityRemaining: { gte: qty } }`. Prevents negative stock levels under concurrent transfer approvals.
+  * **Bug #4 (Batch Expiry Preservation)**: Ensured transferred batches created in destination locations explicitly inherit the source batch's exact `expiryDate`, `supplierId`, and `batchNo`. Eliminates loss of supplier expiration dates during inter-pool transfers.
+
+

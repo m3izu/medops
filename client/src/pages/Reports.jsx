@@ -686,8 +686,10 @@ const Reports = () => {
                           <th>Item Name</th>
                           <th>SKU</th>
                           <th>Batch Number</th>
+                          <th>Default Supplier</th>
                           <th>Storage Location</th>
                           <th>Expiry Date</th>
+                          <th>Return Window Status</th>
                           <th style={{ textAlign: 'right' }}>Remaining Qty</th>
                         </tr>
                       )}
@@ -814,9 +816,25 @@ const Reports = () => {
                               <td><strong>{row.itemName}</strong></td>
                               <td><code>{row.sku}</code></td>
                               <td><code>{row.batchNo}</code></td>
-                              <td>{row.location}</td>
-                              <td style={{ fontWeight: '500', color: new Date(row.expiryDate) <= new Date() ? 'var(--color-critical)' : 'inherit' }}>
+                              <td>{row.supplierName || '—'}</td>
+                              <td>
+                                <span className="badge badge-neutral" style={{ fontSize: '11px' }}>
+                                  {row.location === 'ECART' ? '🛒 eCart' : '🏢 Central'}
+                                </span>
+                              </td>
+                              <td style={{ fontWeight: '500', color: row.daysRemaining <= 0 ? 'var(--color-critical)' : 'inherit' }}>
                                 {new Date(row.expiryDate).toLocaleDateString()}
+                              </td>
+                              <td>
+                                {row.categoryTag === 'EXPIRED' && <span className="badge badge-critical">EXPIRED</span>}
+                                {row.categoryTag === 'CRITICAL_EXPIRY' && <span className="badge badge-critical">Critical ({row.daysRemaining}d left)</span>}
+                                {row.categoryTag === 'NEAR_EXPIRY' && <span className="badge badge-warning">Expiring ({row.daysRemaining}d left)</span>}
+                                {row.categoryTag === 'SUPPLIER_RETURN_WARNING' && (
+                                  <span className="badge" style={{ background: '#FEF3C7', color: '#92400E', border: '1px solid #FDE68A', fontSize: '11px', fontWeight: '700' }}>
+                                    📦 Supplier Return Warning ({row.daysRemaining}d left)
+                                  </span>
+                                )}
+                                {row.categoryTag === 'OPTIMAL' && <span className="badge badge-success">OK ({row.daysRemaining}d left)</span>}
                               </td>
                               <td style={{ textAlign: 'right', fontWeight: '700' }}>{row.quantityRemaining} {row.unit}</td>
                             </>

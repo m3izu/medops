@@ -289,25 +289,31 @@ const approveTransfer = async (req, res, next) => {
 
       let targetBatchId = null;
 
-      // 2. If batch specified, check source batch & transfer/create batch in destination
-      if (batchId && transfer.batch) {
-        if (transfer.batch.quantityRemaining < qty) {
+      // 2. If batch specified, check source batch & transfer/create batch in destination (Bug #4 Fix)
+      if (batchId) {
+        const sourceBatch = await tx.itemBatch.findUnique({ where: { id: batchId } });
+        if (!sourceBatch || sourceBatch.quantityRemaining < qty) {
           throw new Error(`Insufficient batch quantity in ${fromLocation} to fulfill transfer.`);
         }
 
-        // Deduct source batch
-        await tx.itemBatch.update({
-          where: { id: batchId },
+        // Deduct source batch atomically (Bug #1 Fix)
+        const updatedBatch = await tx.itemBatch.updateMany({
+          where: { id: batchId, quantityRemaining: { gte: qty } },
           data: { quantityRemaining: { decrement: qty } }
         });
+        if (updatedBatch.count === 0) {
+          throw new Error(`Concurrent modification detected: Insufficient batch quantity in ${fromLocation}.`);
+        }
+
+        // Preserve exact batch number, expiration date, and supplier ID (Bug #4 Fix)
+        const targetBatchNo = sourceBatch.batchNo || transfer.batch?.batchNo || `TRANSFER-${transfer.item?.sku || 'ITEM'}`;
+        const targetExpiryDate = sourceBatch.expiryDate || transfer.batch?.expiryDate || null;
+        const targetSupplierId = sourceBatch.supplierId || transfer.batch?.supplierId || null;
 
         // Find or create matching batch in target location
-        let targetBatch = null;
-        if (transfer.batch.batchNo) {
-          targetBatch = await tx.itemBatch.findFirst({
-            where: { itemId, batchNo: transfer.batch.batchNo, location: toLocation }
-          });
-        }
+        let targetBatch = await tx.itemBatch.findFirst({
+          where: { itemId, batchNo: targetBatchNo, location: toLocation }
+        });
 
         if (targetBatch) {
           await tx.itemBatch.update({
@@ -320,27 +326,30 @@ const approveTransfer = async (req, res, next) => {
             data: {
               itemId,
               location: toLocation,
-              batchNo: transfer.batch.batchNo,
-              expiryDate: transfer.batch.expiryDate,
+              batchNo: targetBatchNo,
+              expiryDate: targetExpiryDate,
               quantityRemaining: qty,
-              supplierId: transfer.batch.supplierId,
+              supplierId: targetSupplierId,
             }
           });
           targetBatchId = newBatch.id;
         }
       }
 
-      // 3. Deduct source stock level
-      await tx.stockLevel.update({
-        where: { itemId_location: { itemId, location: fromLocation } },
+      // 3. Deduct source stock level atomically (Bug #1 Fix)
+      const updatedStock = await tx.stockLevel.updateMany({
+        where: { itemId, location: fromLocation, quantityOnHand: { gte: qty } },
         data: { quantityOnHand: { decrement: qty }, lastUpdated: new Date() }
       });
+      if (updatedStock.count === 0) {
+        throw new Error(`Concurrent modification detected: Insufficient stock in ${fromLocation} to fulfill transfer.`);
+      }
 
       // 4. Increment target stock level
       await tx.stockLevel.upsert({
         where: { itemId_location: { itemId, location: toLocation } },
         update: { quantityOnHand: { increment: qty }, lastUpdated: new Date() },
-        create: { itemId, location: toLocation, quantityOnHand: qty }
+        create: { itemId, location: toLocation, quantityOnHand: qty, lastUpdated: new Date() }
       });
 
       // 5. Log transfer transactions

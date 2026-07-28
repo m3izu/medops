@@ -969,14 +969,24 @@ const Items = () => {
                       const isExpired = expDate < today;
                       const diffTime = expDate - today;
                       const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-                      const isExpiringSoon = !isExpired && diffDays <= 90;
+                      const isCritical = !isExpired && diffDays <= 30;
+                      const isExpiringSoon = !isExpired && diffDays > 30 && diffDays <= 90;
+                      const isSupplierReturn = !isExpired && diffDays > 90 && diffDays <= 200;
                       const loc = b.location || 'ECART';
                       
                       let badge = <span className="badge badge-success">OK</span>;
                       if (isExpired) {
                         badge = <span className="badge badge-critical">Expired</span>;
+                      } else if (isCritical) {
+                        badge = <span className="badge badge-critical">Critical Expiring ({diffDays}d)</span>;
                       } else if (isExpiringSoon) {
                         badge = <span className="badge badge-warning">Expiring ({diffDays}d)</span>;
+                      } else if (isSupplierReturn) {
+                        badge = (
+                          <span className="badge" style={{ background: '#FEF3C7', color: '#92400E', border: '1px solid #FDE68A', fontSize: '11px', fontWeight: '700' }} title="Eligible for supplier return/exchange cutoff (<= 200 days remaining)">
+                            📦 Supplier Return Warning ({diffDays}d left)
+                          </span>
+                        );
                       }
                       
                       return (
