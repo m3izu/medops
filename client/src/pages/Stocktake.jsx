@@ -434,7 +434,50 @@ const Stocktake = () => {
                             ? discrepancy > 0 ? 'rgba(16,185,129,0.04)' : 'rgba(239,68,68,0.05)'
                             : 'transparent'
                         }}>
-                          <td><strong>{line.item.name}</strong></td>
+                          <td>
+                            <div>
+                              <strong>{line.item.name}</strong>
+                              {(() => {
+                                const isBatchControlled = line.item?.itemType === 'MEDICATION' || line.item?.category?.hasBatchControl;
+                                const locationBatches = (line.item?.batches || []).filter(b => (!b.location || b.location === loc) && b.quantityRemaining > 0);
+                                if (!isBatchControlled || locationBatches.length === 0) return null;
+
+                                const today = new Date();
+                                today.setHours(0, 0, 0, 0);
+
+                                return (
+                                  <div style={{ marginTop: '6px', padding: '6px 8px', background: 'var(--theme-bg)', border: '1px solid var(--theme-border)', borderRadius: '4px', fontSize: '11px' }}>
+                                    <div style={{ fontWeight: '700', color: 'var(--theme-primary)', marginBottom: '3px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                      <span>📦 Registered Batches ({loc === 'ECART' ? 'eCart' : 'Central'}):</span>
+                                    </div>
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                                      {locationBatches.map(b => {
+                                        const exp = new Date(b.expiryDate);
+                                        const diffDays = Math.ceil((exp - today) / (1000 * 60 * 60 * 24));
+                                        let statusBadge = <span style={{ fontSize: '9px', background: '#D1FAE5', color: '#065F46', padding: '1px 4px', borderRadius: '3px' }}>OK ({diffDays}d)</span>;
+                                        if (diffDays <= 0) statusBadge = <span style={{ fontSize: '9px', background: '#FEE2E2', color: '#991B1B', padding: '1px 4px', borderRadius: '3px' }}>EXPIRED</span>;
+                                        else if (diffDays <= 30) statusBadge = <span style={{ fontSize: '9px', background: '#FEE2E2', color: '#991B1B', padding: '1px 4px', borderRadius: '3px' }}>Crit ({diffDays}d)</span>;
+                                        else if (diffDays <= 90) statusBadge = <span style={{ fontSize: '9px', background: '#FEF3C7', color: '#92400E', padding: '1px 4px', borderRadius: '3px' }}>Warn ({diffDays}d)</span>;
+                                        else if (diffDays <= 200) statusBadge = <span style={{ fontSize: '9px', background: '#FEF3C7', color: '#92400E', padding: '1px 4px', borderRadius: '3px' }}>Return Window ({diffDays}d)</span>;
+
+                                        return (
+                                          <div key={b.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '6px' }}>
+                                            <span>
+                                              <code style={{ fontSize: '10px', fontFamily: 'monospace' }}>Lot #{b.batchNo || 'N/A'}</code> • Exp: <strong>{b.expiryDate ? new Date(b.expiryDate).toLocaleDateString() : 'N/A'}</strong>
+                                            </span>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                              <span style={{ fontWeight: '700', color: '#0369A1' }}>{b.quantityRemaining} {line.item?.unit}</span>
+                                              {statusBadge}
+                                            </div>
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  </div>
+                                );
+                              })()}
+                            </div>
+                          </td>
                           <td>
                             <span className="badge badge-neutral" style={{ fontSize: '11px' }}>
                               {loc === 'ECART' ? '🛒 eCart' : '🏢 Central'}

@@ -234,4 +234,16 @@ Verification results:
   * **Bug #1 (Atomic Deductions)**: Replaced raw `.update()` calls in `approveTransfer` with atomic `.updateMany({ where: { quantityOnHand: { gte: qty } } })` and `{ quantityRemaining: { gte: qty } }`. Prevents negative stock levels under concurrent transfer approvals.
   * **Bug #4 (Batch Expiry Preservation)**: Ensured transferred batches created in destination locations explicitly inherit the source batch's exact `expiryDate`, `supplierId`, and `batchNo`. Eliminates loss of supplier expiration dates during inter-pool transfers.
 
+---
+
+### 20. Batch & Expiry Visibility on Stocktake Count Sheet
+* **Status**: ✅ Implemented
+* **Files Modified**:
+  * [stocktake.controller.js](file:///c:/medops/medops/server/controllers/stocktake.controller.js)
+  * [Stocktake.jsx](file:///c:/medops/medops/client/src/pages/Stocktake.jsx)
+* **Changes**:
+  * **Backend Query Expansion**: Updated `getOne` in `stocktake.controller.js` to retrieve active `batches` for each line item sorted by expiration date.
+  * **Count Sheet UI**: Rendered an inline **"📦 Registered Batches"** card under each item row in `Stocktake.jsx`, displaying location-filtered **Lot Numbers**, **Expiration Dates**, **Batch Balances**, and **Expiry Status Badges** to assist staff during physical counts.
+
+
 

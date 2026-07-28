@@ -86,7 +86,23 @@ const getOne = async (req, res, next) => {
       include: {
         initiatedBy: { select: { name: true } },
         lines: {
-          include: { item: { select: { id: true, name: true, sku: true, unit: true } } },
+          include: { 
+            item: { 
+              select: { 
+                id: true, 
+                name: true, 
+                sku: true, 
+                unit: true, 
+                itemType: true,
+                category: { select: { name: true, hasBatchControl: true } },
+                batches: {
+                  where: { quantityRemaining: { gt: 0 } },
+                  orderBy: { expiryDate: 'asc' },
+                  select: { id: true, batchNo: true, expiryDate: true, quantityRemaining: true, location: true }
+                }
+              } 
+            } 
+          },
         },
       },
     });
