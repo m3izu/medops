@@ -329,28 +329,86 @@ const cancel = async (req, res, next) => {
   }
 };
 
+const editLine = async (req, res, next) => {
+  try {
+    const { itemId, qtyRequested, location, reason } = req.body;
+    
+    if (qtyRequested !== undefined && (typeof qtyRequested !== 'number' || qtyRequested <= 0 || !Number.isInteger(qtyRequested))) {
+      return res.status(400).json({ error: 'Requested quantity must be a positive whole number' });
+    }
+
+    if (location && !['CENTRAL', 'ECART'].includes(location)) {
+      return res.status(400).json({ error: 'Location must be CENTRAL or ECART' });
+    }
+
+    const line = await prisma.requisitionLine.findUnique({ where: { id: req.params.lineId } });
+    if (!line) return res.status(404).json({ error: 'Line item not found' });
+    if (line.status !== 'PENDING') return res.status(400).json({ error: 'Only pending line items can be edited' });
+
+    if (itemId) {
+      const newItem = await prisma.item.findUnique({ where: { id: itemId } });
+      if (!newItem) return res.status(404).json({ error: 'Selected item not found' });
+      if (newItem.isArchived) return res.status(400).json({ error: 'Cannot select an archived item' });
+    }
+
+    const updatedLine = await prisma.requisitionLine.update({
+      where: { id: line.id },
+      data: {
+        ...(itemId ? { itemId } : {}),
+        ...(qtyRequested ? { qtyRequested } : {}),
+        ...(location ? { location } : {}),
+        ...(reason !== undefined ? { reason: reason.trim() } : {}),
+      },
+      include: { item: true }
+    });
+
+    res.json({ message: 'Line item updated successfully', line: updatedLine });
+  } catch (err) { next(err); }
+};
+
 const approveLine = async (req, res, next) => {
   try {
-    const { qtyApproved } = req.body;
+    const { qtyApproved, itemId, location } = req.body;
     
     if (qtyApproved !== undefined && (typeof qtyApproved !== 'number' || qtyApproved <= 0 || !Number.isInteger(qtyApproved))) {
       return res.status(400).json({ error: 'Approved quantity must be a positive whole number' });
     }
 
+    if (location && !['CENTRAL', 'ECART'].includes(location)) {
+      return res.status(400).json({ error: 'Location must be CENTRAL or ECART' });
+    }
+
     const line = await prisma.requisitionLine.findUnique({ where: { id: req.params.lineId } });
     if (!line) return res.status(404).json({ error: 'Line item not found' });
 
-    const approvedQty = qtyApproved ?? line.qtyRequested;
     let requisition;
 
     // Execute batch deduction and stock updates in a single database transaction
     await prisma.$transaction(async (tx) => {
-      const lineDb = await tx.requisitionLine.findUnique({ where: { id: req.params.lineId } });
+      let lineDb = await tx.requisitionLine.findUnique({ where: { id: req.params.lineId } });
       if (!lineDb) {
         throw new Error('Line item not found');
       }
       if (lineDb.status !== 'PENDING') {
         throw new Error('Line item is not pending');
+      }
+
+      // If approver modified item or location during approval, update lineDb first
+      if (itemId || location) {
+        const updateData = {};
+        if (itemId) {
+          const newItem = await tx.item.findUnique({ where: { id: itemId } });
+          if (!newItem) throw new Error('Item not found');
+          if (newItem.isArchived) throw new Error('Cannot approve for an archived item');
+          updateData.itemId = itemId;
+        }
+        if (location) {
+          updateData.location = location;
+        }
+        lineDb = await tx.requisitionLine.update({
+          where: { id: lineDb.id },
+          data: updateData,
+        });
       }
 
       // Verify patient status is still active before approving
@@ -362,6 +420,7 @@ const approveLine = async (req, res, next) => {
         throw new Error('Cannot approve requisition line for an inactive patient.');
       }
 
+      const approvedQty = qtyApproved ?? lineDb.qtyRequested;
       const targetLocation = lineDb.location || 'CENTRAL';
       const item = await tx.item.findUnique({
         where: { id: lineDb.itemId },
@@ -469,12 +528,12 @@ const approveLine = async (req, res, next) => {
       data: {
         userId: requisition.submittedById,
         eventType: 'REQUISITION_LINE_APPROVED',
-        message: `Item request approved: ${itemObj.name} (${approvedQty} ${itemObj.unit})`,
+        message: `Item request approved: ${itemObj.name} (${qtyApproved ?? line.qtyRequested} ${itemObj.unit})`,
         link: `/requisitions/${requisition.id}`,
       },
     });
 
-    res.json({ message: 'Line item approved', qtyApproved: approvedQty });
+    res.json({ message: 'Line item approved', qtyApproved: qtyApproved ?? line.qtyRequested });
   } catch (err) {
     const knownErrors = [
       'Line item not found',
@@ -639,4 +698,4 @@ async function updateRequisitionStatus(requisitionId, tx) {
   await client.requisition.update({ where: { id: requisitionId }, data: { status: newStatus } });
 }
 
-module.exports = { list, create, createBatch, getOne, cancel, approveLine, rejectLine, resubmitLine, coVerifyLine };
+module.exports = { list, create, createBatch, getOne, cancel, editLine, approveLine, rejectLine, resubmitLine, coVerifyLine };

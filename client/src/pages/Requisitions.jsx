@@ -114,6 +114,9 @@ const Requisitions = () => {
   const [logStockFilter, setLogStockFilter] = useState('ALL');
   const [logViewMode, setLogViewMode] = useState('BY_PATIENT'); // 'BY_PATIENT' | 'BY_SESSION'
   const [expandedSessionItem, setExpandedSessionItem] = useState(null); // `${dateKey}_${itemId}`
+  
+  // ── Edit Line Item Modal State (for Approvers) ──
+  const [editLineModal, setEditLineModal] = useState(null); // { line, itemId, qtyRequested, qtyApproved, location, reason, isApproving, loading, error }
 
   // ── Overall Item Quantity & Stock Lookup Helper ──
   const getItemStockInfo = useCallback((itemObj, lineItemId) => {
@@ -617,6 +620,59 @@ const Requisitions = () => {
     } catch (err) {
       console.error('Resubmit failed:', err);
       setResubError(err.response?.data?.error || 'Failed to resubmit line item.');
+    }
+  };
+
+  // ── Edit Line Item Handlers for Approvers ──
+  const handleOpenEditModal = (line, isApproving = false) => {
+    setEditLineModal({
+      line,
+      itemId: line.itemId,
+      qtyRequested: line.qtyRequested,
+      qtyApproved: line.qtyApproved || line.qtyRequested,
+      location: line.location || 'CENTRAL',
+      reason: line.reason || '',
+      isApproving,
+      error: '',
+      loading: false,
+    });
+  };
+
+  const handleSaveEditModal = async (approveNow = false) => {
+    if (!editLineModal) return;
+    const { line, itemId, qtyRequested, qtyApproved, location, reason, isApproving } = editLineModal;
+    const shouldApprove = isApproving || approveNow;
+
+    try {
+      setEditLineModal(prev => ({ ...prev, loading: true, error: '' }));
+
+      if (shouldApprove) {
+        // Edit and approve line item in one action
+        await api.patch(`/requisitions/${selectedReq.id}/lines/${line.id}/approve`, {
+          itemId,
+          location,
+          qtyApproved: Number(qtyApproved) || Number(qtyRequested),
+        });
+        toast.success('Line item edited and approved successfully!');
+      } else {
+        // Edit pending line item
+        await api.patch(`/requisitions/${selectedReq.id}/lines/${line.id}/edit`, {
+          itemId,
+          qtyRequested: Number(qtyRequested),
+          location,
+          reason,
+        });
+        toast.success('Line item details updated successfully!');
+      }
+
+      setEditLineModal(null);
+      fetchDetail(selectedReq.id);
+      fetchRequisitions();
+    } catch (err) {
+      console.error('Save line edit failed:', err);
+      const msg = err.response?.data?.error || 'Failed to update line item.';
+      setEditLineModal(prev => ({ ...prev, loading: false, error: msg }));
+      toast.error(msg);
     }
   };
 
@@ -1253,13 +1309,18 @@ const Requisitions = () => {
                             {canApprove && line.status === 'PENDING' && (
                               <>
                                 <button
-                                  className="btn btn-success btn-sm"
-                                  onClick={() => {
-                                    setApproveLine(line);
-                                    setApproveQty(String(line.qtyRequested));
-                                  }}
+                                  className="btn btn-sm btn-outline-primary"
+                                  onClick={() => handleOpenEditModal(line, false)}
+                                  title="Edit item, quantity, or location before approving"
                                 >
-                                  Approve
+                                  ✏️ Edit Item
+                                </button>
+                                <button
+                                  className="btn btn-success btn-sm"
+                                  onClick={() => handleOpenEditModal(line, true)}
+                                  title="Edit item details and approve line item"
+                                >
+                                  ✅ Edit & Approve
                                 </button>
                                 <button
                                   className="btn btn-critical btn-sm"
@@ -1369,21 +1430,30 @@ const Requisitions = () => {
               {/* Top Toolbar Action Pickers */}
               <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                 {/* Global Catalog Item Search Dropdown */}
-                <div style={{ width: '300px' }}>
+                <div style={{ width: '340px' }}>
                   <SearchableSelect
                     options={items.map(it => {
                       const clsObj = CLASSIFICATIONS.find(c => c.key === (it.itemType || 'MEDICAL_CONSUMABLE'));
+                      const stockInfo = getItemStockInfo(it, it.id);
+                      const centralQty = stockInfo.centralQty;
+                      const ecartQty = stockInfo.ecartQty;
+                      const totalQty = stockInfo.totalQty;
+
+                      const centralBadge = centralQty > 0
+                        ? `🏢 Central Stock: ${centralQty} ${it.unit}`
+                        : `🔴 Central: Out of Stock (0 ${it.unit})`;
+
                       return {
                         value: it.id,
-                        label: `[${clsObj?.label || 'Item'}] ${it.name} (${it.sku})`,
-                        sublabel: `Unit: ${it.unit}`,
+                        label: `[${clsObj?.label || 'Item'}] ${it.name} (${it.sku}) — ${centralBadge}`,
+                        sublabel: `🏢 Central: ${centralQty} ${it.unit} | 🛒 eCart: ${ecartQty} ${it.unit} (Total: ${totalQty} ${it.unit})`,
                       };
                     })}
                     value=""
                     onChange={(val) => {
                       if (val) addItemToSheet(val);
                     }}
-                    placeholder="🔍 + Add Item to Sheet..."
+                    placeholder="🔍 + Add Item (showing Central Stock)..."
                   />
                 </div>
 
@@ -1873,6 +1943,178 @@ const Requisitions = () => {
             <div className="modal-footer">
               <button className="btn" onClick={() => setResubmitLine(null)}>Cancel</button>
               <button className="btn btn-primary" onClick={handleResubmit}>Resubmit for Approval</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* ── EDIT & APPROVE LINE ITEM MODAL FOR APPROVERS ── */}
+      {editLineModal && (
+        <div className="modal-overlay" onClick={() => setEditLineModal(null)}>
+          <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: '560px', width: '100%', padding: '24px' }}>
+            <div className="modal-header" style={{ borderBottom: '1px solid var(--theme-border)', paddingBottom: '12px', marginBottom: '16px' }}>
+              <h3 style={{ margin: 0, fontSize: '18px' }}>
+                {editLineModal.isApproving ? '✏️ Edit & Approve Line Item' : '✏️ Edit Requested Line Item'}
+              </h3>
+              <button className="modal-close" onClick={() => setEditLineModal(null)}>✕</button>
+            </div>
+
+            {editLineModal.error && (
+              <div className="login-error" style={{ marginBottom: '16px' }}>{editLineModal.error}</div>
+            )}
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              {/* Item Selector */}
+              <div>
+                <label style={{ fontSize: '13px', fontWeight: '600', marginBottom: '6px', display: 'block' }}>
+                  Change Item (Showing Central Stock):
+                </label>
+                <SearchableSelect
+                  options={items.map(it => {
+                    const stockInfo = getItemStockInfo(it, it.id);
+                    const centralBadge = stockInfo.centralQty > 0
+                      ? `🏢 Central Stock: ${stockInfo.centralQty} ${it.unit}`
+                      : `🔴 Central: Out of Stock (0 ${it.unit})`;
+
+                    return {
+                      value: it.id,
+                      label: `${it.name} (${it.sku}) — ${centralBadge}`,
+                      sublabel: `🏢 Central: ${stockInfo.centralQty} ${it.unit} | 🛒 eCart: ${stockInfo.ecartQty} ${it.unit} (Total: ${stockInfo.totalQty} ${it.unit})`,
+                    };
+                  })}
+                  value={editLineModal.itemId}
+                  onChange={(val) => setEditLineModal(prev => ({ ...prev, itemId: val }))}
+                  placeholder="Search item to replace requested item..."
+                />
+              </div>
+
+              {/* Central Stock Info Box for Selected Item */}
+              {(() => {
+                const selectedItemObj = items.find(i => i.id === editLineModal.itemId);
+                const stock = getItemStockInfo(selectedItemObj, editLineModal.itemId);
+                const currentPoolQty = editLineModal.location === 'CENTRAL' ? stock.centralQty : stock.ecartQty;
+                const reqQty = Number(editLineModal.qtyApproved) || Number(editLineModal.qtyRequested) || 0;
+                const isEnough = currentPoolQty >= reqQty;
+
+                return (
+                  <div style={{
+                    padding: '10px 14px',
+                    background: isEnough ? '#F0FDF4' : '#FEF2F2',
+                    border: `1px solid ${isEnough ? '#86EFAC' : '#FCA5A5'}`,
+                    borderRadius: '6px',
+                    fontSize: '12px'
+                  }}>
+                    <div style={{ fontWeight: '700', color: isEnough ? '#166534' : '#991B1B' }}>
+                      📦 Selected Item Stock Overview:
+                    </div>
+                    <div style={{ marginTop: '4px', display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+                      <span>🏢 <strong>Central Stock:</strong> {stock.centralQty} {stock.unit}</span>
+                      <span>🛒 <strong>eCart Stock:</strong> {stock.ecartQty} {stock.unit}</span>
+                      <span>📊 <strong>Overall Total:</strong> {stock.totalQty} {stock.unit}</span>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* Target Location Pool */}
+              <div>
+                <label style={{ fontSize: '13px', fontWeight: '600', marginBottom: '6px', display: 'block' }}>
+                  Target Storage Pool:
+                </label>
+                <div style={{ display: 'flex', gap: '16px' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', cursor: 'pointer' }}>
+                    <input
+                      type="radio"
+                      name="editLocation"
+                      value="CENTRAL"
+                      checked={editLineModal.location === 'CENTRAL'}
+                      onChange={e => setEditLineModal(prev => ({ ...prev, location: e.target.value }))}
+                    />
+                    🏢 Central Storage Pool
+                  </label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', cursor: 'pointer' }}>
+                    <input
+                      type="radio"
+                      name="editLocation"
+                      value="ECART"
+                      checked={editLineModal.location === 'ECART'}
+                      onChange={e => setEditLineModal(prev => ({ ...prev, location: e.target.value }))}
+                    />
+                    🛒 eCart Pool
+                  </label>
+                </div>
+              </div>
+
+              {/* Quantities */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                <div>
+                  <label style={{ fontSize: '13px', fontWeight: '600', marginBottom: '4px', display: 'block' }}>
+                    Requested Quantity:
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    className="form-control"
+                    value={editLineModal.qtyRequested}
+                    onChange={e => setEditLineModal(prev => ({ ...prev, qtyRequested: e.target.value, qtyApproved: e.target.value }))}
+                  />
+                </div>
+                <div>
+                  <label style={{ fontSize: '13px', fontWeight: '600', marginBottom: '4px', display: 'block' }}>
+                    Approved Quantity:
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    className="form-control"
+                    value={editLineModal.qtyApproved}
+                    onChange={e => setEditLineModal(prev => ({ ...prev, qtyApproved: e.target.value }))}
+                  />
+                </div>
+              </div>
+
+              {/* Reason / Notes */}
+              <div>
+                <label style={{ fontSize: '13px', fontWeight: '600', marginBottom: '4px', display: 'block' }}>
+                  Notes / Reason for Edit:
+                </label>
+                <input
+                  type="text"
+                  className="form-control"
+                  value={editLineModal.reason}
+                  onChange={e => setEditLineModal(prev => ({ ...prev, reason: e.target.value }))}
+                  placeholder="e.g. Substituted item due to Central stock availability..."
+                />
+              </div>
+
+              {/* Footer Buttons */}
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '12px' }}>
+                <button
+                  type="button"
+                  className="btn btn-neutral"
+                  onClick={() => setEditLineModal(null)}
+                  disabled={editLineModal.loading}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-outline-primary"
+                  onClick={() => handleSaveEditModal(false)}
+                  disabled={editLineModal.loading}
+                >
+                  {editLineModal.loading ? 'Saving...' : 'Save Changes'}
+                </button>
+                {canApprove && (
+                  <button
+                    type="button"
+                    className="btn btn-success"
+                    onClick={() => handleSaveEditModal(true)}
+                    disabled={editLineModal.loading}
+                  >
+                    {editLineModal.loading ? 'Approving...' : '✅ Save & Approve Line'}
+                  </button>
+                )}
+              </div>
             </div>
           </div>
         </div>
