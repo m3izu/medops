@@ -630,7 +630,7 @@ const Requisitions = () => {
       itemId: line.itemId,
       qtyRequested: line.qtyRequested,
       qtyApproved: line.qtyApproved || line.qtyRequested,
-      location: line.location || 'CENTRAL',
+      location: 'CENTRAL',
       reason: line.reason || '',
       isApproving,
       error: '',
@@ -1185,7 +1185,7 @@ const Requisitions = () => {
                             </span>
                           </div>
 
-                          {/* OVERALL QUANTITY & POOL BREAKDOWN BADGES */}
+                          {/* OVERALL QUANTITY & CENTRAL STORAGE BADGES */}
                           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '10px', alignItems: 'center' }}>
                             <div style={{
                               display: 'inline-flex',
@@ -1199,12 +1199,11 @@ const Requisitions = () => {
                               fontWeight: '600',
                               color: isOverallSufficient ? '#065F46' : '#991B1B'
                             }}>
-                              <span>Overall Quantity: <strong>{stock.totalQty} {stock.unit}</strong></span>
-                              <span style={{ fontSize: '10px', opacity: 0.8 }}>(Central: {stock.centralQty} | eCart: {stock.ecartQty})</span>
+                              <span>Central Storage Stock: <strong>{stock.centralQty} {stock.unit}</strong></span>
                             </div>
 
                             <span className="badge badge-neutral" style={{ fontSize: '11px', padding: '3px 8px' }}>
-                              Target Pool ({lineLoc === 'ECART' ? '🛒 eCart' : '🏢 Central'}): <strong>{poolStock}</strong> {stock.unit}
+                              Storage Source: 🏢 Central Storage
                             </span>
                           </div>
 
@@ -1226,15 +1225,13 @@ const Requisitions = () => {
                                 borderRadius: '4px',
                                 fontSize: '11px',
                                 fontWeight: '600',
-                                background: isPoolSufficient ? '#F0FDF4' : isOverallSufficient ? '#FFFBEB' : '#FEF2F2',
-                                color: isPoolSufficient ? '#15803D' : isOverallSufficient ? '#B45309' : '#B91C1C',
-                                border: `1px solid ${isPoolSufficient ? '#BBF7D0' : isOverallSufficient ? '#FDE68A' : '#FECACA'}`
+                                background: stock.centralQty >= line.qtyRequested ? '#F0FDF4' : '#FEF2F2',
+                                color: stock.centralQty >= line.qtyRequested ? '#15803D' : '#B91C1C',
+                                border: `1px solid ${stock.centralQty >= line.qtyRequested ? '#BBF7D0' : '#FECACA'}`
                               }}>
-                                {isPoolSufficient
-                                  ? `✅ Sufficient stock in ${lineLoc === 'ECART' ? 'eCart' : 'Central'} pool to fulfill requirement.`
-                                  : isOverallSufficient
-                                  ? `⚠️ Target pool (${lineLoc}) has insufficient stock (${poolStock}), but overall total (${stock.totalQty}) is available across locations.`
-                                  : `🔴 Overall stock shortage! Total overall quantity (${stock.totalQty}) is less than requested (${line.qtyRequested}).`}
+                                {stock.centralQty >= line.qtyRequested
+                                  ? `✅ Sufficient stock in Central Storage to fulfill requirement.`
+                                  : `🔴 Central Storage shortage! Available Central Stock (${stock.centralQty}) is less than requested (${line.qtyRequested}).`}
                               </div>
                             )}
 
@@ -1243,7 +1240,7 @@ const Requisitions = () => {
                               const pendingFifo = calculateFifoAllocation(line);
                               if (pendingFifo.length === 0) return (
                                 <div style={{ marginTop: '6px', fontSize: '11px', color: 'var(--color-critical)', fontWeight: '600' }}>
-                                  ⚠️ No active unexpired batches available in {lineLoc === 'ECART' ? 'eCart' : 'Central Storage'} for FIFO allocation!
+                                  ⚠️ No active unexpired batches available in Central Storage for FIFO allocation!
                                 </div>
                               );
                               return (
@@ -2015,32 +2012,13 @@ const Requisitions = () => {
                 );
               })()}
 
-              {/* Target Location Pool */}
+              {/* Storage Source */}
               <div>
                 <label style={{ fontSize: '13px', fontWeight: '600', marginBottom: '6px', display: 'block' }}>
-                  Target Storage Pool:
+                  Storage Source:
                 </label>
-                <div style={{ display: 'flex', gap: '16px' }}>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', cursor: 'pointer' }}>
-                    <input
-                      type="radio"
-                      name="editLocation"
-                      value="CENTRAL"
-                      checked={editLineModal.location === 'CENTRAL'}
-                      onChange={e => setEditLineModal(prev => ({ ...prev, location: e.target.value }))}
-                    />
-                    🏢 Central Storage Pool
-                  </label>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', cursor: 'pointer' }}>
-                    <input
-                      type="radio"
-                      name="editLocation"
-                      value="ECART"
-                      checked={editLineModal.location === 'ECART'}
-                      onChange={e => setEditLineModal(prev => ({ ...prev, location: e.target.value }))}
-                    />
-                    🛒 eCart Pool
-                  </label>
+                <div style={{ padding: '8px 12px', background: 'var(--theme-bg)', borderRadius: '6px', fontSize: '13px', border: '1px solid var(--theme-border)', fontWeight: '600' }}>
+                  🏢 Central Storage (Exclusive Source for Requisitions)
                 </div>
               </div>
 

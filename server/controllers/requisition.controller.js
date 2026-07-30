@@ -62,7 +62,7 @@ const create = async (req, res, next) => {
         lines: {
           create: lines.map(l => ({
             itemId: l.itemId,
-            location: l.location || 'CENTRAL',
+            location: 'CENTRAL',
             qtyRequested: l.quantity,
             reason: l.reason,
           })),
@@ -115,10 +115,10 @@ const createBatch = async (req, res, next) => {
           if (!Number.isInteger(qty) || qty <= 0) {
             throw new Error(`Invalid requested quantity "${l.quantity}" for item.`);
           }
-          const loc = l.location || itemReq.location || 'CENTRAL';
-          if (!['ECART', 'CENTRAL'].includes(loc)) {
-            throw new Error(`Invalid location "${loc}". Must be ECART or CENTRAL.`);
+          if (l.location === 'ECART' || itemReq.location === 'ECART') {
+            throw new Error('Requisitions must draw exclusively from Central Storage.');
           }
+          const loc = 'CENTRAL';
           if (lineMap[l.itemId]) {
             lineMap[l.itemId] += qty;
           } else {
@@ -337,8 +337,8 @@ const editLine = async (req, res, next) => {
       return res.status(400).json({ error: 'Requested quantity must be a positive whole number' });
     }
 
-    if (location && !['CENTRAL', 'ECART'].includes(location)) {
-      return res.status(400).json({ error: 'Location must be CENTRAL or ECART' });
+    if (location && location !== 'CENTRAL') {
+      return res.status(400).json({ error: 'Requisitions must draw exclusively from Central Storage.' });
     }
 
     const line = await prisma.requisitionLine.findUnique({ where: { id: req.params.lineId } });
@@ -374,8 +374,8 @@ const approveLine = async (req, res, next) => {
       return res.status(400).json({ error: 'Approved quantity must be a positive whole number' });
     }
 
-    if (location && !['CENTRAL', 'ECART'].includes(location)) {
-      return res.status(400).json({ error: 'Location must be CENTRAL or ECART' });
+    if (location && location !== 'CENTRAL') {
+      return res.status(400).json({ error: 'Requisitions must draw exclusively from Central Storage.' });
     }
 
     const line = await prisma.requisitionLine.findUnique({ where: { id: req.params.lineId } });
