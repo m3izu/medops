@@ -112,6 +112,8 @@ const Requisitions = () => {
   const [logSearchQuery, setLogSearchQuery] = useState('');
   const [logStatusFilter, setLogStatusFilter] = useState('ALL');
   const [logStockFilter, setLogStockFilter] = useState('ALL');
+  const [logViewMode, setLogViewMode] = useState('BY_PATIENT'); // 'BY_PATIENT' | 'BY_SESSION'
+  const [expandedSessionItem, setExpandedSessionItem] = useState(null); // `${dateKey}_${itemId}`
 
   // ── Overall Item Quantity & Stock Lookup Helper ──
   const getItemStockInfo = useCallback((itemObj, lineItemId) => {
@@ -193,6 +195,87 @@ const Requisitions = () => {
       return true;
     });
   }, [requisitions, logStatusFilter, logStockFilter, logSearchQuery, getItemStockInfo]);
+
+  // ── Session Date Aggregated Items Summary ──
+  const sessionDateSummaries = useMemo(() => {
+    const map = {};
+
+    filteredRequisitions.forEach(r => {
+      if (!r.sessionDate) return;
+      const dateKey = new Date(r.sessionDate).toISOString().substring(0, 10);
+      const displayDate = new Date(r.sessionDate).toLocaleDateString();
+
+      if (!map[dateKey]) {
+        map[dateKey] = {
+          dateKey,
+          displayDate,
+          requisitionCount: 0,
+          patientMap: {},
+          itemsMap: {},
+        };
+      }
+
+      map[dateKey].requisitionCount++;
+      if (r.patient) {
+        map[dateKey].patientMap[r.patient.id || r.patient.name] = r.patient.name;
+      }
+
+      (r.lines || []).forEach(line => {
+        const itemId = line.itemId;
+        if (!itemId) return;
+
+        if (!map[dateKey].itemsMap[itemId]) {
+          map[dateKey].itemsMap[itemId] = {
+            itemId,
+            itemObj: line.item,
+            name: line.item?.name || 'Unknown Item',
+            unit: line.item?.unit || 'units',
+            totalQtyRequested: 0,
+            totalQtyApproved: 0,
+            patientBreakdown: [],
+          };
+        }
+
+        const itemAgg = map[dateKey].itemsMap[itemId];
+        itemAgg.totalQtyRequested += (line.qtyRequested || 0);
+        if (line.qtyApproved) itemAgg.totalQtyApproved += line.qtyApproved;
+
+        itemAgg.patientBreakdown.push({
+          requisitionId: r.id,
+          patientName: r.patient?.name || 'Unknown Patient',
+          chartNumber: r.patient?.chartNumber || 'N/A',
+          qtyRequested: line.qtyRequested,
+          qtyApproved: line.qtyApproved,
+          location: line.location || 'CENTRAL',
+          status: line.status,
+        });
+      });
+    });
+
+    return Object.values(map).map(session => {
+      const aggregatedItems = Object.values(session.itemsMap).map(itemAgg => {
+        const stockInfo = getItemStockInfo(itemAgg.itemObj, itemAgg.itemId);
+        const isSufficient = stockInfo.totalQty >= itemAgg.totalQtyRequested;
+        return {
+          ...itemAgg,
+          stockInfo,
+          isSufficient,
+        };
+      });
+
+      const patientCount = Object.keys(session.patientMap).length;
+      const totalUnitsRequested = aggregatedItems.reduce((sum, i) => sum + i.totalQtyRequested, 0);
+      const hasShortage = aggregatedItems.some(i => !i.isSufficient);
+
+      return {
+        ...session,
+        aggregatedItems,
+        patientCount,
+        totalUnitsRequested,
+        hasShortage,
+      };
+    }).sort((a, b) => new Date(b.dateKey) - new Date(a.dateKey));
+  }, [filteredRequisitions, getItemStockInfo]);
 
   // ── Fetch Helpers ──
   const fetchRequisitions = useCallback(async () => {
@@ -590,9 +673,49 @@ const Requisitions = () => {
         {/* ── Left Side: Requisition List ── */}
         <div className="widget-card">
           <div className="widget-header" style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', justifyContent: 'space-between', alignItems: 'center', paddingBottom: '14px', borderBottom: '1px solid var(--theme-border)' }}>
-            <span className="widget-title" style={{ fontSize: '16px', fontWeight: '700' }}>
-              Requisitions Log ({filteredRequisitions.length})
-            </span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+              <span className="widget-title" style={{ fontSize: '16px', fontWeight: '700' }}>
+                Requisitions Log ({logViewMode === 'BY_SESSION' ? sessionDateSummaries.length : filteredRequisitions.length})
+              </span>
+
+              {/* View Mode Switcher Toggle */}
+              <div style={{ display: 'inline-flex', background: 'var(--theme-bg)', padding: '3px', borderRadius: '6px', border: '1px solid var(--theme-border)' }}>
+                <button
+                  type="button"
+                  onClick={() => setLogViewMode('BY_PATIENT')}
+                  style={{
+                    border: 'none',
+                    background: logViewMode === 'BY_PATIENT' ? 'var(--theme-card-bg)' : 'transparent',
+                    color: logViewMode === 'BY_PATIENT' ? 'var(--theme-text-main)' : 'var(--theme-text-muted)',
+                    fontWeight: logViewMode === 'BY_PATIENT' ? '700' : '500',
+                    fontSize: '11px',
+                    padding: '4px 10px',
+                    borderRadius: '4px',
+                    cursor: 'pointer',
+                    boxShadow: logViewMode === 'BY_PATIENT' ? '0 1px 2px rgba(0,0,0,0.1)' : 'none',
+                  }}
+                >
+                  👤 By Patient Requisition
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setLogViewMode('BY_SESSION')}
+                  style={{
+                    border: 'none',
+                    background: logViewMode === 'BY_SESSION' ? 'var(--theme-card-bg)' : 'transparent',
+                    color: logViewMode === 'BY_SESSION' ? 'var(--theme-text-main)' : 'var(--theme-text-muted)',
+                    fontWeight: logViewMode === 'BY_SESSION' ? '700' : '500',
+                    fontSize: '11px',
+                    padding: '4px 10px',
+                    borderRadius: '4px',
+                    cursor: 'pointer',
+                    boxShadow: logViewMode === 'BY_SESSION' ? '0 1px 2px rgba(0,0,0,0.1)' : 'none',
+                  }}
+                >
+                  📅 By Session Date Aggregates
+                </button>
+              </div>
+            </div>
             
             {/* Filter & Search Controls */}
             <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
@@ -602,7 +725,7 @@ const Requisitions = () => {
                 className="form-control"
                 value={logSearchQuery}
                 onChange={(e) => { setLogSearchQuery(e.target.value); setCurrentPage(1); }}
-                style={{ width: '200px', padding: '5px 10px', fontSize: '12px' }}
+                style={{ width: '180px', padding: '5px 10px', fontSize: '12px' }}
               />
               <select
                 className="form-control"
@@ -638,7 +761,141 @@ const Requisitions = () => {
             <div style={{ padding: '24px', textAlign: 'center', color: 'var(--theme-text-muted)' }}>
               {requisitions.length === 0 ? 'No requisitions found. Click "New Requisition Sheet" to get started.' : 'No requisitions match your search and filter criteria.'}
             </div>
+          ) : logViewMode === 'BY_SESSION' ? (
+            /* ── SESSION DATE AGGREGATED ITEMS VIEW ── */
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '18px', padding: '16px 0' }}>
+              {sessionDateSummaries.map(session => (
+                <div key={session.dateKey} style={{ background: 'var(--theme-bg)', border: '1px solid var(--theme-border)', borderRadius: 'var(--border-radius-md)', padding: '16px' }}>
+                  {/* Session Card Header */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', paddingBottom: '10px', borderBottom: '1px solid var(--theme-border)' }}>
+                    <div>
+                      <strong style={{ fontSize: '15px' }}>📅 Session Date: {session.displayDate}</strong>
+                      <div style={{ fontSize: '12px', color: 'var(--theme-text-muted)', marginTop: '2px' }}>
+                        {session.patientCount} Patient(s) • {session.requisitionCount} Requisition(s) • {session.aggregatedItems.length} Unique Item(s) Requested ({session.totalUnitsRequested} Total Units)
+                      </div>
+                    </div>
+                    <span
+                      style={{
+                        fontSize: '11px',
+                        fontWeight: '700',
+                        padding: '4px 10px',
+                        borderRadius: '20px',
+                        background: session.hasShortage ? '#FEE2E2' : '#DCFCE7',
+                        color: session.hasShortage ? '#991B1B' : '#166534',
+                        border: `1px solid ${session.hasShortage ? '#FCA5A5' : '#86EFAC'}`,
+                      }}
+                    >
+                      {session.hasShortage ? '🔴 Inventory Shortage Alert' : '🟢 All Items In Stock'}
+                    </span>
+                  </div>
+
+                  {/* Aggregated Items Table for this Session Date */}
+                  <table className="data-table" style={{ margin: 0, fontSize: '12px' }}>
+                    <thead>
+                      <tr>
+                        <th>Requested Item</th>
+                        <th>Aggregated Qty (All Patients)</th>
+                        <th>Patients Included</th>
+                        <th>Overall Inventory Stock</th>
+                        <th>Stock Sufficiency Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {session.aggregatedItems.map(item => {
+                        const key = `${session.dateKey}_${item.itemId}`;
+                        const isExpanded = expandedSessionItem === key;
+
+                        return (
+                          <React.Fragment key={item.itemId}>
+                            <tr
+                              onClick={() => setExpandedSessionItem(isExpanded ? null : key)}
+                              style={{ cursor: 'pointer', background: isExpanded ? 'var(--theme-card-bg-hover)' : undefined }}
+                            >
+                              <td>
+                                <strong>{item.name}</strong>
+                                <span style={{ fontSize: '10px', marginLeft: '6px', opacity: 0.7 }}>({item.unit})</span>
+                              </td>
+                              <td>
+                                <strong style={{ fontSize: '13px', color: '#1E40AF' }}>{item.totalQtyRequested} {item.unit}</strong>
+                                {item.totalQtyApproved > 0 && (
+                                  <span style={{ fontSize: '11px', marginLeft: '6px', color: '#166534' }}>
+                                    ({item.totalQtyApproved} approved)
+                                  </span>
+                                )}
+                              </td>
+                              <td>
+                                <span className="badge badge-neutral" style={{ fontSize: '11px' }}>
+                                  👥 {item.patientBreakdown.length} patient(s)
+                                </span>
+                              </td>
+                              <td>
+                                <strong>Overall: {item.stockInfo.totalQty} {item.unit}</strong>
+                                <div style={{ fontSize: '10px', color: 'var(--theme-text-muted)' }}>
+                                  Central: {item.stockInfo.centralQty} | eCart: {item.stockInfo.ecartQty}
+                                </div>
+                              </td>
+                              <td>
+                                <span
+                                  style={{
+                                    fontSize: '11px',
+                                    fontWeight: '700',
+                                    padding: '3px 8px',
+                                    borderRadius: '4px',
+                                    background: item.isSufficient ? '#DCFCE7' : item.stockInfo.totalQty > 0 ? '#FEF3C7' : '#FEE2E2',
+                                    color: item.isSufficient ? '#166534' : item.stockInfo.totalQty > 0 ? '#92400E' : '#991B1B',
+                                    border: `1px solid ${item.isSufficient ? '#86EFAC' : item.stockInfo.totalQty > 0 ? '#FDE68A' : '#FCA5A5'}`,
+                                  }}
+                                >
+                                  {item.isSufficient ? `🟢 In Stock (${item.stockInfo.totalQty})` : item.stockInfo.totalQty > 0 ? `🟠 Shortage (${item.stockInfo.totalQty} < ${item.totalQtyRequested})` : `🔴 Out of Stock (0)`}
+                                </span>
+                                <span style={{ fontSize: '10px', marginLeft: '8px', color: 'var(--theme-text-muted)' }}>
+                                  {isExpanded ? '▲ Hide' : '▼ View Patients'}
+                                </span>
+                              </td>
+                            </tr>
+
+                            {/* Expanded Patient Breakdown Drawer */}
+                            {isExpanded && (
+                              <tr>
+                                <td colSpan={5} style={{ background: 'var(--theme-bg)', padding: '10px 16px' }}>
+                                  <div style={{ fontWeight: '700', fontSize: '11px', color: 'var(--theme-text-muted)', marginBottom: '6px' }}>
+                                    Patient Breakdown for {item.name} on {session.displayDate}:
+                                  </div>
+                                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '8px' }}>
+                                    {item.patientBreakdown.map((p, pIdx) => (
+                                      <div
+                                        key={pIdx}
+                                        onClick={(e) => { e.stopPropagation(); fetchDetail(p.requisitionId); }}
+                                        style={{
+                                          padding: '8px 10px',
+                                          background: 'var(--theme-card-bg)',
+                                          border: '1px solid var(--theme-border)',
+                                          borderRadius: '6px',
+                                          cursor: 'pointer',
+                                          fontSize: '11px',
+                                        }}
+                                      >
+                                        <div style={{ fontWeight: '700' }}>{p.patientName} <span style={{ opacity: 0.7, fontWeight: 'normal' }}>(Chart #{p.chartNumber})</span></div>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '4px' }}>
+                                          <span>Req: <strong>{p.qtyRequested}</strong> {item.unit} ({p.location})</span>
+                                          <span className={`badge ${STATUS_COLORS[p.status] || 'badge-neutral'}`} style={{ fontSize: '9px' }}>{p.status}</span>
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </td>
+                              </tr>
+                            )}
+                          </React.Fragment>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              ))}
+            </div>
           ) : (
+            /* ── PER PATIENT REQUISITIONS TABLE VIEW ── */
             <div style={{ overflowX: 'auto' }}>
               <table className="data-table">
                 <thead>
