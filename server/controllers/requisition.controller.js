@@ -15,7 +15,18 @@ const list = async (req, res, next) => {
         patient: { select: { id: true, name: true, chartNumber: true } },
         submittedBy: { select: { id: true, name: true, role: true } },
         lines: {
-          include: { item: { select: { id: true, name: true, unit: true } } },
+          include: {
+            item: {
+              select: {
+                id: true,
+                name: true,
+                unit: true,
+                warningLevel: true,
+                criticalLevel: true,
+                stockLevels: true,
+              },
+            },
+          },
         },
       },
       orderBy: { createdAt: 'desc' },

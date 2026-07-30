@@ -108,6 +108,92 @@ const Requisitions = () => {
   const canCancelOwn = hasPermission('cancel_own_requisition');
   const canCoVerify = hasPermission('receive_stock');
 
+  // ── Requisition Log Filter & Search State ──
+  const [logSearchQuery, setLogSearchQuery] = useState('');
+  const [logStatusFilter, setLogStatusFilter] = useState('ALL');
+  const [logStockFilter, setLogStockFilter] = useState('ALL');
+
+  // ── Overall Item Quantity & Stock Lookup Helper ──
+  const getItemStockInfo = useCallback((itemObj, lineItemId) => {
+    const catalogItem = items.find(i => i.id === (itemObj?.id || lineItemId)) || itemObj;
+    const stockLevels = catalogItem?.stockLevels || itemObj?.stockLevels || [];
+    const centralQty = stockLevels.find(s => s.location === 'CENTRAL')?.quantityOnHand ?? 0;
+    const ecartQty = stockLevels.find(s => s.location === 'ECART')?.quantityOnHand ?? 0;
+    const totalQty = stockLevels.reduce((sum, s) => sum + (s.quantityOnHand || 0), 0);
+    const unit = catalogItem?.unit || itemObj?.unit || 'units';
+    const warningLevel = catalogItem?.warningLevel || itemObj?.warningLevel || 10;
+    
+    return {
+      totalQty,
+      centralQty,
+      ecartQty,
+      unit,
+      warningLevel,
+      isOut: totalQty <= 0,
+      isLow: totalQty > 0 && totalQty <= warningLevel
+    };
+  }, [items]);
+
+  // ── Requisition Log KPI Metrics ──
+  const logStats = useMemo(() => {
+    let pending = 0;
+    let shortageAlerts = 0;
+    let totalItemsRequested = 0;
+
+    requisitions.forEach(r => {
+      if (r.status === 'PENDING' || r.status === 'PARTIALLY_APPROVED') pending++;
+      
+      let reqHasShortage = false;
+      (r.lines || []).forEach(l => {
+        totalItemsRequested += (l.qtyRequested || 0);
+        const stockInfo = getItemStockInfo(l.item, l.itemId);
+        if (l.status === 'PENDING' && stockInfo.totalQty < l.qtyRequested) {
+          reqHasShortage = true;
+        }
+      });
+      if (reqHasShortage && r.status !== 'CANCELLED' && r.status !== 'REJECTED') {
+        shortageAlerts++;
+      }
+    });
+
+    return {
+      total: requisitions.length,
+      pending,
+      shortageAlerts,
+      totalItemsRequested,
+    };
+  }, [requisitions, getItemStockInfo]);
+
+  // ── Filtered Requisitions ──
+  const filteredRequisitions = useMemo(() => {
+    return requisitions.filter(r => {
+      // Status filter
+      if (logStatusFilter !== 'ALL' && r.status !== logStatusFilter) return false;
+      
+      // Stock fulfillment filter
+      if (logStockFilter !== 'ALL') {
+        const hasShortage = (r.lines || []).some(l => {
+          const stock = getItemStockInfo(l.item, l.itemId);
+          return l.status === 'PENDING' && stock.totalQty < l.qtyRequested;
+        });
+        if (logStockFilter === 'READY' && hasShortage) return false;
+        if (logStockFilter === 'SHORTAGE' && !hasShortage) return false;
+      }
+
+      // Text search query
+      if (logSearchQuery.trim()) {
+        const q = logSearchQuery.toLowerCase();
+        const matchPatient = r.patient?.name?.toLowerCase().includes(q) || r.patient?.chartNumber?.toLowerCase().includes(q);
+        const matchSubmitter = r.submittedBy?.name?.toLowerCase().includes(q);
+        const matchItems = (r.lines || []).some(l => l.item?.name?.toLowerCase().includes(q));
+        const matchStatus = r.status.toLowerCase().includes(q);
+        if (!matchPatient && !matchSubmitter && !matchItems && !matchStatus) return false;
+      }
+
+      return true;
+    });
+  }, [requisitions, logStatusFilter, logStockFilter, logSearchQuery, getItemStockInfo]);
+
   // ── Fetch Helpers ──
   const fetchRequisitions = useCallback(async () => {
     try {
@@ -465,7 +551,7 @@ const Requisitions = () => {
         <div>
           <h2>Item Requisition Management</h2>
           <p className="page-title-desc">
-            Submit multi-patient requisition sheets, approve line items, and audit inventory acquisitions.
+            Submit multi-patient requisition sheets, review overall item stock quantities, approve line items, and audit inventory acquisitions.
           </p>
         </div>
         {canSubmit && (
@@ -477,20 +563,80 @@ const Requisitions = () => {
 
       {error && <div className="login-error">{error}</div>}
 
+      {/* ── Summary Stat KPI Header ── */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px', marginBottom: '20px' }}>
+        <div className="stat-card" style={{ background: 'var(--theme-card-bg)', borderLeft: '4px solid #3B82F6', padding: '14px 18px', borderRadius: 'var(--border-radius-md)', boxShadow: 'var(--theme-shadow-sm)' }}>
+          <div style={{ fontSize: '11px', color: 'var(--theme-text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: '700' }}>Total Requisitions</div>
+          <div style={{ fontSize: '24px', fontWeight: '800', marginTop: '4px' }}>{logStats.total}</div>
+        </div>
+        <div className="stat-card" style={{ background: 'var(--theme-card-bg)', borderLeft: '4px solid #F59E0B', padding: '14px 18px', borderRadius: 'var(--border-radius-md)', boxShadow: 'var(--theme-shadow-sm)' }}>
+          <div style={{ fontSize: '11px', color: 'var(--theme-text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: '700' }}>Pending Approval</div>
+          <div style={{ fontSize: '24px', fontWeight: '800', marginTop: '4px', color: '#F59E0B' }}>{logStats.pending}</div>
+        </div>
+        <div className="stat-card" style={{ background: 'var(--theme-card-bg)', borderLeft: '4px solid #EF4444', padding: '14px 18px', borderRadius: 'var(--border-radius-md)', boxShadow: 'var(--theme-shadow-sm)' }}>
+          <div style={{ fontSize: '11px', color: 'var(--theme-text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: '700' }}>Stock Shortage Alerts</div>
+          <div style={{ fontSize: '24px', fontWeight: '800', marginTop: '4px', color: logStats.shortageAlerts > 0 ? '#EF4444' : 'var(--theme-text-main)' }}>
+            {logStats.shortageAlerts}
+            {logStats.shortageAlerts > 0 && <span style={{ fontSize: '11px', fontWeight: 'normal', marginLeft: '6px', color: '#EF4444' }}>Needs restock</span>}
+          </div>
+        </div>
+        <div className="stat-card" style={{ background: 'var(--theme-card-bg)', borderLeft: '4px solid #10B981', padding: '14px 18px', borderRadius: 'var(--border-radius-md)', boxShadow: 'var(--theme-shadow-sm)' }}>
+          <div style={{ fontSize: '11px', color: 'var(--theme-text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: '700' }}>Total Requested Units</div>
+          <div style={{ fontSize: '24px', fontWeight: '800', marginTop: '4px', color: '#10B981' }}>{logStats.totalItemsRequested}</div>
+        </div>
+      </div>
+
       <div style={{ display: 'grid', gridTemplateColumns: selectedReq ? '1fr 1.2fr' : '1fr', gap: '24px' }}>
         {/* ── Left Side: Requisition List ── */}
         <div className="widget-card">
-          <div className="widget-header">
-            <span className="widget-title">Requisitions Log ({requisitions.length})</span>
+          <div className="widget-header" style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', justifyContent: 'space-between', alignItems: 'center', paddingBottom: '14px', borderBottom: '1px solid var(--theme-border)' }}>
+            <span className="widget-title" style={{ fontSize: '16px', fontWeight: '700' }}>
+              Requisitions Log ({filteredRequisitions.length})
+            </span>
+            
+            {/* Filter & Search Controls */}
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+              <input
+                type="text"
+                placeholder="Search patient, submitter, item..."
+                className="form-control"
+                value={logSearchQuery}
+                onChange={(e) => { setLogSearchQuery(e.target.value); setCurrentPage(1); }}
+                style={{ width: '200px', padding: '5px 10px', fontSize: '12px' }}
+              />
+              <select
+                className="form-control"
+                value={logStatusFilter}
+                onChange={(e) => { setLogStatusFilter(e.target.value); setCurrentPage(1); }}
+                style={{ width: '135px', padding: '5px 8px', fontSize: '12px' }}
+              >
+                <option value="ALL">All Statuses</option>
+                <option value="PENDING">Pending</option>
+                <option value="PARTIALLY_APPROVED">Partially Approved</option>
+                <option value="FULLY_APPROVED">Fully Approved</option>
+                <option value="REJECTED">Rejected</option>
+                <option value="CANCELLED">Cancelled</option>
+              </select>
+              <select
+                className="form-control"
+                value={logStockFilter}
+                onChange={(e) => { setLogStockFilter(e.target.value); setCurrentPage(1); }}
+                style={{ width: '145px', padding: '5px 8px', fontSize: '12px' }}
+              >
+                <option value="ALL">All Stock Levels</option>
+                <option value="READY">🟢 Ready to Fulfill</option>
+                <option value="SHORTAGE">🔴 Stock Shortage Alert</option>
+              </select>
+            </div>
           </div>
 
           {loading ? (
             <div style={{ padding: '24px', textAlign: 'center', color: 'var(--theme-text-muted)' }}>
               Loading requisitions...
             </div>
-          ) : requisitions.length === 0 ? (
+          ) : filteredRequisitions.length === 0 ? (
             <div style={{ padding: '24px', textAlign: 'center', color: 'var(--theme-text-muted)' }}>
-              No requisitions found. Click "New Requisition Sheet" to get started.
+              {requisitions.length === 0 ? 'No requisitions found. Click "New Requisition Sheet" to get started.' : 'No requisitions match your search and filter criteria.'}
             </div>
           ) : (
             <div style={{ overflowX: 'auto' }}>
@@ -501,66 +647,116 @@ const Requisitions = () => {
                     <th>Session Date</th>
                     <th>Submitted By</th>
                     <th>Status</th>
-                    <th>Items</th>
-                    <th>Actions</th>
+                    <th>Requested Items & Overall Stock Quantity</th>
+                    <th style={{ textAlign: 'right' }}>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {requisitions
+                  {filteredRequisitions
                     .slice((currentPage - 1) * pageSize, currentPage * pageSize)
                     .map(r => {
-                    const isSelected = selectedReq?.id === r.id;
-                    const pendingCount = r.lines?.filter(l => l.status === 'PENDING').length || 0;
-                    return (
-                      <tr
-                        key={r.id}
-                        onClick={() => fetchDetail(r.id)}
-                        style={{
-                          cursor: 'pointer',
-                          backgroundColor: isSelected ? 'var(--theme-card-bg-hover)' : undefined,
-                        }}
-                      >
-                        <td>
-                          <strong>{r.patient?.name}</strong>
-                          <div style={{ fontSize: '11px', color: 'var(--theme-text-muted)' }}>
-                            Chart #{r.patient?.chartNumber}
-                          </div>
-                        </td>
-                        <td>{new Date(r.sessionDate).toLocaleDateString()}</td>
-                        <td>{r.submittedBy?.name}</td>
-                        <td>
-                          <span className={`badge ${STATUS_COLORS[r.status] || 'badge-neutral'}`}>
-                            {r.status.replace(/_/g, ' ')}
-                          </span>
-                        </td>
-                        <td>
-                          {r.lines?.length || 0} line(s)
-                          {pendingCount > 0 && (
-                            <span style={{ fontSize: '11px', marginLeft: '6px', color: 'var(--color-warning)', fontWeight: '600' }}>
-                              ({pendingCount} pending)
+                      const isSelected = selectedReq?.id === r.id;
+                      return (
+                        <tr
+                          key={r.id}
+                          onClick={() => fetchDetail(r.id)}
+                          style={{
+                            cursor: 'pointer',
+                            backgroundColor: isSelected ? 'var(--theme-card-bg-hover)' : undefined,
+                          }}
+                        >
+                          <td>
+                            <strong>{r.patient?.name}</strong>
+                            <div style={{ fontSize: '11px', color: 'var(--theme-text-muted)' }}>
+                              Chart #{r.patient?.chartNumber}
+                            </div>
+                          </td>
+                          <td style={{ fontSize: '12px', whiteSpace: 'nowrap' }}>
+                            {new Date(r.sessionDate).toLocaleDateString()}
+                          </td>
+                          <td style={{ fontSize: '12px' }}>
+                            <div><strong>{r.submittedBy?.name}</strong></div>
+                            <div style={{ fontSize: '10px', color: 'var(--theme-text-muted)' }}>
+                              {r.submittedBy?.role?.replace(/_/g, ' ')}
+                            </div>
+                          </td>
+                          <td>
+                            <span className={`badge ${STATUS_COLORS[r.status] || 'badge-neutral'}`}>
+                              {r.status.replace(/_/g, ' ')}
                             </span>
-                          )}
-                        </td>
-                        <td>
-                          <button
-                            className="btn btn-sm"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              fetchDetail(r.id);
-                            }}
-                          >
-                            View
-                          </button>
-                        </td>
-                      </tr>
-                    );
-                  })}
+                          </td>
+                          <td style={{ minWidth: '260px' }}>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                              {(r.lines || []).map(line => {
+                                const stock = getItemStockInfo(line.item, line.itemId);
+                                const isSufficient = stock.totalQty >= line.qtyRequested;
+
+                                return (
+                                  <div
+                                    key={line.id}
+                                    style={{
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      justify: 'space-between',
+                                      gap: '8px',
+                                      padding: '4px 8px',
+                                      borderRadius: '4px',
+                                      background: line.status === 'APPROVED' ? '#F0FDF4' : line.status === 'REJECTED' ? '#FEF2F2' : 'var(--theme-bg)',
+                                      border: '1px solid var(--theme-border)',
+                                      fontSize: '11px',
+                                    }}
+                                  >
+                                    <div style={{ fontWeight: '600', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap', maxWidth: '130px' }}>
+                                      {line.item?.name}
+                                    </div>
+
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
+                                      <span style={{ color: 'var(--theme-text-muted)' }}>
+                                        Req: <strong>{line.qtyRequested}</strong> {stock.unit}
+                                      </span>
+
+                                      {/* OVERALL QUANTITY BADGE */}
+                                      <span
+                                        title={`Overall Quantity: ${stock.totalQty} ${stock.unit} (Central: ${stock.centralQty} | eCart: ${stock.ecartQty})`}
+                                        style={{
+                                          fontSize: '10px',
+                                          fontWeight: '700',
+                                          padding: '2px 6px',
+                                          borderRadius: '4px',
+                                          whiteSpace: 'nowrap',
+                                          background: isSufficient ? '#DCFCE7' : stock.totalQty > 0 ? '#FEF3C7' : '#FEE2E2',
+                                          color: isSufficient ? '#166534' : stock.totalQty > 0 ? '#92400E' : '#991B1B',
+                                          border: `1px solid ${isSufficient ? '#86EFAC' : stock.totalQty > 0 ? '#FDE68A' : '#FCA5A5'}`,
+                                        }}
+                                      >
+                                        Overall: {stock.totalQty} {stock.unit}
+                                      </span>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </td>
+                          <td style={{ textAlign: 'right' }}>
+                            <button
+                              className="btn btn-sm"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                fetchDetail(r.id);
+                              }}
+                            >
+                              View Detail
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
                 </tbody>
               </table>
 
               <Pagination
                 currentPage={currentPage}
-                totalItems={requisitions.length}
+                totalItems={filteredRequisitions.length}
                 pageSize={pageSize}
                 onPageChange={setCurrentPage}
                 onPageSizeChange={(newSize) => {
@@ -641,27 +837,30 @@ const Requisitions = () => {
                     {selectedReq.lines?.map(line => {
                       const isResubmission = line.isResubmission;
                       const lineLoc = line.location || 'ECART';
-                      const stockLevels = line.item?.stockLevels || [];
-                      const availableStock = stockLevels.find(s => s.location === lineLoc)?.quantityOnHand ?? 0;
+                      const stock = getItemStockInfo(line.item, line.itemId);
+                      const poolStock = lineLoc === 'CENTRAL' ? stock.centralQty : stock.ecartQty;
+                      const isOverallSufficient = stock.totalQty >= line.qtyRequested;
+                      const isPoolSufficient = poolStock >= line.qtyRequested;
 
                       return (
                         <div
                           key={line.id}
                           style={{
-                            padding: '12px 14px',
+                            padding: '14px',
                             background: line.status === 'REJECTED' ? 'var(--color-critical-bg)' : 'var(--theme-bg)',
                             borderRadius: 'var(--border-radius-md)',
-                            borderLeft: `3px solid ${
+                            borderLeft: `4px solid ${
                               line.status === 'APPROVED' ? 'var(--color-success)' :
                               line.status === 'REJECTED' ? 'var(--color-critical)' :
                               line.status === 'CANCELLED' ? 'var(--theme-text-muted)' :
                               'var(--color-warning)'
                             }`,
+                            boxShadow: 'var(--theme-shadow-sm)',
                           }}
                         >
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '6px' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
                             <div>
-                              <strong>{line.item?.name}</strong>
+                              <strong style={{ fontSize: '14px' }}>{line.item?.name}</strong>
                               {isResubmission && (
                                 <span style={{ marginLeft: '8px', fontSize: '10px', padding: '2px 6px', background: 'var(--color-warning)', color: '#fff', borderRadius: '4px' }}>
                                   RESUBMITTED
@@ -673,16 +872,57 @@ const Requisitions = () => {
                             </span>
                           </div>
 
-                          <div style={{ fontSize: '12px', color: 'var(--theme-text-muted)', marginBottom: '8px' }}>
-                            <div>
-                              Target Pool: <span className="badge badge-neutral" style={{ fontSize: '10px', padding: '1px 6px' }}>{lineLoc === 'ECART' ? '🛒 eCart' : '🏢 Central'}</span> • Requested: <strong>{line.qtyRequested}</strong> {line.item?.unit}{canApprove && <> | Pool Stock: <strong>{availableStock}</strong></>}
+                          {/* OVERALL QUANTITY & POOL BREAKDOWN BADGES */}
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '10px', alignItems: 'center' }}>
+                            <div style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '6px',
+                              padding: '4px 10px',
+                              background: isOverallSufficient ? '#ECFDF5' : '#FEF2F2',
+                              border: `1px solid ${isOverallSufficient ? '#A7F3D0' : '#FCA5A5'}`,
+                              borderRadius: '6px',
+                              fontSize: '12px',
+                              fontWeight: '600',
+                              color: isOverallSufficient ? '#065F46' : '#991B1B'
+                            }}>
+                              <span>Overall Quantity: <strong>{stock.totalQty} {stock.unit}</strong></span>
+                              <span style={{ fontSize: '10px', opacity: 0.8 }}>(Central: {stock.centralQty} | eCart: {stock.ecartQty})</span>
                             </div>
+
+                            <span className="badge badge-neutral" style={{ fontSize: '11px', padding: '3px 8px' }}>
+                              Target Pool ({lineLoc === 'ECART' ? '🛒 eCart' : '🏢 Central'}): <strong>{poolStock}</strong> {stock.unit}
+                            </span>
+                          </div>
+
+                          <div style={{ fontSize: '12px', color: 'var(--theme-text-muted)', marginBottom: '8px' }}>
+                            <div>Requested: <strong>{line.qtyRequested}</strong> {line.item?.unit}</div>
                             <div>Notes/Reason: <em>"{line.reason}"</em></div>
                             {line.qtyApproved && (
-                              <div style={{ color: 'var(--color-success)', fontWeight: '600' }}>Approved: {line.qtyApproved} {line.item?.unit}</div>
+                              <div style={{ color: 'var(--color-success)', fontWeight: '600', marginTop: '2px' }}>Approved: {line.qtyApproved} {line.item?.unit}</div>
                             )}
                             {line.rejectionReason && (
-                              <div style={{ color: 'var(--color-critical)', fontWeight: '600' }}>Rejected: {line.rejectionReason}</div>
+                              <div style={{ color: 'var(--color-critical)', fontWeight: '600', marginTop: '2px' }}>Rejected: {line.rejectionReason}</div>
+                            )}
+
+                            {/* Sufficiency Banner for Pending Lines */}
+                            {line.status === 'PENDING' && (
+                              <div style={{
+                                marginTop: '6px',
+                                padding: '6px 10px',
+                                borderRadius: '4px',
+                                fontSize: '11px',
+                                fontWeight: '600',
+                                background: isPoolSufficient ? '#F0FDF4' : isOverallSufficient ? '#FFFBEB' : '#FEF2F2',
+                                color: isPoolSufficient ? '#15803D' : isOverallSufficient ? '#B45309' : '#B91C1C',
+                                border: `1px solid ${isPoolSufficient ? '#BBF7D0' : isOverallSufficient ? '#FDE68A' : '#FECACA'}`
+                              }}>
+                                {isPoolSufficient
+                                  ? `✅ Sufficient stock in ${lineLoc === 'ECART' ? 'eCart' : 'Central'} pool to fulfill requirement.`
+                                  : isOverallSufficient
+                                  ? `⚠️ Target pool (${lineLoc}) has insufficient stock (${poolStock}), but overall total (${stock.totalQty}) is available across locations.`
+                                  : `🔴 Overall stock shortage! Total overall quantity (${stock.totalQty}) is less than requested (${line.qtyRequested}).`}
+                              </div>
                             )}
 
                             {/* FIFO Lot Picking Preview for Pending Lines */}
