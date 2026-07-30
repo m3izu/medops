@@ -229,9 +229,9 @@ const getOne = async (req, res, next) => {
                 } 
               },
             },
-            transactionLogs: {
+            transactions: {
               include: {
-                batch: { select: { id: true, batchNumber: true, expiryDate: true, location: true } }
+                batch: { select: { id: true, batchNo: true, expiryDate: true, location: true } }
               }
             }
           },
@@ -246,7 +246,25 @@ const getOne = async (req, res, next) => {
       return res.status(403).json({ error: 'You do not have permission to view this requisition.' });
     }
 
-    res.json(req_);
+    // Map `transactions` to `transactionLogs` and map `batchNo` to `batchNumber` for frontend compatibility
+    const responseData = {
+      ...req_,
+      lines: (req_.lines || []).map(line => {
+        const transactionLogs = (line.transactions || []).map(t => ({
+          ...t,
+          batch: t.batch ? {
+            ...t.batch,
+            batchNumber: t.batch.batchNo
+          } : null
+        }));
+        return {
+          ...line,
+          transactionLogs
+        };
+      })
+    };
+
+    res.json(responseData);
   } catch (err) { next(err); }
 };
 

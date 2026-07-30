@@ -46,7 +46,7 @@ const calculateFifoAllocation = (line, customQty) => {
     const take = Math.min(batch.quantityRemaining, remaining);
     allocations.push({
       batchId: batch.id,
-      batchNumber: batch.batchNumber,
+      batchNumber: batch.batchNo || batch.batchNumber,
       expiryDate: batch.expiryDate,
       location: batch.location || targetLoc,
       qtyAllocated: take,
@@ -726,7 +726,7 @@ const Requisitions = () => {
                                 <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                                   {line.transactionLogs.map((log, lIdx) => (
                                     <span key={log.id || lIdx} style={{ fontFamily: 'monospace', fontWeight: '600', background: '#D1FAE5', color: '#065F46', padding: '2px 6px', borderRadius: '3px' }}>
-                                      Lot #{log.batch?.batchNumber || 'N/A'} ({log.qty} {line.item?.unit})
+                                      Lot #{log.batch?.batchNo || log.batch?.batchNumber || 'N/A'} ({log.qty} {line.item?.unit})
                                     </span>
                                   ))}
                                 </div>
