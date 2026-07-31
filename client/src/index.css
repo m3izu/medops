@@ -1185,6 +1185,21 @@ code, .font-mono {
 }
 
 @media print {
+  @page {
+    size: landscape;
+    margin: 10mm;
+  }
+
+  .print-page-break {
+    page-break-after: always !important;
+    break-after: page !important;
+  }
+
+  .print-page-no-break {
+    page-break-after: avoid !important;
+    break-after: avoid !important;
+  }
+
   /* Hide sidebar, headers, tables and modals */
   .sidebar, 
   .header-bar, 

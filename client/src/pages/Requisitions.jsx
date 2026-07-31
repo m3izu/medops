@@ -2514,142 +2514,173 @@ const Requisitions = () => {
       )}
 
       {/* ── HIDDEN PRINTABLE REQUISITION SHEET AREA FOR WINDOW.PRINT() ── */}
-      {activePrintData && (
-        <div id="printable-requisition-area" style={{ padding: '24px', fontFamily: 'sans-serif', color: '#1e293b' }}>
-          {/* Official Printable Header */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', borderBottom: '3px solid #1e3a8a', paddingBottom: '12px', marginBottom: '16px' }}>
-            <div>
-              <h1 style={{ margin: 0, fontSize: '22px', fontWeight: '800', color: '#1e3a8a', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                MEDOPS CLINICAL REQUISITION SHEET
-              </h1>
-              <div style={{ fontSize: '12px', color: '#475569', marginTop: '4px' }}>
-                Official Medical Inventory Acquisition & Patient Session Form
-              </div>
-            </div>
-            <div style={{ textAlign: 'right', fontSize: '12px', color: '#334155' }}>
-              <div><strong>Session Date:</strong> {activePrintData.displayDate || activePrintData.sessionDate}</div>
-              <div><strong>Generated:</strong> {new Date().toLocaleString()}</div>
-              <div><strong>Printed By:</strong> {user?.name || 'System User'} ({user?.role?.replace(/_/g, ' ')})</div>
-            </div>
-          </div>
+      {activePrintData && (() => {
+        const PATIENT_COLUMNS_PER_PAGE = 5;
+        const allCols = activePrintData.columns || [];
+        
+        // Split columns into chunks of MAX 5 patient columns per page
+        const columnChunks = [];
+        for (let i = 0; i < allCols.length; i += PATIENT_COLUMNS_PER_PAGE) {
+          columnChunks.push(allCols.slice(i, i + PATIENT_COLUMNS_PER_PAGE));
+        }
+        if (columnChunks.length === 0) {
+          columnChunks.push([{ patientId: 'ADDITIONAL', notes: '', isAdditional: true }]);
+        }
 
-          {/* Metadata Summary Banner */}
-          <div style={{ display: 'flex', gap: '20px', background: '#f8fafc', border: '1px solid #cbd5e1', padding: '8px 14px', borderRadius: '4px', marginBottom: '16px', fontSize: '12px' }}>
-            <div><strong>Total Patients Included:</strong> {activePrintData.columns?.filter(c => !c.isAdditional).length || 0}</div>
-            <div><strong>Station Stock (Additional):</strong> {activePrintData.columns?.some(c => c.isAdditional) ? 'Yes' : 'No'}</div>
-            <div><strong>Unique Items Requested:</strong> {activePrintData.itemIds?.length || 0}</div>
-          </div>
+        const totalPages = columnChunks.length;
 
-          {/* Printable Grid Table */}
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11px', marginBottom: '24px' }}>
-            <thead>
-              <tr style={{ background: '#f1f5f9' }}>
-                <th style={{ border: '1px solid #94a3b8', padding: '8px', textAlign: 'left', minWidth: '220px' }}>
-                  ITEM CLASSIFICATIONS & DESCRIPTION
-                </th>
-                {activePrintData.columns.map((col, cIdx) => {
-                  if (col.isAdditional) {
-                    return (
-                      <th key="add" style={{ border: '1px solid #94a3b8', padding: '6px', textAlign: 'center', background: '#fef3c7', color: '#92400e' }}>
-                        <div style={{ fontWeight: '700' }}>ADDITIONAL</div>
-                        <div style={{ fontSize: '9px', fontWeight: 'normal' }}>Station Stock</div>
-                      </th>
-                    );
-                  }
-                  const pat = patients.find(p => p.id === col.patientId);
-                  return (
-                    <th key={col.patientId || cIdx} style={{ border: '1px solid #94a3b8', padding: '6px', textAlign: 'center' }}>
-                      <div style={{ fontWeight: '700' }}>{pat?.name || 'Patient'}</div>
-                      <div style={{ fontSize: '9px', color: '#64748b' }}>#{pat?.chartNumber || 'N/A'}</div>
-                    </th>
-                  );
-                })}
-                <th style={{ border: '1px solid #94a3b8', padding: '8px', textAlign: 'center', background: '#e0f2fe', color: '#0369a1', fontWeight: '700' }}>
-                  TOTAL
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {CLASSIFICATIONS.map(cls => {
-                const clsItemIds = (activePrintData.itemIds || []).filter(id => {
-                  const found = items.find(i => i.id === id);
-                  return found && (found.itemType || 'MEDICAL_CONSUMABLE') === cls.key;
-                });
+        return (
+          <div id="printable-requisition-area" style={{ padding: '0', fontFamily: 'sans-serif', color: '#1e293b' }}>
+            {columnChunks.map((chunkCols, chunkIdx) => {
+              const isLastPage = chunkIdx === totalPages - 1;
 
-                if (clsItemIds.length === 0) return null;
+              return (
+                <div
+                  key={chunkIdx}
+                  className={isLastPage ? 'print-page-no-break' : 'print-page-break'}
+                  style={{ padding: '24px', boxSizing: 'border-box' }}
+                >
+                  {/* Official Printable Header */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', borderBottom: '3px solid #1e3a8a', paddingBottom: '12px', marginBottom: '16px' }}>
+                    <div>
+                      <h1 style={{ margin: 0, fontSize: '20px', fontWeight: '800', color: '#1e3a8a', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                        MEDOPS CLINICAL REQUISITION SHEET
+                      </h1>
+                      <div style={{ fontSize: '11px', color: '#475569', marginTop: '2px' }}>
+                        Official Medical Inventory Acquisition Form (Page {chunkIdx + 1} of {totalPages})
+                      </div>
+                    </div>
+                    <div style={{ textAlign: 'right', fontSize: '11px', color: '#334155' }}>
+                      <div><strong>Session Date:</strong> {activePrintData.displayDate || activePrintData.sessionDate}</div>
+                      <div><strong>Generated:</strong> {new Date().toLocaleString()}</div>
+                      <div><strong>Printed By:</strong> {user?.name || 'System User'} ({user?.role?.replace(/_/g, ' ')})</div>
+                    </div>
+                  </div>
 
-                return (
-                  <React.Fragment key={cls.key}>
-                    <tr style={{ background: cls.bgColor }}>
-                      <td colSpan={activePrintData.columns.length + 2} style={{ border: '1px solid #94a3b8', padding: '6px 10px', fontWeight: '700', color: cls.color }}>
-                        {cls.label} ({clsItemIds.length} items)
-                      </td>
-                    </tr>
-                    {clsItemIds.map(itemId => {
-                      const item = items.find(i => i.id === itemId);
-                      if (!item) return null;
+                  {/* Metadata Summary Banner */}
+                  <div style={{ display: 'flex', gap: '20px', background: '#f8fafc', border: '1px solid #cbd5e1', padding: '6px 12px', borderRadius: '4px', marginBottom: '14px', fontSize: '11px' }}>
+                    <div><strong>Session Date:</strong> {activePrintData.displayDate || activePrintData.sessionDate}</div>
+                    <div><strong>Total Patients:</strong> {allCols.filter(c => !c.isAdditional).length}</div>
+                    <div><strong>Page Subset:</strong> Columns {chunkIdx * PATIENT_COLUMNS_PER_PAGE + 1}–{Math.min((chunkIdx + 1) * PATIENT_COLUMNS_PER_PAGE, allCols.length)}</div>
+                    <div><strong>Page:</strong> {chunkIdx + 1} of {totalPages}</div>
+                  </div>
 
-                      let rowTotal = 0;
-                      activePrintData.columns.forEach(col => {
-                        const qty = activePrintData.quantities[`${col.patientId}_${item.id}`];
-                        if (qty && qty > 0) rowTotal += Number(qty);
-                      });
-
-                      return (
-                        <tr key={item.id}>
-                          <td style={{ border: '1px solid #cbd5e1', padding: '6px 10px', fontWeight: '600' }}>
-                            {item.name} <span style={{ fontSize: '9px', color: '#64748b' }}>({item.sku} | {item.unit})</span>
-                          </td>
-                          {activePrintData.columns.map(col => {
-                            const qty = activePrintData.quantities[`${col.patientId}_${item.id}`] || '';
+                  {/* Printable Grid Table for this Chunk */}
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11px', marginBottom: '16px' }}>
+                    <thead>
+                      <tr style={{ background: '#f1f5f9' }}>
+                        <th style={{ border: '1px solid #94a3b8', padding: '6px 8px', textAlign: 'left', minWidth: '200px' }}>
+                          ITEM CLASSIFICATIONS & DESCRIPTION
+                        </th>
+                        {chunkCols.map((col, cIdx) => {
+                          if (col.isAdditional) {
                             return (
-                              <td key={col.patientId} style={{ border: '1px solid #cbd5e1', padding: '6px', textAlign: 'center', fontWeight: qty ? '700' : 'normal' }}>
-                                {qty || '—'}
-                              </td>
+                              <th key="add" style={{ border: '1px solid #94a3b8', padding: '6px', textAlign: 'center', background: '#fef3c7', color: '#92400e' }}>
+                                <div style={{ fontWeight: '700' }}>ADDITIONAL</div>
+                                <div style={{ fontSize: '9px', fontWeight: 'normal' }}>Station Stock</div>
+                              </th>
                             );
-                          })}
-                          <td style={{ border: '1px solid #94a3b8', padding: '6px', textAlign: 'center', fontWeight: '800', background: '#f0f9ff', color: '#0369a1' }}>
-                            {rowTotal}
+                          }
+                          const pat = patients.find(p => p.id === col.patientId);
+                          return (
+                            <th key={col.patientId || cIdx} style={{ border: '1px solid #94a3b8', padding: '6px', textAlign: 'center' }}>
+                              <div style={{ fontWeight: '700' }}>{pat?.name || 'Patient'}</div>
+                              <div style={{ fontSize: '9px', color: '#64748b' }}>#{pat?.chartNumber || 'N/A'}</div>
+                            </th>
+                          );
+                        })}
+                        <th style={{ border: '1px solid #94a3b8', padding: '6px 8px', textAlign: 'center', background: '#e0f2fe', color: '#0369a1', fontWeight: '700' }}>
+                          {isLastPage ? 'TOTAL' : 'SUBTOTAL'}
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {CLASSIFICATIONS.map(cls => {
+                        const clsItemIds = (activePrintData.itemIds || []).filter(id => {
+                          const found = items.find(i => i.id === id);
+                          return found && (found.itemType || 'MEDICAL_CONSUMABLE') === cls.key;
+                        });
+
+                        if (clsItemIds.length === 0) return null;
+
+                        return (
+                          <React.Fragment key={cls.key}>
+                            <tr style={{ background: cls.bgColor }}>
+                              <td colSpan={chunkCols.length + 2} style={{ border: '1px solid #94a3b8', padding: '5px 8px', fontWeight: '700', color: cls.color }}>
+                                {cls.label} ({clsItemIds.length} items)
+                              </td>
+                            </tr>
+                            {clsItemIds.map(itemId => {
+                              const item = items.find(i => i.id === itemId);
+                              if (!item) return null;
+
+                              let chunkTotal = 0;
+                              chunkCols.forEach(col => {
+                                const qty = activePrintData.quantities[`${col.patientId}_${item.id}`];
+                                if (qty && qty > 0) chunkTotal += Number(qty);
+                              });
+
+                              return (
+                                <tr key={item.id}>
+                                  <td style={{ border: '1px solid #cbd5e1', padding: '5px 8px', fontWeight: '600' }}>
+                                    {item.name} <span style={{ fontSize: '9px', color: '#64748b' }}>({item.sku} | {item.unit})</span>
+                                  </td>
+                                  {chunkCols.map(col => {
+                                    const qty = activePrintData.quantities[`${col.patientId}_${item.id}`] || '';
+                                    return (
+                                      <td key={col.patientId} style={{ border: '1px solid #cbd5e1', padding: '5px', textAlign: 'center', fontWeight: qty ? '700' : 'normal' }}>
+                                        {qty || '—'}
+                                      </td>
+                                    );
+                                  })}
+                                  <td style={{ border: '1px solid #94a3b8', padding: '5px', textAlign: 'center', fontWeight: '800', background: '#f0f9ff', color: '#0369a1' }}>
+                                    {chunkTotal}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </React.Fragment>
+                        );
+                      })}
+
+                      {/* Patient Notes Row */}
+                      <tr style={{ background: '#f8fafc' }}>
+                        <td style={{ border: '1px solid #94a3b8', padding: '6px 8px', fontWeight: '700' }}>
+                          PATIENT SESSION NOTES / REMARKS
+                        </td>
+                        {chunkCols.map(col => (
+                          <td key={col.patientId} style={{ border: '1px solid #cbd5e1', padding: '5px', fontSize: '9px' }}>
+                            {col.notes || '—'}
                           </td>
-                        </tr>
-                      );
-                    })}
-                  </React.Fragment>
-                );
-              })}
+                        ))}
+                        <td style={{ border: '1px solid #94a3b8', background: '#f0f9ff' }}></td>
+                      </tr>
+                    </tbody>
+                  </table>
 
-              {/* Patient Notes Row */}
-              <tr style={{ background: '#f8fafc' }}>
-                <td style={{ border: '1px solid #94a3b8', padding: '8px', fontWeight: '700' }}>
-                  PATIENT SESSION NOTES / REMARKS
-                </td>
-                {activePrintData.columns.map(col => (
-                  <td key={col.patientId} style={{ border: '1px solid #cbd5e1', padding: '6px', fontSize: '10px' }}>
-                    {col.notes || '—'}
-                  </td>
-                ))}
-                <td style={{ border: '1px solid #94a3b8', background: '#f0f9ff' }}></td>
-              </tr>
-            </tbody>
-          </table>
-
-          {/* Official Signature Audit Footer */}
-          <div style={{ marginTop: '36px', paddingTop: '16px', borderTop: '2px solid #94a3b8', display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '24px', fontSize: '11px' }}>
-            <div>
-              <div style={{ fontWeight: '700', marginBottom: '32px' }}>SUBMITTED BY (Clinical Nurse):</div>
-              <div style={{ borderTop: '1px dashed #64748b', paddingTop: '4px' }}>Signature & Date</div>
-            </div>
-            <div>
-              <div style={{ fontWeight: '700', marginBottom: '32px' }}>APPROVED BY (Inventory Manager):</div>
-              <div style={{ borderTop: '1px dashed #64748b', paddingTop: '4px' }}>Signature & Date</div>
-            </div>
-            <div>
-              <div style={{ fontWeight: '700', marginBottom: '32px' }}>DISPENSED / RECEIVED BY:</div>
-              <div style={{ borderTop: '1px dashed #64748b', paddingTop: '4px' }}>Signature & Date</div>
-            </div>
+                  {/* Render Signatures only on the final page */}
+                  {isLastPage && (
+                    <div style={{ marginTop: '24px', paddingTop: '12px', borderTop: '2px solid #94a3b8', display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '20px', fontSize: '10px' }}>
+                      <div>
+                        <div style={{ fontWeight: '700', marginBottom: '24px' }}>SUBMITTED BY (Clinical Nurse):</div>
+                        <div style={{ borderTop: '1px dashed #64748b', paddingTop: '4px' }}>Signature & Date</div>
+                      </div>
+                      <div>
+                        <div style={{ fontWeight: '700', marginBottom: '24px' }}>APPROVED BY (Inventory Manager):</div>
+                        <div style={{ borderTop: '1px dashed #64748b', paddingTop: '4px' }}>Signature & Date</div>
+                      </div>
+                      <div>
+                        <div style={{ fontWeight: '700', marginBottom: '24px' }}>DISPENSED / RECEIVED BY:</div>
+                        <div style={{ borderTop: '1px dashed #64748b', paddingTop: '4px' }}>Signature & Date</div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
-        </div>
-      )}
+        );
+      })()}
     </div>
   );
 };
