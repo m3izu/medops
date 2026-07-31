@@ -145,6 +145,10 @@ const create = async (req, res, next) => {
           throw new Error(`Concurrent modification detected: Insufficient stock level in ${targetLocation} for "${item.name}".`);
         }
 
+        const rawDispensedAt = line.dispensedAt || req.body.dispensedAt;
+        const parsedDispensedAt = rawDispensedAt ? new Date(rawDispensedAt) : new Date();
+        const customDispensedAt = isNaN(parsedDispensedAt.getTime()) ? new Date() : parsedDispensedAt;
+
         // 6. Create DispenseLog
         const dispenseLog = await tx.dispenseLog.create({
           data: {
@@ -155,6 +159,8 @@ const create = async (req, res, next) => {
             qty: lineQty,
             dispensedById: req.user.id,
             notes: lineNotes,
+            dispensedAt: customDispensedAt,
+            createdAt: new Date(),
             billingStatus: 'PENDING',
           },
         });

@@ -46,14 +46,16 @@ const CashierLog = () => {
 
   const exportCashierCSV = () => {
     if (!filteredLogs.length) return;
-    const headers = ['Dispense ID', 'Date & Time', 'Patient Name', 'Chart #', 'Item Dispensed', 'Quantity', 'Dispensed By', 'Billing Status'];
+    const headers = ['Dispense ID', 'Dispense Date', 'Date of Log', 'Patient Name', 'Chart #', 'Item Dispensed', 'Quantity', 'Notes / Remarks', 'Dispensed By', 'Billing Status'];
     const rows = filteredLogs.map((log) => [
       `"${log.id.slice(-6).toUpperCase()}"`,
       `"${new Date(log.dispensedAt).toLocaleString()}"`,
+      `"${new Date(log.createdAt || log.dispensedAt).toLocaleString()}"`,
       `"${(log.patient?.name || '').replace(/"/g, '""')}"`,
       `"${(log.patient?.chartNumber || '').replace(/"/g, '""')}"`,
       `"${(log.item?.name || '').replace(/"/g, '""')}"`,
-      log.quantity,
+      log.qty ?? log.quantity,
+      `"${(log.notes || '').replace(/"/g, '""')}"`,
       `"${(log.dispensedBy?.name || '').replace(/"/g, '""')}"`,
       `"${log.billingStatus}"`,
     ]);
@@ -163,7 +165,8 @@ const CashierLog = () => {
       log.patient?.chartNumber?.toLowerCase().includes(query) ||
       log.item?.name?.toLowerCase().includes(query) ||
       log.item?.sku?.toLowerCase().includes(query) ||
-      log.dispensedBy?.name?.toLowerCase().includes(query)
+      log.dispensedBy?.name?.toLowerCase().includes(query) ||
+      log.notes?.toLowerCase().includes(query)
     );
   });
 
@@ -359,11 +362,13 @@ const CashierLog = () => {
                       />
                     </th>
                   )}
-                  <th>Date & Time</th>
+                  <th>Dispense Date</th>
+                  <th>Date of Log</th>
                   <th>Location</th>
                   <th>Patient Info</th>
                   <th>Item Details</th>
                   <th>Dispensed Qty</th>
+                  <th>Notes / Remarks</th>
                   <th>Dispensed By</th>
                   <th>Status</th>
                   {statusFilter === 'PENDING' && <th style={{ textAlign: 'right' }}>Actions</th>}
@@ -391,8 +396,11 @@ const CashierLog = () => {
                           )}
                         </td>
                       )}
-                      <td style={{ fontSize: '12px', color: 'var(--theme-text-muted)' }}>
+                      <td style={{ fontSize: '12px', color: 'var(--theme-text-bold)', fontWeight: '600' }}>
                         {formatDate(log.dispensedAt)}
+                      </td>
+                      <td style={{ fontSize: '11px', color: 'var(--theme-text-muted)' }}>
+                        {formatDate(log.createdAt || log.dispensedAt)}
                       </td>
                       <td>
                         <span className="badge badge-neutral" style={{ fontSize: '11px' }}>
@@ -440,6 +448,15 @@ const CashierLog = () => {
                             </div>
                           );
                         })()}
+                      </td>
+                      <td style={{ fontSize: '12px', color: 'var(--theme-text-muted)', maxWidth: '180px' }}>
+                        {log.notes ? (
+                          <div style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                            <HighlightText text={log.notes} search={searchQuery} />
+                          </div>
+                        ) : (
+                          <span style={{ opacity: 0.4 }}>—</span>
+                        )}
                       </td>
                       <td>
                         <div style={{ fontWeight: '500', color: 'var(--theme-text-bold)', fontSize: '12px' }}>

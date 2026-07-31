@@ -445,6 +445,7 @@ model DispenseLog {
   dispensedById String    @map("dispensed_by_id") // the nurse
   notes         String?
   dispensedAt   DateTime  @default(now()) @map("dispensed_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
 
   // Cashier acknowledgment — no veto power, one-way record
   billingStatus String    @default("PENDING") @map("billing_status") // PENDING | RECORDED

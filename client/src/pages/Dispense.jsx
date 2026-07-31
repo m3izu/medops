@@ -268,6 +268,7 @@ const Dispense = () => {
   const [patients, setPatients] = useState([]);
   const [dispensableItems, setDispensableItems] = useState([]);
   const [patientId, setPatientId] = useState(initialPatientId);
+  const [dispensedAt, setDispensedAt] = useState(new Date().toISOString().substring(0, 10));
 
   // Multi-item rows state
   const [lines, setLines] = useState([
@@ -387,6 +388,7 @@ const Dispense = () => {
       setIsSubmitting(true);
       const payload = {
         patientId,
+        dispensedAt,
         items: lines.map((l) => ({
           itemId: l.itemId,
           location: l.location,
@@ -464,22 +466,47 @@ const Dispense = () => {
           )}
 
           <form onSubmit={handleSubmit}>
-            {/* Patient Selection */}
-            <div className="form-group" style={{ maxWidth: '420px', marginBottom: '24px' }}>
-              <label className="form-label">Patient *</label>
-              <select
-                className="form-control"
-                value={patientId}
-                onChange={(e) => setPatientId(e.target.value)}
-                required
-              >
-                <option value="">Select active patient...</option>
-                {patients.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name} ({p.chartNumber})
-                  </option>
-                ))}
-              </select>
+            {/* Patient Selection & Dates */}
+            <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', marginBottom: '24px', alignItems: 'flex-start' }}>
+              <div className="form-group" style={{ flex: '2', minWidth: '260px' }}>
+                <label className="form-label">Patient *</label>
+                <select
+                  className="form-control"
+                  value={patientId}
+                  onChange={(e) => setPatientId(e.target.value)}
+                  required
+                >
+                  <option value="">Select active patient...</option>
+                  {patients.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name} ({p.chartNumber})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="form-group" style={{ flex: '1', minWidth: '180px' }}>
+                <label className="form-label">Dispense Date *</label>
+                <input
+                  type="date"
+                  className="form-control"
+                  value={dispensedAt}
+                  onChange={(e) => setDispensedAt(e.target.value)}
+                  required
+                />
+              </div>
+
+              <div className="form-group" style={{ flex: '1', minWidth: '180px' }}>
+                <label className="form-label">Date of Log</label>
+                <input
+                  type="text"
+                  className="form-control"
+                  value={`${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`}
+                  readOnly
+                  disabled
+                  style={{ background: 'var(--theme-bg)', opacity: 0.75 }}
+                />
+              </div>
             </div>
 
             {/* Dynamic Items Table */}
@@ -666,7 +693,8 @@ const Dispense = () => {
             <table className="table">
               <thead>
                 <tr>
-                  <th>Date & Time</th>
+                  <th>Dispense Date</th>
+                  <th>Date of Log</th>
                   <th>Location</th>
                   <th>Patient</th>
                   <th>Item</th>
@@ -683,8 +711,11 @@ const Dispense = () => {
                   const loc = log.location || 'ECART';
                   return (
                     <tr key={log.id}>
-                      <td style={{ fontSize: '12px', color: 'var(--theme-text-muted)' }}>
+                      <td style={{ fontSize: '12px', color: 'var(--theme-text-bold)', fontWeight: '600' }}>
                         {formatDate(log.dispensedAt)}
+                      </td>
+                      <td style={{ fontSize: '11px', color: 'var(--theme-text-muted)' }}>
+                        {formatDate(log.createdAt || log.dispensedAt)}
                       </td>
                       <td>
                         <span className="badge badge-neutral" style={{ fontSize: '11px' }}>
