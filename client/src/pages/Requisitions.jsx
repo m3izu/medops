@@ -200,6 +200,7 @@ const Requisitions = () => {
   const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
   const [printSessionDate, setPrintSessionDate] = useState('');
   const [activePrintData, setActivePrintData] = useState(null);
+  const [printLayoutMode, setPrintLayoutMode] = useState('ONE_PAGE'); // 'ONE_PAGE' | 'MULTI_PAGE'
 
   const buildPrintDataForDate = useCallback((targetDateKey) => {
     if (!targetDateKey) return;
@@ -2384,34 +2385,75 @@ const Requisitions = () => {
             </div>
 
             <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', background: 'var(--theme-bg)', padding: '12px', borderRadius: '6px' }}>
-                <label style={{ fontWeight: '700', fontSize: '13px' }}>Select Session Date:</label>
-                <select
-                  className="form-control"
-                  value={printSessionDate}
-                  onChange={e => {
-                    setPrintSessionDate(e.target.value);
-                    buildPrintDataForDate(e.target.value);
-                  }}
-                  style={{ width: '280px' }}
-                >
-                  <option value={getNormalizedDateKey(new Date())}>Today ({new Date().toLocaleDateString()})</option>
-                  {pastSessionPresets.map(p => (
-                    <option key={p.dateKey} value={p.dateKey}>
-                      Session: {p.displayDate} ({p.patientIds.size} Patients, {p.itemIds.size} Items)
-                    </option>
-                  ))}
-                </select>
-                <input
-                  type="date"
-                  className="form-control"
-                  value={printSessionDate}
-                  onChange={e => {
-                    setPrintSessionDate(e.target.value);
-                    buildPrintDataForDate(e.target.value);
-                  }}
-                  style={{ width: '160px' }}
-                />
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--theme-bg)', padding: '12px', borderRadius: '6px', flexWrap: 'wrap', gap: '12px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  <label style={{ fontWeight: '700', fontSize: '13px' }}>Session Date:</label>
+                  <select
+                    className="form-control"
+                    value={printSessionDate}
+                    onChange={e => {
+                      setPrintSessionDate(e.target.value);
+                      buildPrintDataForDate(e.target.value);
+                    }}
+                    style={{ width: '250px' }}
+                  >
+                    <option value={getNormalizedDateKey(new Date())}>Today ({new Date().toLocaleDateString()})</option>
+                    {pastSessionPresets.map(p => (
+                      <option key={p.dateKey} value={p.dateKey}>
+                        Session: {p.displayDate} ({p.patientIds.size} Patients, {p.itemIds.size} Items)
+                      </option>
+                    ))}
+                  </select>
+                  <input
+                    type="date"
+                    className="form-control"
+                    value={printSessionDate}
+                    onChange={e => {
+                      setPrintSessionDate(e.target.value);
+                      buildPrintDataForDate(e.target.value);
+                    }}
+                    style={{ width: '150px' }}
+                  />
+                </div>
+
+                {/* Print Layout Format Toggle */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <label style={{ fontSize: '12px', fontWeight: '700', color: 'var(--theme-text-muted)' }}>Print Format:</label>
+                  <div style={{ display: 'inline-flex', background: 'var(--theme-card-bg)', padding: '3px', borderRadius: '6px', border: '1px solid var(--theme-border)' }}>
+                    <button
+                      type="button"
+                      onClick={() => setPrintLayoutMode('ONE_PAGE')}
+                      style={{
+                        border: 'none',
+                        background: printLayoutMode === 'ONE_PAGE' ? 'var(--color-primary, #1E40AF)' : 'transparent',
+                        color: printLayoutMode === 'ONE_PAGE' ? '#ffffff' : 'var(--theme-text-muted)',
+                        fontWeight: printLayoutMode === 'ONE_PAGE' ? '700' : '500',
+                        fontSize: '11px',
+                        padding: '4px 10px',
+                        borderRadius: '4px',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      📄 1-Page A4 Compress (24–30 Patients)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPrintLayoutMode('MULTI_PAGE')}
+                      style={{
+                        border: 'none',
+                        background: printLayoutMode === 'MULTI_PAGE' ? 'var(--color-primary, #1E40AF)' : 'transparent',
+                        color: printLayoutMode === 'MULTI_PAGE' ? '#ffffff' : 'var(--theme-text-muted)',
+                        fontWeight: printLayoutMode === 'MULTI_PAGE' ? '700' : '500',
+                        fontSize: '11px',
+                        padding: '4px 10px',
+                        borderRadius: '4px',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      📖 Multi-Page Expanded View
+                    </button>
+                  </div>
+                </div>
               </div>
 
               {/* On-Screen Print Preview */}
@@ -2515,6 +2557,131 @@ const Requisitions = () => {
 
       {/* ── HIDDEN PRINTABLE REQUISITION SHEET AREA FOR WINDOW.PRINT() ── */}
       {activePrintData && (() => {
+        if (printLayoutMode === 'ONE_PAGE') {
+          const allCols = activePrintData.columns || [];
+
+          return (
+            <div id="printable-requisition-area" className="print-page-no-break" style={{ padding: '12px', fontFamily: 'sans-serif', color: '#1e293b' }}>
+              {/* Header */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '2px solid #1e3a8a', paddingBottom: '6px', marginBottom: '8px' }}>
+                <div>
+                  <h1 style={{ margin: 0, fontSize: '15px', fontWeight: '800', color: '#1e3a8a', letterSpacing: '0.5px' }}>
+                    MEDOPS CLINICAL REQUISITION SHEET
+                  </h1>
+                  <div style={{ fontSize: '9px', color: '#475569' }}>
+                    Daily Patient Session Acquisition Summary (1-Page A4 Sheet)
+                  </div>
+                </div>
+                <div style={{ textAlign: 'right', fontSize: '9px', color: '#334155' }}>
+                  <span><strong>Date:</strong> {activePrintData.displayDate || activePrintData.sessionDate}</span> | 
+                  <span> <strong>Patients:</strong> {allCols.filter(c => !c.isAdditional).length}</span> | 
+                  <span> <strong>Printed By:</strong> {user?.name || 'System User'} ({new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })})</span>
+                </div>
+              </div>
+
+              {/* Printable Compressed Matrix Table */}
+              <table className="print-one-page-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: '8px', marginBottom: '10px' }}>
+                <thead>
+                  <tr style={{ background: '#f1f5f9' }}>
+                    <th style={{ border: '1px solid #94a3b8', padding: '4px', textAlign: 'left', minWidth: '150px' }}>
+                      ITEM DESCRIPTION
+                    </th>
+                    {allCols.map((col, cIdx) => {
+                      if (col.isAdditional) {
+                        return (
+                          <th key="add" className="vertical-header" style={{ border: '1px solid #94a3b8', background: '#fef3c7', color: '#92400e', width: '22px' }}>
+                            STATION STOCK
+                          </th>
+                        );
+                      }
+                      const pat = patients.find(p => p.id === col.patientId);
+                      const name = pat?.name || 'Patient';
+                      const chart = pat?.chartNumber ? `#${pat.chartNumber}` : '';
+                      return (
+                        <th key={col.patientId || cIdx} className="vertical-header" style={{ border: '1px solid #94a3b8', width: '22px' }}>
+                          {name} {chart}
+                        </th>
+                      );
+                    })}
+                    <th style={{ border: '1px solid #94a3b8', padding: '4px', textAlign: 'center', background: '#e0f2fe', color: '#0369a1', fontWeight: '700', width: '35px' }}>
+                      TOTAL
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {CLASSIFICATIONS.map(cls => {
+                    const clsItemIds = (activePrintData.itemIds || []).filter(id => {
+                      const found = items.find(i => i.id === id);
+                      return found && (found.itemType || 'MEDICAL_CONSUMABLE') === cls.key;
+                    });
+
+                    if (clsItemIds.length === 0) return null;
+
+                    return (
+                      <React.Fragment key={cls.key}>
+                        <tr style={{ background: cls.bgColor }}>
+                          <td colSpan={allCols.length + 2} style={{ border: '1px solid #94a3b8', padding: '3px 6px', fontWeight: '700', color: cls.color, fontSize: '8px' }}>
+                            {cls.label} ({clsItemIds.length})
+                          </td>
+                        </tr>
+                        {clsItemIds.map(itemId => {
+                          const item = items.find(i => i.id === itemId);
+                          if (!item) return null;
+
+                          let rowTotal = 0;
+                          allCols.forEach(col => {
+                            const qty = activePrintData.quantities[`${col.patientId}_${item.id}`];
+                            if (qty && qty > 0) rowTotal += Number(qty);
+                          });
+
+                          return (
+                            <tr key={item.id}>
+                              <td style={{ border: '1px solid #cbd5e1', padding: '2px 4px', fontWeight: '600', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '160px' }}>
+                                {item.name} <span style={{ fontSize: '7px', color: '#64748b' }}>({item.unit})</span>
+                              </td>
+                              {allCols.map(col => {
+                                const qty = activePrintData.quantities[`${col.patientId}_${item.id}`] || '';
+                                return (
+                                  <td key={col.patientId} style={{ border: '1px solid #cbd5e1', padding: '2px 1px', textAlign: 'center', fontWeight: qty ? '700' : 'normal', fontSize: '8px' }}>
+                                    {qty || '—'}
+                                  </td>
+                                );
+                              })}
+                              <td style={{ border: '1px solid #94a3b8', padding: '2px 1px', textAlign: 'center', fontWeight: '800', background: '#f0f9ff', color: '#0369a1', fontSize: '8px' }}>
+                                {rowTotal}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </React.Fragment>
+                    );
+                  })}
+
+                  {/* Patient Notes */}
+                  <tr style={{ background: '#f8fafc' }}>
+                    <td style={{ border: '1px solid #94a3b8', padding: '3px 6px', fontWeight: '700', fontSize: '8px' }}>
+                      SESSION REMARKS
+                    </td>
+                    {allCols.map(col => (
+                      <td key={col.patientId} style={{ border: '1px solid #cbd5e1', padding: '2px 1px', fontSize: '6px', textAlign: 'center', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
+                        {col.notes || '—'}
+                      </td>
+                    ))}
+                    <td style={{ border: '1px solid #94a3b8', background: '#f0f9ff' }}></td>
+                  </tr>
+                </tbody>
+              </table>
+
+              {/* Sleek Single-Line Signature Strip */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1.5px solid #94a3b8', paddingTop: '6px', fontSize: '8px', gap: '16px' }}>
+                <div style={{ flex: 1 }}><strong>Nurse:</strong> ______________________ (Sig & Date)</div>
+                <div style={{ flex: 1 }}><strong>Manager:</strong> ______________________ (Sig & Date)</div>
+                <div style={{ flex: 1 }}><strong>Received By:</strong> ______________________ (Sig & Date)</div>
+              </div>
+            </div>
+          );
+        }
+
         const PATIENT_COLUMNS_PER_PAGE = 5;
         const allCols = activePrintData.columns || [];
         

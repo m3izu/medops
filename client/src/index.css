@@ -1187,7 +1187,7 @@ code, .font-mono {
 @media print {
   @page {
     size: landscape;
-    margin: 10mm;
+    margin: 4mm 5mm;
   }
 
   .print-page-break {
@@ -1198,6 +1198,28 @@ code, .font-mono {
   .print-page-no-break {
     page-break-after: avoid !important;
     break-after: avoid !important;
+  }
+
+  .vertical-header {
+    writing-mode: vertical-rl !important;
+    transform: rotate(180deg) !important;
+    white-space: nowrap !important;
+    height: 100px !important;
+    padding: 4px 2px !important;
+    text-align: left !important;
+    vertical-align: bottom !important;
+    line-height: 1.1 !important;
+  }
+
+  .print-one-page-table {
+    font-size: 8px !important;
+    border-collapse: collapse !important;
+    width: 100% !important;
+  }
+
+  .print-one-page-table td,
+  .print-one-page-table th {
+    padding: 2px 1px !important;
   }
 
   /* Hide sidebar, headers, tables and modals */
