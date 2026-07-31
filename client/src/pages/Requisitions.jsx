@@ -88,6 +88,198 @@ const Requisitions = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [searchQuery, setSearchQuery] = useState({});
 
+  // ── Draft State ──
+  const [hasSavedDraft, setHasSavedDraft] = useState(false);
+  const [draftSavedAt, setDraftSavedAt] = useState(null);
+
+  const draftStorageKey = useMemo(() => {
+    return user?.id ? `medops_req_draft_${user.id}` : 'medops_req_draft';
+  }, [user?.id]);
+
+  const checkDraftExists = useCallback(() => {
+    try {
+      const saved = localStorage.getItem(draftStorageKey);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed && parsed.updatedAt) {
+          setHasSavedDraft(true);
+          setDraftSavedAt(parsed.updatedAt);
+          return parsed;
+        }
+      }
+    } catch (e) {
+      console.error('Failed to read draft from localStorage:', e);
+    }
+    setHasSavedDraft(false);
+    setDraftSavedAt(null);
+    return null;
+  }, [draftStorageKey]);
+
+  useEffect(() => {
+    checkDraftExists();
+  }, [checkDraftExists, isGridOpen]);
+
+  const saveDraft = () => {
+    try {
+      const draftData = {
+        gridSessionDate,
+        gridColumns,
+        sheetItemIds,
+        gridQuantities,
+        updatedAt: new Date().toISOString()
+      };
+      localStorage.setItem(draftStorageKey, JSON.stringify(draftData));
+      setHasSavedDraft(true);
+      setDraftSavedAt(draftData.updatedAt);
+      toast.success('Requisition draft saved successfully!');
+    } catch (e) {
+      console.error('Save draft failed:', e);
+      toast.error('Failed to save draft locally.');
+    }
+  };
+
+  const restoreDraft = () => {
+    try {
+      const saved = localStorage.getItem(draftStorageKey);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed.gridSessionDate) setGridSessionDate(parsed.gridSessionDate);
+        if (Array.isArray(parsed.gridColumns)) {
+          const validCols = parsed.gridColumns.filter(c => c.isAdditional || patients.some(p => p.id === c.patientId));
+          if (!validCols.some(c => c.isAdditional)) {
+            validCols.push({ patientId: 'ADDITIONAL', notes: '', isAdditional: true });
+          }
+          setGridColumns(validCols);
+        }
+        if (Array.isArray(parsed.sheetItemIds)) {
+          const validItemIds = parsed.sheetItemIds.filter(id => items.some(i => i.id === id && !i.isArchived));
+          setSheetItemIds(validItemIds);
+        }
+        if (parsed.gridQuantities) setGridQuantities(parsed.gridQuantities);
+        toast.success('Requisition draft restored!');
+      }
+    } catch (e) {
+      console.error('Restore draft failed:', e);
+      toast.error('Failed to restore saved draft.');
+    }
+  };
+
+  const discardDraft = () => {
+    try {
+      localStorage.removeItem(draftStorageKey);
+      setHasSavedDraft(false);
+      setDraftSavedAt(null);
+      toast.info('Draft discarded.');
+    } catch (e) {
+      console.error('Discard draft failed:', e);
+    }
+  };
+
+  // ── Date Normalization Helper for Robust Matching ──
+  const getNormalizedDateKey = useCallback((dateVal) => {
+    if (!dateVal) return '';
+    if (typeof dateVal === 'string') {
+      const match = dateVal.match(/^(\d{4}-\d{2}-\d{2})/);
+      if (match) return match[1];
+    }
+    try {
+      const d = new Date(dateVal);
+      if (!isNaN(d.getTime())) {
+        const yyyy = d.getFullYear();
+        const mm = String(d.getMonth() + 1).padStart(2, '0');
+        const dd = String(d.getDate()).padStart(2, '0');
+        return `${yyyy}-${mm}-${dd}`;
+      }
+    } catch (e) {
+      console.error('Date normalization error:', e);
+    }
+    return String(dateVal).substring(0, 10);
+  }, []);
+
+  // ── Print Functionality State & Helpers ──
+  const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
+  const [printSessionDate, setPrintSessionDate] = useState('');
+  const [activePrintData, setActivePrintData] = useState(null);
+
+  const buildPrintDataForDate = useCallback((targetDateKey) => {
+    if (!targetDateKey) return;
+    const normalizedTarget = getNormalizedDateKey(targetDateKey);
+    const reqsForDate = requisitions.filter(r => {
+      if (!r.sessionDate) return false;
+      const key = getNormalizedDateKey(r.sessionDate);
+      return key === normalizedTarget;
+    });
+
+    const patientIdsSet = new Set();
+    const itemIdsSet = new Set();
+    const quantitiesMap = {};
+    const notesMap = {};
+
+    reqsForDate.forEach(r => {
+      const pId = (r.patientId && r.patientId !== 'ADDITIONAL') ? r.patientId : 'ADDITIONAL';
+      patientIdsSet.add(pId);
+      if (r.notes) notesMap[pId] = r.notes;
+
+      (r.lines || []).forEach(l => {
+        if (l.itemId) {
+          itemIdsSet.add(l.itemId);
+          const qKey = `${pId}_${l.itemId}`;
+          quantitiesMap[qKey] = (quantitiesMap[qKey] || 0) + (l.qtyRequested || 0);
+        }
+      });
+    });
+
+    const cols = Array.from(patientIdsSet).map(pId => ({
+      patientId: pId,
+      notes: notesMap[pId] || '',
+      isAdditional: pId === 'ADDITIONAL'
+    }));
+
+    const additionalIdx = cols.findIndex(c => c.isAdditional);
+    if (additionalIdx >= 0) {
+      const [addCol] = cols.splice(additionalIdx, 1);
+      cols.push(addCol);
+    } else {
+      cols.push({ patientId: 'ADDITIONAL', notes: '', isAdditional: true });
+    }
+
+    const printObj = {
+      sessionDate: targetDateKey,
+      displayDate: new Date(targetDateKey).toLocaleDateString(),
+      columns: cols,
+      itemIds: Array.from(itemIdsSet),
+      quantities: quantitiesMap,
+      requisitionsCount: reqsForDate.length
+    };
+
+    setActivePrintData(printObj);
+  }, [requisitions, getNormalizedDateKey]);
+
+  const buildPrintDataFromActiveSheet = useCallback(() => {
+    const cols = [...gridColumns];
+    if (!cols.some(c => c.isAdditional)) {
+      cols.push({ patientId: 'ADDITIONAL', notes: '', isAdditional: true });
+    }
+
+    const printObj = {
+      sessionDate: gridSessionDate,
+      displayDate: new Date(gridSessionDate).toLocaleDateString(),
+      columns: cols,
+      itemIds: sheetItemIds,
+      quantities: gridQuantities,
+      requisitionsCount: cols.filter(c => !c.isAdditional).length
+    };
+
+    setActivePrintData(printObj);
+  }, [gridSessionDate, gridColumns, sheetItemIds, gridQuantities]);
+
+  const handleOpenPrintSelectModal = (dateKey) => {
+    const initialDate = dateKey || pastSessionPresets[0]?.dateKey || new Date().toISOString().substring(0, 10);
+    setPrintSessionDate(initialDate);
+    buildPrintDataForDate(initialDate);
+    setIsPrintModalOpen(true);
+  };
+
   // ── Resubmit Modal State ──
   const [resubmitLine, setResubmitLine] = useState(null);
   const [resubQuantity, setResubQuantity] = useState('');
@@ -205,7 +397,7 @@ const Requisitions = () => {
 
     filteredRequisitions.forEach(r => {
       if (!r.sessionDate) return;
-      const dateKey = new Date(r.sessionDate).toISOString().substring(0, 10);
+      const dateKey = getNormalizedDateKey(r.sessionDate);
       const displayDate = new Date(r.sessionDate).toLocaleDateString();
 
       if (!map[dateKey]) {
@@ -278,7 +470,7 @@ const Requisitions = () => {
         hasShortage,
       };
     }).sort((a, b) => new Date(b.dateKey) - new Date(a.dateKey));
-  }, [filteredRequisitions, getItemStockInfo]);
+  }, [filteredRequisitions, getItemStockInfo, getNormalizedDateKey]);
 
   // ── Fetch Helpers ──
   const fetchRequisitions = useCallback(async () => {
@@ -348,7 +540,7 @@ const Requisitions = () => {
     const map = {};
     requisitions.forEach(r => {
       if (!r.sessionDate) return;
-      const dateKey = new Date(r.sessionDate).toISOString().substring(0, 10);
+      const dateKey = getNormalizedDateKey(r.sessionDate);
       if (!map[dateKey]) {
         map[dateKey] = {
           dateKey,
@@ -371,7 +563,7 @@ const Requisitions = () => {
     });
 
     return Object.values(map).sort((a, b) => new Date(b.dateKey) - new Date(a.dateKey));
-  }, [requisitions, items]);
+  }, [requisitions, items, getNormalizedDateKey]);
 
   const handleLoadPreset = (dateKey, copyQuantities = true) => {
     if (!dateKey) return;
@@ -409,12 +601,13 @@ const Requisitions = () => {
   // ── Grid Sheet Controls ──
   // Starts 100% BLANK as requested by user (no pre-populated patients or items)
   const openGridSheet = () => {
-    setGridSessionDate(new Date().toISOString().substring(0, 10));
+    setGridSessionDate(getNormalizedDateKey(new Date()));
     setGridColumns([{ patientId: 'ADDITIONAL', notes: '', isAdditional: true }]);
     setSheetItemIds([]);
     setGridQuantities({});
     setGridError('');
     setIsGridOpen(true);
+    checkDraftExists();
   };
 
   const addPatientFromRegistry = (patientId) => {
@@ -521,6 +714,9 @@ const Requisitions = () => {
         requisitions: reqs
       });
       setIsGridOpen(false);
+      localStorage.removeItem(draftStorageKey);
+      setHasSavedDraft(false);
+      setDraftSavedAt(null);
       fetchRequisitions();
       toast.success('Requisition Sheet submitted successfully!');
     } catch (err) {
@@ -693,11 +889,21 @@ const Requisitions = () => {
             Submit multi-patient requisition sheets, review overall item stock quantities, approve line items, and audit inventory acquisitions.
           </p>
         </div>
-        {canSubmit && (
-          <button className="btn btn-primary" onClick={openGridSheet} style={{ fontWeight: '600', padding: '10px 18px' }}>
-            New Requisition Sheet
+        <div style={{ display: 'flex', gap: '10px' }}>
+          <button
+            type="button"
+            className="btn btn-secondary"
+            onClick={() => handleOpenPrintSelectModal()}
+            style={{ fontWeight: '600', padding: '10px 18px' }}
+          >
+            🖨️ Print Sheet by Date
           </button>
-        )}
+          {canSubmit && (
+            <button className="btn btn-primary" onClick={openGridSheet} style={{ fontWeight: '600', padding: '10px 18px' }}>
+              New Requisition Sheet
+            </button>
+          )}
+        </div>
       </div>
 
       {error && <div className="login-error">{error}</div>}
@@ -830,19 +1036,29 @@ const Requisitions = () => {
                         {session.patientCount} Patient(s) • {session.requisitionCount} Requisition(s) • {session.aggregatedItems.length} Unique Item(s) Requested ({session.totalUnitsRequested} Total Units)
                       </div>
                     </div>
-                    <span
-                      style={{
-                        fontSize: '11px',
-                        fontWeight: '700',
-                        padding: '4px 10px',
-                        borderRadius: '20px',
-                        background: session.hasShortage ? '#FEE2E2' : '#DCFCE7',
-                        color: session.hasShortage ? '#991B1B' : '#166534',
-                        border: `1px solid ${session.hasShortage ? '#FCA5A5' : '#86EFAC'}`,
-                      }}
-                    >
-                      {session.hasShortage ? '🔴 Inventory Shortage Alert' : '🟢 All Items In Stock'}
-                    </span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <button
+                        type="button"
+                        className="btn btn-outline-primary btn-sm"
+                        onClick={() => handleOpenPrintSelectModal(session.dateKey)}
+                        style={{ fontSize: '11px', fontWeight: '600', padding: '3px 9px' }}
+                      >
+                        🖨️ Print Sheet
+                      </button>
+                      <span
+                        style={{
+                          fontSize: '11px',
+                          fontWeight: '700',
+                          padding: '4px 10px',
+                          borderRadius: '20px',
+                          background: session.hasShortage ? '#FEE2E2' : '#DCFCE7',
+                          color: session.hasShortage ? '#991B1B' : '#166534',
+                          border: `1px solid ${session.hasShortage ? '#FCA5A5' : '#86EFAC'}`,
+                        }}
+                      >
+                        {session.hasShortage ? '🔴 Inventory Shortage Alert' : '🟢 All Items In Stock'}
+                      </span>
+                    </div>
                   </div>
 
                   {/* Aggregated Items Table for this Session Date */}
@@ -1385,6 +1601,46 @@ const Requisitions = () => {
               <button className="modal-close" onClick={() => setIsGridOpen(false)}>✕</button>
             </div>
 
+            {/* Saved Draft Banner */}
+            {hasSavedDraft && (
+              <div
+                style={{
+                  display: 'flex',
+                  justify: 'space-between',
+                  alignItems: 'center',
+                  background: '#EFF6FF',
+                  border: '1px solid #BFDBFE',
+                  borderRadius: '6px',
+                  padding: '10px 16px',
+                  marginTop: '14px',
+                  fontSize: '13px',
+                  color: '#1E40AF',
+                }}
+              >
+                <div>
+                  💾 <strong>Saved Draft Found</strong> (saved {draftSavedAt ? new Date(draftSavedAt).toLocaleString() : ''})
+                </div>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-primary"
+                    onClick={restoreDraft}
+                    style={{ fontWeight: '600' }}
+                  >
+                    Restore Draft
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-outline-secondary"
+                    onClick={discardDraft}
+                    style={{ fontWeight: '600' }}
+                  >
+                    Discard Draft
+                  </button>
+                </div>
+              </div>
+            )}
+
             {/* Top Toolbar */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', margin: '14px 0', gap: '16px', flexWrap: 'wrap' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '16px', flexWrap: 'wrap' }}>
@@ -1777,11 +2033,26 @@ const Requisitions = () => {
             </div>
 
             {/* Modal Footer */}
-            <div className="modal-footer" style={{ marginTop: '16px', borderTop: '1px solid var(--theme-border)', paddingTop: '16px' }}>
-              <button type="button" className="btn" onClick={() => setIsGridOpen(false)}>Cancel</button>
-              <button type="button" className="btn btn-primary" onClick={handleGridSubmit} disabled={isSubmitting} style={{ fontWeight: '700', padding: '10px 24px' }}>
-                {isSubmitting ? 'Submitting Requisition Sheet...' : 'Submit Requisition Sheet'}
-              </button>
+            <div className="modal-footer" style={{ marginTop: '16px', borderTop: '1px solid var(--theme-border)', paddingTop: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                {hasSavedDraft && (
+                  <button type="button" className="btn btn-outline-primary btn-sm" onClick={restoreDraft} style={{ fontWeight: '600' }}>
+                    🔄 Restore Saved Draft
+                  </button>
+                )}
+              </div>
+              <div style={{ display: 'flex', gap: '10px' }}>
+                <button type="button" className="btn" onClick={() => setIsGridOpen(false)}>Cancel</button>
+                <button type="button" className="btn btn-outline-secondary" onClick={() => { buildPrintDataFromActiveSheet(); setIsPrintModalOpen(true); }} style={{ fontWeight: '600' }}>
+                  🖨️ Print Form
+                </button>
+                <button type="button" className="btn btn-secondary" onClick={saveDraft} style={{ fontWeight: '600' }}>
+                  💾 Save Draft
+                </button>
+                <button type="button" className="btn btn-primary" onClick={handleGridSubmit} disabled={isSubmitting} style={{ fontWeight: '700', padding: '10px 24px' }}>
+                  {isSubmitting ? 'Submitting Requisition Sheet...' : 'Submit Requisition Sheet'}
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -2093,6 +2364,288 @@ const Requisitions = () => {
                   </button>
                 )}
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── PRINT PREVIEW & SESSION DATE SELECTION MODAL ── */}
+      {isPrintModalOpen && (
+        <div className="modal-overlay" onClick={() => setIsPrintModalOpen(false)}>
+          <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: '1000px', width: '90vw', maxHeight: '90vh', overflow: 'auto' }}>
+            <div className="modal-header">
+              <div>
+                <h3 style={{ margin: 0 }}>🖨️ Print Requisition Sheet by Session Date</h3>
+                <span style={{ fontSize: '12px', color: 'var(--theme-text-muted)' }}>
+                  Generates an official printable requisition matrix matching the requisition form layout.
+                </span>
+              </div>
+              <button className="modal-close" onClick={() => setIsPrintModalOpen(false)}>✕</button>
+            </div>
+
+            <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', background: 'var(--theme-bg)', padding: '12px', borderRadius: '6px' }}>
+                <label style={{ fontWeight: '700', fontSize: '13px' }}>Select Session Date:</label>
+                <select
+                  className="form-control"
+                  value={printSessionDate}
+                  onChange={e => {
+                    setPrintSessionDate(e.target.value);
+                    buildPrintDataForDate(e.target.value);
+                  }}
+                  style={{ width: '280px' }}
+                >
+                  <option value={getNormalizedDateKey(new Date())}>Today ({new Date().toLocaleDateString()})</option>
+                  {pastSessionPresets.map(p => (
+                    <option key={p.dateKey} value={p.dateKey}>
+                      Session: {p.displayDate} ({p.patientIds.size} Patients, {p.itemIds.size} Items)
+                    </option>
+                  ))}
+                </select>
+                <input
+                  type="date"
+                  className="form-control"
+                  value={printSessionDate}
+                  onChange={e => {
+                    setPrintSessionDate(e.target.value);
+                    buildPrintDataForDate(e.target.value);
+                  }}
+                  style={{ width: '160px' }}
+                />
+              </div>
+
+              {/* On-Screen Print Preview */}
+              {activePrintData && (
+                <div style={{ border: '1px solid var(--theme-border)', borderRadius: '6px', padding: '16px', background: 'var(--theme-card-bg)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '12px', borderBottom: '2px solid var(--theme-border)', paddingBottom: '8px' }}>
+                    <div>
+                      <strong style={{ fontSize: '16px' }}>MEDOPS REQUISITION SHEET PREVIEW</strong>
+                      <div style={{ fontSize: '12px', color: 'var(--theme-text-muted)' }}>
+                        Session Date: <strong>{activePrintData.displayDate || activePrintData.sessionDate}</strong>
+                      </div>
+                    </div>
+                    <div style={{ fontSize: '12px', textAlign: 'right' }}>
+                      <div>Patients: <strong>{activePrintData.columns?.filter(c => !c.isAdditional).length || 0}</strong></div>
+                      <div>Items: <strong>{activePrintData.itemIds?.length || 0}</strong></div>
+                    </div>
+                  </div>
+
+                  <div style={{ overflowX: 'auto', maxHeight: '400px' }}>
+                    <table className="data-table" style={{ fontSize: '11px', margin: 0 }}>
+                      <thead>
+                        <tr>
+                          <th>Item Classification & Name</th>
+                          {activePrintData.columns.map((col, idx) => {
+                            if (col.isAdditional) return <th key="add" style={{ textAlign: 'center', background: '#FEF3C7', color: '#92400E' }}>ADDITIONAL</th>;
+                            const pat = patients.find(p => p.id === col.patientId);
+                            return <th key={col.patientId || idx} style={{ textAlign: 'center' }}>{pat?.name || 'Patient'}</th>;
+                          })}
+                          <th style={{ textAlign: 'center', background: '#E0F2FE' }}>TOTAL</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {CLASSIFICATIONS.map(cls => {
+                          const clsItemIds = (activePrintData.itemIds || []).filter(id => {
+                            const found = items.find(i => i.id === id);
+                            return found && (found.itemType || 'MEDICAL_CONSUMABLE') === cls.key;
+                          });
+
+                          if (clsItemIds.length === 0) return null;
+
+                          return (
+                            <React.Fragment key={cls.key}>
+                              <tr style={{ background: cls.bgColor }}>
+                                <td colSpan={activePrintData.columns.length + 2} style={{ fontWeight: '700', color: cls.color }}>
+                                  {cls.label} ({clsItemIds.length} items)
+                                </td>
+                              </tr>
+                              {clsItemIds.map(itemId => {
+                                const item = items.find(i => i.id === itemId);
+                                if (!item) return null;
+
+                                let rowTotal = 0;
+                                activePrintData.columns.forEach(col => {
+                                  const qty = activePrintData.quantities[`${col.patientId}_${item.id}`];
+                                  if (qty && qty > 0) rowTotal += Number(qty);
+                                });
+
+                                return (
+                                  <tr key={item.id}>
+                                    <td style={{ fontWeight: '600' }}>{item.name} <span style={{ fontSize: '10px', color: 'var(--theme-text-muted)' }}>({item.unit})</span></td>
+                                    {activePrintData.columns.map(col => {
+                                      const qty = activePrintData.quantities[`${col.patientId}_${item.id}`] || '';
+                                      return (
+                                        <td key={col.patientId} style={{ textAlign: 'center', fontWeight: qty ? '700' : 'normal' }}>
+                                          {qty || '—'}
+                                        </td>
+                                      );
+                                    })}
+                                    <td style={{ textAlign: 'center', fontWeight: '800', background: '#F0F9FF', color: '#0369A1' }}>
+                                      {rowTotal}
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </React.Fragment>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="modal-footer" style={{ marginTop: '16px', display: 'flex', justifyContent: 'space-between' }}>
+              <button type="button" className="btn" onClick={() => setIsPrintModalOpen(false)}>Close</button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={() => {
+                  window.print();
+                }}
+                style={{ fontWeight: '700', padding: '10px 24px' }}
+              >
+                🖨️ Print Document Now
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── HIDDEN PRINTABLE REQUISITION SHEET AREA FOR WINDOW.PRINT() ── */}
+      {activePrintData && (
+        <div id="printable-requisition-area" style={{ padding: '24px', fontFamily: 'sans-serif', color: '#1e293b' }}>
+          {/* Official Printable Header */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', borderBottom: '3px solid #1e3a8a', paddingBottom: '12px', marginBottom: '16px' }}>
+            <div>
+              <h1 style={{ margin: 0, fontSize: '22px', fontWeight: '800', color: '#1e3a8a', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                MEDOPS CLINICAL REQUISITION SHEET
+              </h1>
+              <div style={{ fontSize: '12px', color: '#475569', marginTop: '4px' }}>
+                Official Medical Inventory Acquisition & Patient Session Form
+              </div>
+            </div>
+            <div style={{ textAlign: 'right', fontSize: '12px', color: '#334155' }}>
+              <div><strong>Session Date:</strong> {activePrintData.displayDate || activePrintData.sessionDate}</div>
+              <div><strong>Generated:</strong> {new Date().toLocaleString()}</div>
+              <div><strong>Printed By:</strong> {user?.name || 'System User'} ({user?.role?.replace(/_/g, ' ')})</div>
+            </div>
+          </div>
+
+          {/* Metadata Summary Banner */}
+          <div style={{ display: 'flex', gap: '20px', background: '#f8fafc', border: '1px solid #cbd5e1', padding: '8px 14px', borderRadius: '4px', marginBottom: '16px', fontSize: '12px' }}>
+            <div><strong>Total Patients Included:</strong> {activePrintData.columns?.filter(c => !c.isAdditional).length || 0}</div>
+            <div><strong>Station Stock (Additional):</strong> {activePrintData.columns?.some(c => c.isAdditional) ? 'Yes' : 'No'}</div>
+            <div><strong>Unique Items Requested:</strong> {activePrintData.itemIds?.length || 0}</div>
+          </div>
+
+          {/* Printable Grid Table */}
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11px', marginBottom: '24px' }}>
+            <thead>
+              <tr style={{ background: '#f1f5f9' }}>
+                <th style={{ border: '1px solid #94a3b8', padding: '8px', textAlign: 'left', minWidth: '220px' }}>
+                  ITEM CLASSIFICATIONS & DESCRIPTION
+                </th>
+                {activePrintData.columns.map((col, cIdx) => {
+                  if (col.isAdditional) {
+                    return (
+                      <th key="add" style={{ border: '1px solid #94a3b8', padding: '6px', textAlign: 'center', background: '#fef3c7', color: '#92400e' }}>
+                        <div style={{ fontWeight: '700' }}>ADDITIONAL</div>
+                        <div style={{ fontSize: '9px', fontWeight: 'normal' }}>Station Stock</div>
+                      </th>
+                    );
+                  }
+                  const pat = patients.find(p => p.id === col.patientId);
+                  return (
+                    <th key={col.patientId || cIdx} style={{ border: '1px solid #94a3b8', padding: '6px', textAlign: 'center' }}>
+                      <div style={{ fontWeight: '700' }}>{pat?.name || 'Patient'}</div>
+                      <div style={{ fontSize: '9px', color: '#64748b' }}>#{pat?.chartNumber || 'N/A'}</div>
+                    </th>
+                  );
+                })}
+                <th style={{ border: '1px solid #94a3b8', padding: '8px', textAlign: 'center', background: '#e0f2fe', color: '#0369a1', fontWeight: '700' }}>
+                  TOTAL
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {CLASSIFICATIONS.map(cls => {
+                const clsItemIds = (activePrintData.itemIds || []).filter(id => {
+                  const found = items.find(i => i.id === id);
+                  return found && (found.itemType || 'MEDICAL_CONSUMABLE') === cls.key;
+                });
+
+                if (clsItemIds.length === 0) return null;
+
+                return (
+                  <React.Fragment key={cls.key}>
+                    <tr style={{ background: cls.bgColor }}>
+                      <td colSpan={activePrintData.columns.length + 2} style={{ border: '1px solid #94a3b8', padding: '6px 10px', fontWeight: '700', color: cls.color }}>
+                        {cls.label} ({clsItemIds.length} items)
+                      </td>
+                    </tr>
+                    {clsItemIds.map(itemId => {
+                      const item = items.find(i => i.id === itemId);
+                      if (!item) return null;
+
+                      let rowTotal = 0;
+                      activePrintData.columns.forEach(col => {
+                        const qty = activePrintData.quantities[`${col.patientId}_${item.id}`];
+                        if (qty && qty > 0) rowTotal += Number(qty);
+                      });
+
+                      return (
+                        <tr key={item.id}>
+                          <td style={{ border: '1px solid #cbd5e1', padding: '6px 10px', fontWeight: '600' }}>
+                            {item.name} <span style={{ fontSize: '9px', color: '#64748b' }}>({item.sku} | {item.unit})</span>
+                          </td>
+                          {activePrintData.columns.map(col => {
+                            const qty = activePrintData.quantities[`${col.patientId}_${item.id}`] || '';
+                            return (
+                              <td key={col.patientId} style={{ border: '1px solid #cbd5e1', padding: '6px', textAlign: 'center', fontWeight: qty ? '700' : 'normal' }}>
+                                {qty || '—'}
+                              </td>
+                            );
+                          })}
+                          <td style={{ border: '1px solid #94a3b8', padding: '6px', textAlign: 'center', fontWeight: '800', background: '#f0f9ff', color: '#0369a1' }}>
+                            {rowTotal}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </React.Fragment>
+                );
+              })}
+
+              {/* Patient Notes Row */}
+              <tr style={{ background: '#f8fafc' }}>
+                <td style={{ border: '1px solid #94a3b8', padding: '8px', fontWeight: '700' }}>
+                  PATIENT SESSION NOTES / REMARKS
+                </td>
+                {activePrintData.columns.map(col => (
+                  <td key={col.patientId} style={{ border: '1px solid #cbd5e1', padding: '6px', fontSize: '10px' }}>
+                    {col.notes || '—'}
+                  </td>
+                ))}
+                <td style={{ border: '1px solid #94a3b8', background: '#f0f9ff' }}></td>
+              </tr>
+            </tbody>
+          </table>
+
+          {/* Official Signature Audit Footer */}
+          <div style={{ marginTop: '36px', paddingTop: '16px', borderTop: '2px solid #94a3b8', display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '24px', fontSize: '11px' }}>
+            <div>
+              <div style={{ fontWeight: '700', marginBottom: '32px' }}>SUBMITTED BY (Clinical Nurse):</div>
+              <div style={{ borderTop: '1px dashed #64748b', paddingTop: '4px' }}>Signature & Date</div>
+            </div>
+            <div>
+              <div style={{ fontWeight: '700', marginBottom: '32px' }}>APPROVED BY (Inventory Manager):</div>
+              <div style={{ borderTop: '1px dashed #64748b', paddingTop: '4px' }}>Signature & Date</div>
+            </div>
+            <div>
+              <div style={{ fontWeight: '700', marginBottom: '32px' }}>DISPENSED / RECEIVED BY:</div>
+              <div style={{ borderTop: '1px dashed #64748b', paddingTop: '4px' }}>Signature & Date</div>
             </div>
           </div>
         </div>
