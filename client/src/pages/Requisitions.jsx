@@ -305,11 +305,45 @@ const Requisitions = () => {
   const [logSearchQuery, setLogSearchQuery] = useState('');
   const [logStatusFilter, setLogStatusFilter] = useState('ALL');
   const [logStockFilter, setLogStockFilter] = useState('ALL');
-  const [logViewMode, setLogViewMode] = useState('BY_PATIENT'); // 'BY_PATIENT' | 'BY_SESSION'
+  const [logViewMode, setLogViewMode] = useState('BY_SESSION'); // Default to BY_SESSION as requested
   const [expandedSessionItem, setExpandedSessionItem] = useState(null); // `${dateKey}_${itemId}`
   
   // ── Edit Line Item Modal State (for Approvers) ──
   const [editLineModal, setEditLineModal] = useState(null); // { line, itemId, qtyRequested, qtyApproved, location, reason, isApproving, loading, error }
+
+  // ── Edit Session Date Modal State (for Approvers) ──
+  const [editSessionDateModal, setEditSessionDateModal] = useState({ open: false, isBatch: false, targetId: null, oldDate: '', newDate: '', loading: false });
+
+  const handleSaveSessionDate = async () => {
+    if (!editSessionDateModal.newDate) {
+      toast.error('Please select a valid new session date.');
+      return;
+    }
+
+    try {
+      setEditSessionDateModal(prev => ({ ...prev, loading: true }));
+      
+      if (editSessionDateModal.isBatch) {
+        await api.patch('/requisitions/batch-session-date', {
+          oldSessionDate: editSessionDateModal.oldDate,
+          newSessionDate: editSessionDateModal.newDate,
+        });
+        toast.success('Session date updated for all requisitions in this session!');
+      } else {
+        await api.patch(`/requisitions/${editSessionDateModal.targetId}/session-date`, {
+          sessionDate: editSessionDateModal.newDate,
+        });
+        toast.success('Requisition session date updated successfully!');
+      }
+
+      setEditSessionDateModal({ open: false, isBatch: false, targetId: null, oldDate: '', newDate: '', loading: false });
+      fetchRequisitions();
+    } catch (err) {
+      console.error('Failed to update session date:', err);
+      toast.error(err.response?.data?.error || 'Failed to update session date');
+      setEditSessionDateModal(prev => ({ ...prev, loading: false }));
+    }
+  };
 
   // ── Overall Item Quantity & Stock Lookup Helper ──
   const getItemStockInfo = useCallback((itemObj, lineItemId) => {
@@ -1038,6 +1072,26 @@ const Requisitions = () => {
                       </div>
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      {canApprove && (
+                        <button
+                          type="button"
+                          className="btn btn-outline-secondary btn-sm"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setEditSessionDateModal({
+                              open: true,
+                              isBatch: true,
+                              targetId: null,
+                              oldDate: session.dateKey,
+                              newDate: session.dateKey,
+                              loading: false,
+                            });
+                          }}
+                          style={{ fontSize: '11px', fontWeight: '600', padding: '3px 9px' }}
+                        >
+                          ✏️ Edit Session Date
+                        </button>
+                      )}
                       <button
                         type="button"
                         className="btn btn-outline-primary btn-sm"
@@ -1317,8 +1371,28 @@ const Requisitions = () => {
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <div>
                     <h3 style={{ margin: 0, fontSize: '16px' }}>{selectedReq.patient?.name}</h3>
-                    <span style={{ fontSize: '12px', color: 'var(--theme-text-muted)' }}>
+                    <span style={{ fontSize: '12px', color: 'var(--theme-text-muted)', display: 'inline-flex', alignItems: 'center', flexWrap: 'wrap', gap: '4px' }}>
                       Chart #{selectedReq.patient?.chartNumber} • Session Date: {new Date(selectedReq.sessionDate).toLocaleDateString()}
+                      {canApprove && (
+                        <button
+                          type="button"
+                          className="btn btn-outline-secondary btn-sm"
+                          onClick={() => {
+                            const dKey = getNormalizedDateKey(selectedReq.sessionDate);
+                            setEditSessionDateModal({
+                              open: true,
+                              isBatch: false,
+                              targetId: selectedReq.id,
+                              oldDate: dKey,
+                              newDate: dKey,
+                              loading: false,
+                            });
+                          }}
+                          style={{ fontSize: '10px', padding: '1px 6px', marginLeft: '4px' }}
+                        >
+                          ✏️ Edit Date
+                        </button>
+                      )}
                     </span>
                   </div>
                   <span className={`badge ${STATUS_COLORS[selectedReq.status] || 'badge-neutral'}`}>
@@ -2216,6 +2290,55 @@ const Requisitions = () => {
           </div>
         </div>
       )}
+      {/* ── EDIT SESSION DATE MODAL FOR APPROVERS ── */}
+      {editSessionDateModal.open && (
+        <div className="modal-overlay" onClick={() => setEditSessionDateModal({ open: false, isBatch: false, targetId: null, oldDate: '', newDate: '', loading: false })}>
+          <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: '440px', width: '100%', padding: '24px' }}>
+            <div className="modal-header" style={{ borderBottom: '1px solid var(--theme-border)', paddingBottom: '12px', marginBottom: '16px' }}>
+              <h3 style={{ margin: 0, fontSize: '18px' }}>✏️ Edit Session Date</h3>
+              <button className="modal-close" onClick={() => setEditSessionDateModal({ open: false, isBatch: false, targetId: null, oldDate: '', newDate: '', loading: false })}>✕</button>
+            </div>
+            <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <p style={{ fontSize: '13px', color: 'var(--theme-text-muted)', margin: 0 }}>
+                {editSessionDateModal.isBatch
+                  ? `Updating the session date for all patient requisitions grouped under session date ${editSessionDateModal.oldDate}.`
+                  : 'Updating the clinical session date for this requisition.'}
+              </p>
+
+              <div className="form-group">
+                <label style={{ fontWeight: '700', fontSize: '12px', display: 'block', marginBottom: '6px' }}>
+                  New Session Date *
+                </label>
+                <input
+                  type="date"
+                  className="form-control"
+                  value={editSessionDateModal.newDate}
+                  onChange={e => setEditSessionDateModal(prev => ({ ...prev, newDate: e.target.value }))}
+                />
+              </div>
+            </div>
+            <div className="modal-footer" style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '20px' }}>
+              <button
+                type="button"
+                className="btn"
+                onClick={() => setEditSessionDateModal({ open: false, isBatch: false, targetId: null, oldDate: '', newDate: '', loading: false })}
+                disabled={editSessionDateModal.loading}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={handleSaveSessionDate}
+                disabled={editSessionDateModal.loading || !editSessionDateModal.newDate}
+              >
+                {editSessionDateModal.loading ? 'Updating...' : 'Save Session Date'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── EDIT & APPROVE LINE ITEM MODAL FOR APPROVERS ── */}
       {editLineModal && (
         <div className="modal-overlay" onClick={() => setEditLineModal(null)}>

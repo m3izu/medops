@@ -29,6 +29,8 @@ router.patch('/:id/lines/:lineId/edit', authenticate, requirePermission('approve
 router.patch('/:id/lines/:lineId/approve', authenticate, requirePermission('approve_requisition'), c.approveLine);
 router.patch('/:id/lines/:lineId/reject', authenticate, requirePermission('approve_requisition'), c.rejectLine);
 router.patch('/:id/lines/:lineId/co-verify', authenticate, requirePermission('receive_stock'), c.coVerifyLine);
+router.patch('/batch-session-date', authenticate, requirePermission('approve_requisition'), c.batchUpdateSessionDate);
+router.patch('/:id/session-date', authenticate, requirePermission('approve_requisition'), c.updateSessionDate);
 router.post('/:id/lines/:lineId/resubmit', authenticate, requirePermission('submit_requisition'), c.resubmitLine);
 
 module.exports = router;

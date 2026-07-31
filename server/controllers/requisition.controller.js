@@ -698,4 +698,54 @@ async function updateRequisitionStatus(requisitionId, tx) {
   await client.requisition.update({ where: { id: requisitionId }, data: { status: newStatus } });
 }
 
-module.exports = { list, create, createBatch, getOne, cancel, editLine, approveLine, rejectLine, resubmitLine, coVerifyLine };
+const updateSessionDate = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { sessionDate } = req.body;
+    if (!sessionDate || isNaN(new Date(sessionDate).getTime())) {
+      return res.status(400).json({ error: 'Valid sessionDate is required.' });
+    }
+    const updated = await prisma.requisition.update({
+      where: { id },
+      data: { sessionDate: new Date(sessionDate) },
+      include: {
+        patient: { select: { id: true, name: true, chartNumber: true } },
+        submittedBy: { select: { id: true, name: true, role: true } },
+        lines: { include: { item: true } },
+      },
+    });
+    res.json(updated);
+  } catch (err) { next(err); }
+};
+
+const batchUpdateSessionDate = async (req, res, next) => {
+  try {
+    const { oldSessionDate, newSessionDate, requisitionIds } = req.body;
+    if (!newSessionDate || isNaN(new Date(newSessionDate).getTime())) {
+      return res.status(400).json({ error: 'Valid newSessionDate is required.' });
+    }
+
+    let where = {};
+    if (Array.isArray(requisitionIds) && requisitionIds.length > 0) {
+      where = { id: { in: requisitionIds } };
+    } else if (oldSessionDate) {
+      const parsedOld = new Date(oldSessionDate);
+      const startOfDay = new Date(parsedOld);
+      startOfDay.setUTCHours(0, 0, 0, 0);
+      const endOfDay = new Date(parsedOld);
+      endOfDay.setUTCHours(23, 59, 59, 999);
+      where = { sessionDate: { gte: startOfDay, lte: endOfDay } };
+    } else {
+      return res.status(400).json({ error: 'Provide requisitionIds or oldSessionDate.' });
+    }
+
+    const updated = await prisma.requisition.updateMany({
+      where,
+      data: { sessionDate: new Date(newSessionDate) },
+    });
+
+    res.json({ message: 'Session date updated successfully', count: updated.count });
+  } catch (err) { next(err); }
+};
+
+module.exports = { list, create, createBatch, getOne, cancel, editLine, approveLine, rejectLine, resubmitLine, coVerifyLine, updateSessionDate, batchUpdateSessionDate };
