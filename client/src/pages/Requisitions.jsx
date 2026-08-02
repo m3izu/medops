@@ -76,6 +76,50 @@ const Requisitions = () => {
   const [selectedReq, setSelectedReq] = useState(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [isApprovingAll, setIsApprovingAll] = useState(false);
+  const [approvingSessionKey, setApprovingSessionKey] = useState(null);
+
+  const handleApproveSessionDate = async (sessionDateKey, displayDate) => {
+    if (!sessionDateKey) return;
+
+    // Calculate total pending line items for this session date
+    const sessionReqs = requisitions.filter(r => getNormalizedDateKey(r.sessionDate) === sessionDateKey);
+    let pendingCount = 0;
+    sessionReqs.forEach(r => {
+      (r.lines || []).forEach(l => {
+        if (l.status === 'PENDING') pendingCount++;
+      });
+    });
+
+    if (pendingCount === 0) {
+      toast.info(`No pending requisition items found for session date ${displayDate}.`);
+      return;
+    }
+
+    if (!window.confirm(`Are you sure you want to approve ALL ${pendingCount} pending item request(s) across ${sessionReqs.length} patient requisition(s) for Session Date: ${displayDate}?`)) {
+      return;
+    }
+
+    try {
+      setApprovingSessionKey(sessionDateKey);
+      const res = await api.patch('/requisitions/batch-approve-session', { sessionDate: sessionDateKey });
+      const { approvedCount, failedCount, errors } = res.data;
+
+      if (failedCount > 0) {
+        toast.warning(`Approved ${approvedCount} item(s). ${failedCount} item(s) failed: ${errors[0] || ''}`);
+      } else {
+        toast.success(`Successfully approved all ${approvedCount} item(s) for session date ${displayDate}!`);
+      }
+
+      fetchRequisitions();
+      if (selectedReq) fetchDetail(selectedReq.id);
+    } catch (err) {
+      console.error('Batch session approval failed:', err);
+      const msg = err.response?.data?.error || 'Failed to approve session requisitions.';
+      toast.error(msg);
+    } finally {
+      setApprovingSessionKey(null);
+    }
+  };
 
   // ── Grid Sheet State ──
   const [isGridOpen, setIsGridOpen] = useState(false);
@@ -151,11 +195,21 @@ const Requisitions = () => {
           }
           setGridColumns(validCols);
         }
+        let validItemIds = [];
         if (Array.isArray(parsed.sheetItemIds)) {
-          const validItemIds = parsed.sheetItemIds.filter(id => items.some(i => i.id === id && !i.isArchived));
+          validItemIds = parsed.sheetItemIds.filter(id => items.some(i => i.id === id && !i.isArchived));
           setSheetItemIds(validItemIds);
         }
-        if (parsed.gridQuantities) setGridQuantities(parsed.gridQuantities);
+        if (parsed.gridQuantities) {
+          const cleanedQuants = {};
+          Object.keys(parsed.gridQuantities).forEach(k => {
+            const itemId = k.substring(k.lastIndexOf('_') + 1);
+            if (validItemIds.includes(itemId)) {
+              cleanedQuants[k] = parsed.gridQuantities[k];
+            }
+          });
+          setGridQuantities(cleanedQuants);
+        }
         toast.success('Requisition draft restored!');
       }
     } catch (e) {
@@ -185,9 +239,9 @@ const Requisitions = () => {
     try {
       const d = new Date(dateVal);
       if (!isNaN(d.getTime())) {
-        const yyyy = d.getFullYear();
-        const mm = String(d.getMonth() + 1).padStart(2, '0');
-        const dd = String(d.getDate()).padStart(2, '0');
+        const yyyy = d.getUTCFullYear();
+        const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
+        const dd = String(d.getUTCDate()).padStart(2, '0');
         return `${yyyy}-${mm}-${dd}`;
       }
     } catch (e) {
@@ -379,7 +433,7 @@ const Requisitions = () => {
       (r.lines || []).forEach(l => {
         totalItemsRequested += (l.qtyRequested || 0);
         const stockInfo = getItemStockInfo(l.item, l.itemId);
-        if (l.status === 'PENDING' && stockInfo.totalQty < l.qtyRequested) {
+        if (l.status === 'PENDING' && stockInfo.centralQty < l.qtyRequested) {
           reqHasShortage = true;
         }
       });
@@ -406,7 +460,7 @@ const Requisitions = () => {
       if (logStockFilter !== 'ALL') {
         const hasShortage = (r.lines || []).some(l => {
           const stock = getItemStockInfo(l.item, l.itemId);
-          return l.status === 'PENDING' && stock.totalQty < l.qtyRequested;
+          return l.status === 'PENDING' && stock.centralQty < l.qtyRequested;
         });
         if (logStockFilter === 'READY' && hasShortage) return false;
         if (logStockFilter === 'SHORTAGE' && !hasShortage) return false;
@@ -485,7 +539,7 @@ const Requisitions = () => {
     return Object.values(map).map(session => {
       const aggregatedItems = Object.values(session.itemsMap).map(itemAgg => {
         const stockInfo = getItemStockInfo(itemAgg.itemObj, itemAgg.itemId);
-        const isSufficient = stockInfo.totalQty >= itemAgg.totalQtyRequested;
+        const isSufficient = stockInfo.centralQty >= itemAgg.totalQtyRequested;
         return {
           ...itemAgg,
           stockInfo,
@@ -582,11 +636,15 @@ const Requisitions = () => {
           displayDate: new Date(r.sessionDate).toLocaleDateString(),
           patientIds: new Set(),
           itemIds: new Set(),
+          submitters: new Set(),
           requisitions: []
         };
       }
       if (r.patientId && r.patientId !== 'ADDITIONAL') {
         map[dateKey].patientIds.add(r.patientId);
+      }
+      if (r.submittedBy?.name) {
+        map[dateKey].submitters.add(r.submittedBy.name);
       }
       r.lines?.forEach(l => {
         const catalogItem = items.find(i => i.id === l.itemId);
@@ -597,7 +655,16 @@ const Requisitions = () => {
       map[dateKey].requisitions.push(r);
     });
 
-    return Object.values(map).sort((a, b) => new Date(b.dateKey) - new Date(a.dateKey));
+    return Object.values(map)
+      .map(p => {
+        const submitterNames = Array.from(p.submitters).join(', ');
+        return {
+          ...p,
+          submitterNames,
+          label: `Session: ${p.displayDate}${submitterNames ? ` — by ${submitterNames}` : ''} (${p.patientIds.size} Patients, ${p.itemIds.size} Items)`
+        };
+      })
+      .sort((a, b) => new Date(b.dateKey) - new Date(a.dateKey));
   }, [requisitions, items, getNormalizedDateKey]);
 
   const handleLoadPreset = (dateKey, copyQuantities = true) => {
@@ -605,14 +672,26 @@ const Requisitions = () => {
     const preset = pastSessionPresets.find(p => p.dateKey === dateKey);
     if (!preset) return;
 
-    // 1. Load Patients from preset
-    const newCols = Array.from(preset.patientIds).map(pId => ({
+    // 1. Load Patients from preset (Filter out inactive or deleted patients)
+    const rawPatientIds = Array.from(preset.patientIds);
+    let skippedInactiveCount = 0;
+    const validPatientIds = rawPatientIds.filter(pId => {
+      const active = patients.some(p => p.id === pId);
+      if (!active) skippedInactiveCount++;
+      return active;
+    });
+
+    const newCols = validPatientIds.map(pId => ({
       patientId: pId,
       notes: '',
       isAdditional: false
     }));
     newCols.push({ patientId: 'ADDITIONAL', notes: '', isAdditional: true });
     setGridColumns(newCols);
+
+    if (skippedInactiveCount > 0) {
+      toast.warning(`Preset loaded. Skipped ${skippedInactiveCount} inactive patient(s) from past session.`);
+    }
 
     // 2. Load Item IDs from preset into sheet
     const newItemIds = Array.from(preset.itemIds);
@@ -623,11 +702,13 @@ const Requisitions = () => {
     if (copyQuantities) {
       preset.requisitions.forEach(r => {
         const pId = r.patientId || 'ADDITIONAL';
-        r.lines?.forEach(l => {
-          if (l.itemId && l.qtyRequested > 0) {
-            newQuants[`${pId}_${l.itemId}`] = l.qtyRequested;
-          }
-        });
+        if (pId === 'ADDITIONAL' || validPatientIds.includes(pId)) {
+          r.lines?.forEach(l => {
+            if (l.itemId && l.qtyRequested > 0) {
+              newQuants[`${pId}_${l.itemId}`] = l.qtyRequested;
+            }
+          });
+        }
       });
     }
     setGridQuantities(newQuants);
@@ -1073,24 +1154,38 @@ const Requisitions = () => {
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                       {canApprove && (
-                        <button
-                          type="button"
-                          className="btn btn-outline-secondary btn-sm"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setEditSessionDateModal({
-                              open: true,
-                              isBatch: true,
-                              targetId: null,
-                              oldDate: session.dateKey,
-                              newDate: session.dateKey,
-                              loading: false,
-                            });
-                          }}
-                          style={{ fontSize: '11px', fontWeight: '600', padding: '3px 9px' }}
-                        >
-                          ✏️ Edit Session Date
-                        </button>
+                        <>
+                          <button
+                            type="button"
+                            className="btn btn-success btn-sm"
+                            disabled={approvingSessionKey === session.dateKey}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleApproveSessionDate(session.dateKey, session.displayDate);
+                            }}
+                            style={{ fontSize: '11px', fontWeight: '700', padding: '4px 10px' }}
+                          >
+                            {approvingSessionKey === session.dateKey ? '⏳ Approving...' : '✅ Approve All for Session'}
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-outline-secondary btn-sm"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setEditSessionDateModal({
+                                open: true,
+                                isBatch: true,
+                                targetId: null,
+                                oldDate: session.dateKey,
+                                newDate: session.dateKey,
+                                loading: false,
+                              });
+                            }}
+                            style={{ fontSize: '11px', fontWeight: '600', padding: '3px 9px' }}
+                          >
+                            ✏️ Edit Session Date
+                          </button>
+                        </>
                       )}
                       <button
                         type="button"
@@ -1168,12 +1263,12 @@ const Requisitions = () => {
                                     fontWeight: '700',
                                     padding: '3px 8px',
                                     borderRadius: '4px',
-                                    background: item.isSufficient ? '#DCFCE7' : item.stockInfo.totalQty > 0 ? '#FEF3C7' : '#FEE2E2',
-                                    color: item.isSufficient ? '#166534' : item.stockInfo.totalQty > 0 ? '#92400E' : '#991B1B',
-                                    border: `1px solid ${item.isSufficient ? '#86EFAC' : item.stockInfo.totalQty > 0 ? '#FDE68A' : '#FCA5A5'}`,
+                                    background: item.isSufficient ? '#DCFCE7' : item.stockInfo.centralQty > 0 ? '#FEF3C7' : '#FEE2E2',
+                                    color: item.isSufficient ? '#166534' : item.stockInfo.centralQty > 0 ? '#92400E' : '#991B1B',
+                                    border: `1px solid ${item.isSufficient ? '#86EFAC' : item.stockInfo.centralQty > 0 ? '#FDE68A' : '#FCA5A5'}`,
                                   }}
                                 >
-                                  {item.isSufficient ? `🟢 In Stock (${item.stockInfo.totalQty})` : item.stockInfo.totalQty > 0 ? `🟠 Shortage (${item.stockInfo.totalQty} < ${item.totalQtyRequested})` : `🔴 Out of Stock (0)`}
+                                  {item.isSufficient ? `🟢 Central Stock OK (${item.stockInfo.centralQty})` : item.stockInfo.centralQty > 0 ? `🟠 Central Shortage (${item.stockInfo.centralQty} < ${item.totalQtyRequested})` : `🔴 Central Out of Stock (0)`}
                                 </span>
                                 <span style={{ fontSize: '10px', marginLeft: '8px', color: 'var(--theme-text-muted)' }}>
                                   {isExpanded ? '▲ Hide' : '▼ View Patients'}
@@ -1273,7 +1368,7 @@ const Requisitions = () => {
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                               {(r.lines || []).map(line => {
                                 const stock = getItemStockInfo(line.item, line.itemId);
-                                const isSufficient = stock.totalQty >= line.qtyRequested;
+                                const isSufficient = stock.centralQty >= line.qtyRequested;
 
                                 return (
                                   <div
@@ -1299,21 +1394,21 @@ const Requisitions = () => {
                                         Req: <strong>{line.qtyRequested}</strong> {stock.unit}
                                       </span>
 
-                                      {/* OVERALL QUANTITY BADGE */}
+                                      {/* CENTRAL QUANTITY BADGE */}
                                       <span
-                                        title={`Overall Quantity: ${stock.totalQty} ${stock.unit} (Central: ${stock.centralQty} | eCart: ${stock.ecartQty})`}
+                                        title={`Central Storage Stock: ${stock.centralQty} ${stock.unit} (Overall: ${stock.totalQty} | eCart: ${stock.ecartQty})`}
                                         style={{
                                           fontSize: '10px',
                                           fontWeight: '700',
                                           padding: '2px 6px',
                                           borderRadius: '4px',
                                           whiteSpace: 'nowrap',
-                                          background: isSufficient ? '#DCFCE7' : stock.totalQty > 0 ? '#FEF3C7' : '#FEE2E2',
-                                          color: isSufficient ? '#166534' : stock.totalQty > 0 ? '#92400E' : '#991B1B',
-                                          border: `1px solid ${isSufficient ? '#86EFAC' : stock.totalQty > 0 ? '#FDE68A' : '#FCA5A5'}`,
+                                          background: isSufficient ? '#DCFCE7' : stock.centralQty > 0 ? '#FEF3C7' : '#FEE2E2',
+                                          color: isSufficient ? '#166534' : stock.centralQty > 0 ? '#92400E' : '#991B1B',
+                                          border: `1px solid ${isSufficient ? '#86EFAC' : stock.centralQty > 0 ? '#FDE68A' : '#FCA5A5'}`,
                                         }}
                                       >
-                                        Overall: {stock.totalQty} {stock.unit}
+                                        Central: {stock.centralQty} {stock.unit}
                                       </span>
                                     </div>
                                   </div>
@@ -1747,7 +1842,7 @@ const Requisitions = () => {
                       <option value="">Copy Preset from Past Session...</option>
                       {pastSessionPresets.map(p => (
                         <option key={p.dateKey} value={p.dateKey}>
-                          Session: {p.displayDate} ({p.patientIds.size} Patients, {p.itemIds.size} Items)
+                          {p.label}
                         </option>
                       ))}
                     </select>
@@ -2523,7 +2618,7 @@ const Requisitions = () => {
                     <option value={getNormalizedDateKey(new Date())}>Today ({new Date().toLocaleDateString()})</option>
                     {pastSessionPresets.map(p => (
                       <option key={p.dateKey} value={p.dateKey}>
-                        Session: {p.displayDate} ({p.patientIds.size} Patients, {p.itemIds.size} Items)
+                        {p.label}
                       </option>
                     ))}
                   </select>

@@ -75,7 +75,7 @@ const liveSummary = async (req, res, next) => {
       }),
       // 5: Outbound Logs
       prisma.transactionLog.findMany({
-        where: { type: { in: ['OUTBOUND', 'DISPENSE', 'TRANSFER_OUT', 'TRANSFER_IN'] }, timestamp: { gte: startDate, lte: endDate } },
+        where: { type: { in: ['OUTBOUND', 'DISPENSE', 'TRANSFER_OUT'] }, timestamp: { gte: startDate, lte: endDate } },
         select: { qty: true, timestamp: true },
       }),
       // 6: Discard Logs
@@ -158,7 +158,9 @@ const liveSummary = async (req, res, next) => {
         const d = new Date(l[dateKey]).toISOString().split('T')[0];
         if (buckets[d]) {
           buckets[d].count += 1;
-          buckets[d].qty += Math.abs(l[qtyKey] || 0);
+          if (qtyKey && l[qtyKey] !== undefined && l[qtyKey] !== null) {
+            buckets[d].qty += Math.abs(Number(l[qtyKey]) || 0);
+          }
         }
       });
       return Object.values(buckets);
@@ -447,7 +449,7 @@ const sectionDetail = async (req, res, next) => {
       }
 
       case 'outbound': {
-        const where = { type: { in: ['OUTBOUND', 'DISPENSE', 'TRANSFER_OUT', 'TRANSFER_IN'] }, timestamp: { gte: startDate, lte: endDate } };
+        const where = { type: { in: ['OUTBOUND', 'DISPENSE', 'TRANSFER_OUT'] }, timestamp: { gte: startDate, lte: endDate } };
         const [logs, count] = await Promise.all([
           prisma.transactionLog.findMany({
             where,

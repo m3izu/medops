@@ -24,6 +24,7 @@ router.get('/', authenticate, requireAnyPermission(['submit_requisition', 'appro
 router.post('/', authenticate, requirePermission('submit_requisition'), c.create);
 router.post('/batch', authenticate, requirePermission('submit_requisition'), c.createBatch);
 router.patch('/batch-session-date', authenticate, requirePermission('approve_requisition'), c.batchUpdateSessionDate);
+router.patch('/batch-approve-session', authenticate, requirePermission('approve_requisition'), c.batchApproveSession);
 router.get('/:id', authenticate, c.getOne);
 router.patch('/:id/cancel', authenticate, c.cancel);
 router.patch('/:id/session-date', authenticate, requirePermission('approve_requisition'), c.updateSessionDate);

@@ -310,9 +310,9 @@ const approveTransfer = async (req, res, next) => {
         const targetExpiryDate = sourceBatch.expiryDate || transfer.batch?.expiryDate || null;
         const targetSupplierId = sourceBatch.supplierId || transfer.batch?.supplierId || null;
 
-        // Find or create matching batch in target location
+        // Find or create matching batch in target location (including expiry date match)
         let targetBatch = await tx.itemBatch.findFirst({
-          where: { itemId, batchNo: targetBatchNo, location: toLocation }
+          where: { itemId, batchNo: targetBatchNo, location: toLocation, expiryDate: targetExpiryDate }
         });
 
         if (targetBatch) {
@@ -447,6 +447,16 @@ const rejectTransfer = async (req, res, next) => {
 const cancelTransfer = async (req, res, next) => {
   try {
     const transferId = req.params.id;
+
+    const existing = await prisma.stockTransfer.findUnique({ where: { id: transferId } });
+    if (!existing) return res.status(404).json({ error: 'Transfer request not found.' });
+
+    const isRequester = existing.requestedById === req.user.id;
+    const isElevated = ['TOP_ADMIN', 'INVENTORY_MANAGER'].includes(req.user.role);
+
+    if (!isRequester && !isElevated) {
+      return res.status(403).json({ error: 'You do not have permission to cancel this transfer request.' });
+    }
 
     const updatedResult = await prisma.stockTransfer.updateMany({
       where: { id: transferId, status: 'PENDING' },

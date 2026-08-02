@@ -190,6 +190,11 @@ const importCsv = async (req, res, next) => {
                   if (isNaN(parsedExpiry.getTime())) {
                     throw new Error(`Row ${lineNum}: Invalid expiry date format.`);
                   }
+                  const today = new Date();
+                  today.setHours(0, 0, 0, 0);
+                  if (parsedExpiry < today) {
+                    throw new Error(`Row ${lineNum}: Medication batch cannot be registered with a past expiry date.`);
+                  }
                   importExpiryDate = parsedExpiry;
                 }
                 

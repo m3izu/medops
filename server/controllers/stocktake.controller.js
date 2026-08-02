@@ -159,6 +159,13 @@ const complete = async (req, res, next) => {
         include: { item: { include: { category: true } } }
       });
 
+      const uncounted = lines.filter(l => l.physicalQty === null);
+      if (uncounted.length > 0) {
+        const err = new Error(`Cannot complete stocktake: ${uncounted.length} item(s) have not been counted yet.`);
+        err.uncountedItems = uncounted.map(u => ({ id: u.id, itemName: u.item.name, location: u.location }));
+        throw err;
+      }
+
       for (const line of lines) {
         if (line.physicalQty !== null && line.discrepancy !== 0) {
           const loc = line.location || 'CENTRAL';

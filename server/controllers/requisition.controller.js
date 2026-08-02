@@ -3,11 +3,7 @@ const { checkAndFireAlerts } = require('./stock.controller');
 
 const list = async (req, res, next) => {
   try {
-    const { role, id: userId } = req.user;
     const where = {};
-
-    // Nurses only see their own forms
-    if (role === 'NURSE') where.submittedById = userId;
 
     const requisitions = await prisma.requisition.findMany({
       where,
@@ -251,12 +247,6 @@ const getOne = async (req, res, next) => {
     });
     if (!req_) return res.status(404).json({ error: 'Requisition not found' });
 
-    // Enforcement: Nurses can only view their own requisitions
-    const { role, id: userId } = req.user;
-    if (role === 'NURSE' && req_.submittedById !== userId) {
-      return res.status(403).json({ error: 'You do not have permission to view this requisition.' });
-    }
-
     // Map `transactions` to `transactionLogs` and map `batchNo` to `batchNumber` for frontend compatibility
     const responseData = {
       ...req_,
@@ -333,8 +323,11 @@ const editLine = async (req, res, next) => {
   try {
     const { itemId, qtyRequested, location, reason } = req.body;
     
-    if (qtyRequested !== undefined && (typeof qtyRequested !== 'number' || qtyRequested <= 0 || !Number.isInteger(qtyRequested))) {
-      return res.status(400).json({ error: 'Requested quantity must be a positive whole number' });
+    if (qtyRequested !== undefined) {
+      const numQty = Number(qtyRequested);
+      if (isNaN(numQty) || numQty < 0 || !Number.isInteger(numQty)) {
+        return res.status(400).json({ error: 'Requested quantity must be a non-negative whole number' });
+      }
     }
 
     if (location && location !== 'CENTRAL') {
@@ -344,6 +337,13 @@ const editLine = async (req, res, next) => {
     const line = await prisma.requisitionLine.findUnique({ where: { id: req.params.lineId } });
     if (!line) return res.status(404).json({ error: 'Line item not found' });
     if (line.status !== 'PENDING') return res.status(400).json({ error: 'Only pending line items can be edited' });
+
+    // Auto-delete pending item if requested quantity is edited to 0
+    if (qtyRequested === 0 || Number(qtyRequested) === 0) {
+      await prisma.requisitionLine.delete({ where: { id: line.id } });
+      await updateRequisitionStatus(line.requisitionId);
+      return res.json({ message: 'Pending item removed as quantity was set to 0', deleted: true, lineId: line.id });
+    }
 
     if (itemId) {
       const newItem = await prisma.item.findUnique({ where: { id: itemId } });
@@ -355,7 +355,7 @@ const editLine = async (req, res, next) => {
       where: { id: line.id },
       data: {
         ...(itemId ? { itemId } : {}),
-        ...(qtyRequested ? { qtyRequested } : {}),
+        ...(qtyRequested !== undefined ? { qtyRequested: Number(qtyRequested) } : {}),
         ...(location ? { location } : {}),
         ...(reason !== undefined ? { reason: reason.trim() } : {}),
       },
@@ -613,12 +613,24 @@ const resubmitLine = async (req, res, next) => {
       include: { requisition: true }
     });
     if (!originalLine) return res.status(404).json({ error: 'Original line not found' });
+    if (originalLine.requisition?.status === 'CANCELLED') {
+      return res.status(400).json({ error: 'Cannot resubmit line items on a cancelled requisition' });
+    }
     if (originalLine.status !== 'REJECTED') return res.status(400).json({ error: 'Only rejected lines can be resubmitted' });
 
     // Auth check: Only the original submitter or top admin can resubmit
     const { role, id: userId } = req.user;
     if (role !== 'TOP_ADMIN' && originalLine.requisition?.submittedById !== userId) {
       return res.status(403).json({ error: 'You are not authorized to resubmit this line item' });
+    }
+
+    const targetItemId = itemId || originalLine.itemId;
+    const targetItem = await prisma.item.findUnique({ where: { id: targetItemId } });
+    if (!targetItem) {
+      return res.status(404).json({ error: 'Selected item not found' });
+    }
+    if (targetItem.isArchived) {
+      return res.status(400).json({ error: `Cannot resubmit request for archived item "${targetItem.name}".` });
     }
 
     const newLine = await prisma.requisitionLine.create({
@@ -748,4 +760,197 @@ const batchUpdateSessionDate = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-module.exports = { list, create, createBatch, getOne, cancel, editLine, approveLine, rejectLine, resubmitLine, coVerifyLine, updateSessionDate, batchUpdateSessionDate };
+const batchApproveSession = async (req, res, next) => {
+  try {
+    const { sessionDate, requisitionIds } = req.body;
+
+    let where = {};
+    if (Array.isArray(requisitionIds) && requisitionIds.length > 0) {
+      where = { id: { in: requisitionIds } };
+    } else if (sessionDate) {
+      const parsed = new Date(sessionDate);
+      if (isNaN(parsed.getTime())) {
+        return res.status(400).json({ error: 'Valid sessionDate is required.' });
+      }
+      const startOfDay = new Date(parsed);
+      startOfDay.setUTCHours(0, 0, 0, 0);
+      const endOfDay = new Date(parsed);
+      endOfDay.setUTCHours(23, 59, 59, 999);
+      where = { sessionDate: { gte: startOfDay, lte: endOfDay } };
+    } else {
+      return res.status(400).json({ error: 'Provide requisitionIds or sessionDate.' });
+    }
+
+    // Find target requisitions with pending lines
+    const requisitions = await prisma.requisition.findMany({
+      where,
+      include: {
+        lines: {
+          where: { status: 'PENDING' },
+        },
+      },
+    });
+
+    const pendingLineIds = [];
+    requisitions.forEach(r => {
+      r.lines.forEach(l => {
+        pendingLineIds.push(l.id);
+      });
+    });
+
+    if (pendingLineIds.length === 0) {
+      return res.json({ message: 'No pending requisition line items found for this session date.', approvedCount: 0, failedCount: 0, errors: [] });
+    }
+
+    let approvedCount = 0;
+    let failedCount = 0;
+    const errors = [];
+    const processedItemIds = new Set();
+
+    // Process approval line-by-line using individual transactions to guarantee audit integrity and FIFO lot deductions
+    for (const lineId of pendingLineIds) {
+      try {
+        let itemIdToAlert = null;
+        await prisma.$transaction(async (tx) => {
+          const lineDb = await tx.requisitionLine.findUnique({ where: { id: lineId } });
+          if (!lineDb || lineDb.status !== 'PENDING') return;
+
+          const requisitionDb = await tx.requisition.findUnique({
+            where: { id: lineDb.requisitionId },
+            include: { patient: true }
+          });
+          if (!requisitionDb || requisitionDb.patient.status !== 'ACTIVE') {
+            throw new Error(`Patient ${requisitionDb?.patient?.name || 'record'} is inactive`);
+          }
+
+          const approvedQty = lineDb.qtyRequested;
+          const targetLocation = lineDb.location || 'CENTRAL';
+          const item = await tx.item.findUnique({
+            where: { id: lineDb.itemId },
+            include: {
+              stockLevels: true,
+              category: true,
+              batches: {
+                where: {
+                  location: targetLocation,
+                  quantityRemaining: { gt: 0 },
+                  OR: [
+                    { expiryDate: { gte: new Date() } },
+                    { expiryDate: null }
+                  ]
+                },
+                orderBy: { expiryDate: 'asc' }
+              }
+            }
+          });
+
+          if (!item) throw new Error('Item not found');
+          if (item.isArchived) throw new Error(`Item "${item.name}" is archived`);
+
+          itemIdToAlert = item.id;
+
+          const reqStockLevel = item.stockLevels.find(s => s.location === targetLocation);
+          const currentTotalStock = reqStockLevel ? reqStockLevel.quantityOnHand : 0;
+          if (currentTotalStock < approvedQty) {
+            throw new Error(`Insufficient stock for "${item.name}". Required: ${approvedQty}, Available in ${targetLocation}: ${currentTotalStock}`);
+          }
+
+          const isBatchControlled = item.itemType === 'MEDICATION' || (item.category?.hasBatchControl ?? false);
+          let remainingToFulfill = approvedQty;
+          const allocatedBatches = [];
+
+          if (isBatchControlled) {
+            for (const batch of item.batches) {
+              if (remainingToFulfill <= 0) break;
+              const take = Math.min(batch.quantityRemaining, remainingToFulfill);
+              allocatedBatches.push({ batch, take });
+              remainingToFulfill -= take;
+            }
+
+            if (remainingToFulfill > 0) {
+              throw new Error(`Insufficient batch stock for "${item.name}". Required: ${approvedQty}, available in valid batches: ${approvedQty - remainingToFulfill}`);
+            }
+
+            for (const alloc of allocatedBatches) {
+              const updatedBatch = await tx.itemBatch.updateMany({
+                where: { id: alloc.batch.id, quantityRemaining: { gte: alloc.take } },
+                data: { quantityRemaining: { decrement: alloc.take } }
+              });
+              if (updatedBatch.count === 0) {
+                throw new Error(`Concurrent modification detected: Insufficient batch quantity for "${item.name}".`);
+              }
+
+              await tx.transactionLog.create({
+                data: {
+                  itemId: item.id,
+                  batchId: alloc.batch.id,
+                  type: 'OUTBOUND',
+                  qty: alloc.take,
+                  userId: req.user.id,
+                  requisitionLineId: lineDb.id,
+                  location: targetLocation,
+                  notes: `Bulk Requisition session approval for ${requisitionDb.patient.name}`,
+                }
+              });
+            }
+          } else {
+            // Non-batch outbound logging
+            await tx.transactionLog.create({
+              data: {
+                itemId: item.id,
+                type: 'OUTBOUND',
+                qty: approvedQty,
+                userId: req.user.id,
+                requisitionLineId: lineDb.id,
+                location: targetLocation,
+                notes: `Bulk Requisition session approval for ${requisitionDb.patient.name}`,
+              }
+            });
+          }
+
+          const updatedStock = await tx.stockLevel.updateMany({
+            where: { itemId: item.id, location: targetLocation, quantityOnHand: { gte: approvedQty } },
+            data: { quantityOnHand: { decrement: approvedQty }, lastUpdated: new Date() }
+          });
+          if (updatedStock.count === 0) {
+            throw new Error(`Concurrent modification detected: Insufficient stock level for "${item.name}".`);
+          }
+
+          await tx.requisitionLine.update({
+            where: { id: lineDb.id },
+            data: {
+              status: 'APPROVED',
+              qtyApproved: approvedQty,
+              reviewedById: req.user.id,
+            }
+          });
+
+          await updateRequisitionStatus(lineDb.requisitionId, tx);
+        });
+
+        if (itemIdToAlert) {
+          processedItemIds.add(itemIdToAlert);
+        }
+        approvedCount++;
+      } catch (err) {
+        failedCount++;
+        errors.push(err.message || 'Error approving line');
+      }
+    }
+
+    // Trigger stock alert checks asynchronously for all affected items
+    for (const idToAlert of processedItemIds) {
+      checkAndFireAlerts(idToAlert).catch(e => console.error('Alert check error:', e));
+    }
+
+    res.json({
+      message: `Batch approval completed. Approved: ${approvedCount}, Failed: ${failedCount}`,
+      approvedCount,
+      failedCount,
+      errors,
+    });
+  } catch (err) { next(err); }
+};
+
+module.exports = { list, create, createBatch, getOne, cancel, editLine, approveLine, rejectLine, resubmitLine, coVerifyLine, updateSessionDate, batchUpdateSessionDate, batchApproveSession };
+

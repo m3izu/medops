@@ -85,12 +85,25 @@ const create = async (req, res, next) => {
       return res.status(400).json({ error: `SKU "${sku}" is already in use.` });
     }
 
+    const cleanCategoryId = categoryId ? (String(categoryId).trim() || null) : null;
+    const cleanSupplierId = supplierId ? (String(supplierId).trim() || null) : null;
+    const cleanSerialNumber = serialNumber ? (String(serialNumber).trim() || null) : null;
+
+    if (cleanCategoryId) {
+      const cat = await prisma.category.findUnique({ where: { id: cleanCategoryId } });
+      if (!cat) return res.status(400).json({ error: 'Selected category does not exist' });
+    }
+    if (cleanSupplierId) {
+      const sup = await prisma.supplier.findUnique({ where: { id: cleanSupplierId } });
+      if (!sup) return res.status(400).json({ error: 'Selected supplier does not exist' });
+    }
+
     const item = await prisma.item.create({
       data: {
-        name, sku: sku.trim(), categoryId, itemType, unit,
+        name: name.trim(), sku: sku.trim(), categoryId: cleanCategoryId, itemType, unit,
         warningLevel: warningLevel ?? 10,
         criticalLevel: criticalLevel ?? 5,
-        supplierId, serialNumber, condition,
+        supplierId: cleanSupplierId, serialNumber: cleanSerialNumber, condition: condition || 'GOOD',
         dispenseMode: dispenseMode ?? 'FLEXIBLE',
         acquisitionDate: acquisitionDate ? new Date(acquisitionDate) : null,
         createdById: req.user.id,
@@ -173,11 +186,32 @@ const update = async (req, res, next) => {
       }
     }
 
+    const cleanCategoryId = categoryId !== undefined ? (categoryId ? (String(categoryId).trim() || null) : null) : undefined;
+    const cleanSupplierId = supplierId !== undefined ? (supplierId ? (String(supplierId).trim() || null) : null) : undefined;
+    const cleanSerialNumber = serialNumber !== undefined ? (serialNumber ? (String(serialNumber).trim() || null) : null) : undefined;
+
+    if (cleanCategoryId) {
+      const cat = await prisma.category.findUnique({ where: { id: cleanCategoryId } });
+      if (!cat) return res.status(400).json({ error: 'Selected category does not exist' });
+    }
+    if (cleanSupplierId) {
+      const sup = await prisma.supplier.findUnique({ where: { id: cleanSupplierId } });
+      if (!sup) return res.status(400).json({ error: 'Selected supplier does not exist' });
+    }
+
     const item = await prisma.item.update({
       where: { id: req.params.id },
       data: {
-        name, categoryId, unit, warningLevel, criticalLevel, supplierId,
-        serialNumber, acquisitionDate: parsedAcquisitionDate, condition, dispenseMode
+        ...(name !== undefined ? { name: name.trim() } : {}),
+        ...(cleanCategoryId !== undefined ? { categoryId: cleanCategoryId } : {}),
+        ...(unit !== undefined ? { unit: unit.trim() } : {}),
+        ...(warningLevel !== undefined ? { warningLevel } : {}),
+        ...(criticalLevel !== undefined ? { criticalLevel } : {}),
+        ...(cleanSupplierId !== undefined ? { supplierId: cleanSupplierId } : {}),
+        ...(cleanSerialNumber !== undefined ? { serialNumber: cleanSerialNumber } : {}),
+        ...(parsedAcquisitionDate !== undefined ? { acquisitionDate: parsedAcquisitionDate } : {}),
+        ...(condition !== undefined ? { condition } : {}),
+        ...(dispenseMode !== undefined ? { dispenseMode } : {}),
       },
       include: { stockLevels: true },
     });
