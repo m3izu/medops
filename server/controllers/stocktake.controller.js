@@ -159,14 +159,10 @@ const complete = async (req, res, next) => {
         include: { item: { include: { category: true } } }
       });
 
-      const uncounted = lines.filter(l => l.physicalQty === null);
-      if (uncounted.length > 0) {
-        const err = new Error(`Cannot complete stocktake: ${uncounted.length} item(s) have not been counted yet.`);
-        err.uncountedItems = uncounted.map(u => ({ id: u.id, itemName: u.item.name, location: u.location }));
-        throw err;
-      }
+      // Only process lines that have been physically counted
+      const countedLines = lines.filter(l => l.physicalQty !== null);
 
-      for (const line of lines) {
+      for (const line of countedLines) {
         if (line.physicalQty !== null && line.discrepancy !== 0) {
           const loc = line.location || 'CENTRAL';
           // Update StockLevel for location
@@ -244,9 +240,6 @@ const complete = async (req, res, next) => {
 
     res.json({ message: 'Stocktake completed and adjustments applied' });
   } catch (err) {
-    if (err.uncountedItems) {
-      return res.status(400).json({ error: err.message, uncountedItems: err.uncountedItems });
-    }
     if (err.message === 'Stocktake is not in progress or has already been processed.') {
       return res.status(400).json({ error: err.message });
     }
